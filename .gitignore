@@ -28,3 +28,6 @@ core/profiles/
 
 core/direct_list.txt
 core/proxy_list.txt
+
+build/
+dist/

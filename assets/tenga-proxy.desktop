@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Tenga Proxy
+GenericName=Proxy Client
+Comment=Secure proxy client with sing-box backend
+Exec=tenga-proxy
+Icon=tenga-proxy
+Terminal=false
+Type=Application
+Categories=Network;Security;
+Keywords=proxy;vpn;singbox;network;
+StartupNotify=true
+StartupWMClass=tenga-proxy
+
