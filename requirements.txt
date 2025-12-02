@@ -1,0 +1,10 @@
+certifi==2025.11.12
+charset-normalizer==3.4.4
+idna==3.11
+pycairo==1.29.0
+PyGObject==3.54.5
+PyYAML==6.0.3
+requests==2.32.5
+setuptools==80.9.0
+urllib3==2.5.0
+wheel==0.45.1
