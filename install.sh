@@ -115,6 +115,10 @@ install_system_deps() {
         MISSING_DEPS+=("tar")
     fi
 
+    if ! dpkg -l | grep -q "^ii.*libfuse2" && ! dpkg -l | grep -q "^ii.*libfuse2t64"; then
+        MISSING_DEPS+=("libfuse2t64")
+    fi
+
     # GUI
     if ! dpkg -l | grep -q "^ii.*python3-gi "; then
         MISSING_DEPS+=("python3-gi")
