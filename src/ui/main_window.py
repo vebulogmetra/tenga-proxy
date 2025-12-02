@@ -181,17 +181,17 @@ class MainWindow(Gtk.Window):
         profile_button_box.set_halign(Gtk.Align.START)
         main_box.pack_start(profile_button_box, False, False, 0)
         
-        add_button = Gtk.Button(label="[+] Добавить")
+        add_button = Gtk.Button(label="➕ Добавить")
         add_button.set_tooltip_text("Добавить профиль по share link")
         add_button.connect("clicked", self._on_add_clicked)
         profile_button_box.pack_start(add_button, False, False, 0)
 
-        edit_button = Gtk.Button(label="[Edit] Редактировать")
+        edit_button = Gtk.Button(label="✏️ Редактировать")
         edit_button.set_tooltip_text("Редактировать выбранный профиль")
         edit_button.connect("clicked", self._on_edit_profile_clicked)
         profile_button_box.pack_start(edit_button, False, False, 0)
 
-        delete_button = Gtk.Button(label="[Del] Удалить")
+        delete_button = Gtk.Button(label="🗑️ Удалить")
         delete_button.set_tooltip_text("Удалить выбранный профиль")
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
@@ -212,7 +212,7 @@ class MainWindow(Gtk.Window):
         refresh_button.connect("clicked", self._on_refresh_clicked)
         button_box.pack_start(refresh_button, False, False, 0)
         
-        settings_button = Gtk.Button(label="[Settings] Настройки")
+        settings_button = Gtk.Button(label="⚙️ Настройки")
         settings_button.set_tooltip_text("Настройки приложения")
         settings_button.connect("clicked", self._on_settings_clicked)
         button_box.pack_start(settings_button, False, False, 0)
@@ -397,11 +397,31 @@ class MainWindow(Gtk.Window):
         
         # Show testing status
         self._delay_label.set_text("...")
+        
         # Run test in background
         def do_test():
             try:
                 manager = self._context.singbox_manager
-                delay = manager.test_delay("proxy")
+                
+                # Get actual proxy name from proxies list
+                proxies_data = manager.get_proxies()
+                proxies = proxies_data.get("proxies", {})
+                
+                # Find first non-system proxy (not direct, dns, block)
+                proxy_name = None
+                system_types = {"direct", "dns", "block", "selector", "urltest", "fallback"}
+                
+                for name, info in proxies.items():
+                    proxy_type = info.get("type", "").lower()
+                    if proxy_type not in system_types and name not in ("direct", "DIRECT"):
+                        proxy_name = name
+                        break
+                
+                if not proxy_name:
+                    # Fallback to "proxy" tag
+                    proxy_name = "proxy"
+                
+                delay = manager.test_delay(proxy_name)
                 GLib.idle_add(self._show_delay_result, delay)
             except Exception as e:
                 GLib.idle_add(self._show_delay_result, -1)
@@ -593,7 +613,7 @@ class MainWindow(Gtk.Window):
         for profile in profiles:
             name = profile.name
             if profile.id == current_id:
-                name = f"[*] {name}"
+                name = f"✓ {name}"
             
             self._profile_store.append([
                 profile.id,
