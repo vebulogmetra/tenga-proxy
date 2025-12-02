@@ -1,9 +1,14 @@
 #!/bin/bash
+#
+# Development environment setup script
+# Installs dependencies for development
+#
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -119,7 +124,6 @@ install_system_deps() {
         MISSING_DEPS+=("libfuse2t64")
     fi
 
-    # GUI
     if ! dpkg -l | grep -q "^ii.*python3-gi "; then
         MISSING_DEPS+=("python3-gi")
     fi
@@ -163,18 +167,17 @@ install_system_deps() {
     success "Системные зависимости установлены"
 }
 
-# Python deps
 install_python_deps() {
     info "Проверка Python зависимостей..."
     
-    if [ ! -f "requirements.txt" ]; then
+    if [ ! -f "$PROJECT_ROOT/requirements.txt" ]; then
         error "Файл requirements.txt не найден!"
         exit 1
     fi
 
-    if [ ! -d ".venv" ]; then
+    if [ ! -d "$PROJECT_ROOT/.venv" ]; then
         info "Создание виртуального окружения Python..."
-        if ! python3 -m venv .venv; then
+        if ! python3 -m venv "$PROJECT_ROOT/.venv"; then
             error "Не удалось создать виртуальное окружение"
             error "Установите python3-venv: sudo apt install python3-venv"
             exit 1
@@ -184,16 +187,15 @@ install_python_deps() {
 
     info "Активация виртуального окружения и установка зависимостей..."
 
-    source .venv/bin/activate
+    source "$PROJECT_ROOT/.venv/bin/activate"
     pip install -U pip setuptools wheel
-    pip install -r requirements.txt
+    pip install -r "$PROJECT_ROOT/requirements.txt"
     
     success "Python зависимости установлены"
 }
 
-# sing-box
 check_singbox() {
-    local bin_path="$SCRIPT_DIR/core/bin/sing-box"
+    local bin_path="$PROJECT_ROOT/core/bin/sing-box"
     if [ -f "$bin_path" ] && [ -x "$bin_path" ]; then
         if "$bin_path" version &>/dev/null 2>&1; then
             return 0
@@ -245,15 +247,15 @@ download_singbox() {
     
     info "Скачивание: $DOWNLOAD_URL"
     
-    mkdir -p "$SCRIPT_DIR/core/bin"
-    cd "$SCRIPT_DIR/core/bin"
+    mkdir -p "$PROJECT_ROOT/core/bin"
+    cd "$PROJECT_ROOT/core/bin"
     
     if [ -f "sing-box" ]; then
         warning "Найдена нерабочая версия sing-box"
         read -p "Перезаписать? (y/n): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-            cd "$SCRIPT_DIR"
+            cd "$PROJECT_ROOT"
             return 0
         fi
         rm -f sing-box
@@ -261,14 +263,14 @@ download_singbox() {
     
     if ! curl -L -o sing-box.tar.gz "$DOWNLOAD_URL"; then
         error "Ошибка при скачивании sing-box"
-        cd "$SCRIPT_DIR"
+        cd "$PROJECT_ROOT"
         return 1
     fi
     
     if ! tar -xzf sing-box.tar.gz; then
         error "Ошибка при распаковке архива"
         rm -f sing-box.tar.gz
-        cd "$SCRIPT_DIR"
+        cd "$PROJECT_ROOT"
         return 1
     fi
 
@@ -280,7 +282,7 @@ download_singbox() {
     fi
 
     chmod +x sing-box
-    cd "$SCRIPT_DIR"
+    cd "$PROJECT_ROOT"
 
     success "sing-box установлен в core/bin"
 }
@@ -324,7 +326,7 @@ install_singbox() {
 
 main() {
     echo "=========================================="
-    echo "        Tenga Proxy - Установщик          "
+    echo "   Tenga Proxy - Dev Environment Setup   "
     echo "=========================================="
     echo
     
@@ -351,4 +353,4 @@ main() {
     echo
 }
 
-main
+main "$@"

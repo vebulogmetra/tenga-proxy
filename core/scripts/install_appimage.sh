@@ -1,12 +1,14 @@
 #!/bin/bash
 #
 # Install Tenga Proxy AppImage to system
-# Creates desktop entry, icon, and optionally adds to PATH
+# Creates desktop entry, icon
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 APP_NAME="tenga-proxy"
 APP_VERSION="1.0.0"
 
@@ -21,20 +23,19 @@ success() { echo -e "${GREEN}[OK]${NC} $1"; }
 warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-# Find AppImage
 find_appimage() {
     local appimage=""
 
-    if [ -f "$SCRIPT_DIR/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
-        appimage="$SCRIPT_DIR/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
-    elif [ -f "$SCRIPT_DIR/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
-        appimage="$SCRIPT_DIR/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    if [ -f "$PROJECT_ROOT/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
+        appimage="$PROJECT_ROOT/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    elif [ -f "$PROJECT_ROOT/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
+        appimage="$PROJECT_ROOT/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
     else
-        appimage=$(find "$SCRIPT_DIR" -maxdepth 2 -name "${APP_NAME}*.AppImage" -type f | head -1)
+        appimage=$(find "$PROJECT_ROOT" -maxdepth 2 -name "${APP_NAME}*.AppImage" -type f | head -1)
     fi
     
     if [ -z "$appimage" ] || [ ! -f "$appimage" ]; then
-        error "AppImage не найден. Сначала запустите ./build_appimage.sh"
+        error "AppImage не найден. Сначала запустите core/scripts/build_appimage.sh"
     fi
     
     echo "$appimage"
@@ -58,15 +59,15 @@ install_appimage() {
     cp "$appimage" "$installed_path"
     chmod +x "$installed_path"
 
-    if [ -f "$SCRIPT_DIR/assets/tenga-proxy.svg" ]; then
+    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
         info "Установка иконки..."
-        cp "$SCRIPT_DIR/assets/tenga-proxy.svg" "$icons_dir/scalable/apps/"
+        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$icons_dir/scalable/apps/"
 
         if command -v rsvg-convert &>/dev/null; then
-            rsvg-convert -w 256 -h 256 "$SCRIPT_DIR/assets/tenga-proxy.svg" \
+            rsvg-convert -w 256 -h 256 "$PROJECT_ROOT/assets/tenga-proxy.svg" \
                 -o "$icons_dir/256x256/apps/tenga-proxy.png"
         elif command -v convert &>/dev/null; then
-            convert -background none "$SCRIPT_DIR/assets/tenga-proxy.svg" \
+            convert -background none "$PROJECT_ROOT/assets/tenga-proxy.svg" \
                 -resize 256x256 "$icons_dir/256x256/apps/tenga-proxy.png"
         fi
     fi
@@ -115,7 +116,7 @@ EOF
     echo "=========================================="
     echo
     echo "Для удаления запустите:"
-    echo "  ./install_appimage.sh uninstall"
+    echo "  core/scripts/install_appimage.sh uninstall"
     echo
 }
 
@@ -153,4 +154,3 @@ case "${1:-install}" in
         exit 1
         ;;
 esac
-
