@@ -5,9 +5,15 @@ from typing import TYPE_CHECKING, Callable, Optional
 import gi
 
 gi.require_version('Gtk', '3.0')
-gi.require_version('AppIndicator3', '0.1')
 
-from gi.repository import Gtk, AppIndicator3, GLib
+try:
+    gi.require_version('AppIndicator3', '0.1')
+    from gi.repository import AppIndicator3
+except ValueError:
+    gi.require_version('AyatanaAppIndicator3', '0.1')
+    from gi.repository import AyatanaAppIndicator3 as AppIndicator3
+
+from gi.repository import Gtk, GLib
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
@@ -82,7 +88,7 @@ class TrayIcon:
         
         self._update_profiles_menu()
         # Add profile
-        add_profile_item = Gtk.MenuItem(label="[+] Добавить профиль...")
+        add_profile_item = Gtk.MenuItem(label="➕ Добавить профиль...")
         add_profile_item.connect("activate", self._on_add_profile_clicked)
         self._menu.append(add_profile_item)
         
@@ -92,7 +98,7 @@ class TrayIcon:
         show_item.connect("activate", self._on_show_clicked)
         self._menu.append(show_item)
         # Settings
-        settings_item = Gtk.MenuItem(label="[Settings] Настройки...")
+        settings_item = Gtk.MenuItem(label="⚙️ Настройки...")
         settings_item.connect("activate", self._on_settings_clicked)
         self._menu.append(settings_item)
         
@@ -125,7 +131,7 @@ class TrayIcon:
             for profile in profiles:
                 label = profile.name
                 if profile.id == current_id:
-                    label = f"[*] {label}"
+                    label = f"✓ {label}"
                 
                 item = Gtk.MenuItem(label=label)
                 item.connect("activate", self._on_profile_clicked, profile.id)
@@ -227,11 +233,12 @@ class TrayIcon:
         """Show notification."""
         try:
             gi.require_version('Notify', '0.7')
+            from gi.repository import Notify
             
-            if not gi.Repository.Notify.is_initted():
-                gi.Repository.Notify.init("Tenga")
+            if not Notify.is_initted():
+                Notify.init("Tenga")
             
-            notification = gi.Repository.Notify.Notification.new(title, message, self.ICON_CONNECTED)
+            notification = Notify.Notification.new(title, message, self.ICON_CONNECTED)
             notification.show()
         except Exception as e:
             print(f"Failed to show notification: {e}")
