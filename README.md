@@ -66,6 +66,7 @@ tenga-proxy/
 ```bash
 sudo apt install python3-pip python3-venv curl
 sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-notify-0.7
+sudo apt install libfuse2t64
 ```
 
 #### Python зависимости
@@ -89,6 +90,36 @@ chmod +x core/bin/sing-box
 **Вариант 2: Установить системно**
 ```bash
 # См. официальную документацию: https://sing-box.sagernet.org
+```
+
+## Сборка AppImage
+
+Для создания портативного AppImage файла:
+
+### Требования для сборки
+
+- Системные зависимости (устанавливаются через `./install.sh`)
+
+### Сборка
+
+```bash
+./build_appimage.sh
+```
+
+Результат будет в `dist/tenga-proxy-x.x.x-x86_64.AppImage`.
+
+### Установка AppImage в систему
+
+```bash
+./install_appimage.sh
+```
+
+После установки "Tenga Proxy" будет доступен в меню приложений
+
+### Удаление AppImage
+
+```bash
+./install_appimage.sh uninstall
 ```
 
 ## Использование
@@ -141,6 +172,15 @@ python gui.py
 - Управление профилями (добавление, удаление, выбор)
 - Уведомления о статусе подключения
 - Настройки DNS, Маршрутизации
+- Статистика подключений и задержки
+
+![Основное окно приложения](assets/main-screen.png)
+
+*Основное окно с развёрнутой вкладкой "Статистика"*
+
+![Меню системного трея](assets/tray.png)
+
+*Контекстное меню в системном трее*
 
 ## Конфигурация
 
@@ -171,8 +211,10 @@ curl -x http://127.0.0.1:2080 https://ifconfig.me
 
 ### Системные (для GUI)
 
-- `gir1.2-appindicator3-0.1` — индикатор в трее
+- `python3-gi` — Python bindings для GTK
+- `gir1.2-appindicator3-0.1` или `gir1.2-ayatanaappindicator3-0.1` — индикатор в трее
 - `gir1.2-notify-0.7` — уведомления
+- `libfuse2t64` или `libfuse2` — для запуска AppImage
 
 ### Движок
 
