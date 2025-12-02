@@ -3,11 +3,32 @@ import argparse
 import sys
 import os
 from pathlib import Path
+import logging
 
-from src.ui.app import run_app
 
+def setup_early_logging():
+    log_dir = os.environ.get('TENGA_CONFIG_DIR')
+    if not log_dir:
+        xdg = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
+        log_dir = os.path.join(xdg, 'tenga-proxy')
+    
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, 'startup.log')
+    
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(message)s'
+    )
+    return logging.getLogger('startup')
 
-# for AppIndicator3
+logger = setup_early_logging()
+logger.info("=== Tenga Proxy starting ===")
+logger.info(f"Python: {sys.version}")
+logger.info(f"DISPLAY: {os.environ.get('DISPLAY')}")
+logger.info(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY')}")
+logger.info(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE')}")
+
 if 'GI_TYPELIB_PATH' not in os.environ:
     typelib_paths = [
         '/usr/lib/girepository-1.0',
@@ -16,6 +37,37 @@ if 'GI_TYPELIB_PATH' not in os.environ:
     existing_paths = [p for p in typelib_paths if os.path.exists(p)]
     if existing_paths:
         os.environ['GI_TYPELIB_PATH'] = ':'.join(existing_paths)
+
+try:
+    # Initialize GTK before importing any GTK modules
+    import gi
+    gi.require_version('Gtk', '3.0')
+    from gi.repository import Gtk, Gdk
+    logger.info("GTK imported successfully")
+
+    if not Gtk.init_check()[0]:
+        logger.error("Gtk.init_check() failed")
+        display = Gdk.Display.get_default()
+        logger.error(f"Display: {display}")
+        print("Не удалось подключиться к дисплею.")
+        print("Убедитесь, что запускаете приложение в графическом окружении.")
+        sys.exit(1)
+    
+    display = Gdk.Display.get_default()
+    logger.info(f"Display: {display.get_name() if display else 'None'}")
+    
+except Exception as e:
+    logger.exception(f"Error initializing GTK: {e}")
+    raise
+
+from src.core.config import init_config_files, find_singbox_binary, BUNDLE_DIR, CORE_DIR
+from src.ui.app import run_app
+
+logger.info(f"BUNDLE_DIR: {BUNDLE_DIR}")
+logger.info(f"CORE_DIR: {CORE_DIR}")
+logger.info(f"sing-box path: {find_singbox_binary()}")
+
+init_config_files()
 
 
 def main() -> int:   
