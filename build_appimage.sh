@@ -1,0 +1,190 @@
+#!/bin/bash
+#
+# Build script for Tenga Proxy AppImage
+# Tested on Ubuntu 24.04
+#
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+APP_NAME="tenga-proxy"
+APP_VERSION="1.0.0"
+BUILD_DIR="$SCRIPT_DIR/build"
+APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[OK]${NC} $1"; }
+warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
+
+check_deps() {
+    info "Проверка зависимостей..."
+    
+    if [ ! -f "core/bin/sing-box" ]; then
+        error "sing-box не найден в core/bin/"
+    fi
+    
+    if ! command -v wget &>/dev/null && ! command -v curl &>/dev/null; then
+        error "Требуется wget или curl"
+    fi
+    
+    success "Зависимости готовы"
+}
+
+get_appimagetool() {
+    local tool_path="$BUILD_DIR/appimagetool-x86_64.AppImage"
+    
+    if [ -f "$tool_path" ] && [ -x "$tool_path" ]; then
+        return 0
+    fi
+    
+    info "Загрузка appimagetool..."
+    mkdir -p "$BUILD_DIR"
+    
+    local url="https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage"
+    
+    if command -v wget &>/dev/null; then
+        wget -q --show-progress -O "$tool_path" "$url"
+    else
+        curl -L -o "$tool_path" "$url"
+    fi
+    
+    chmod +x "$tool_path"
+    success "appimagetool загружен"
+}
+
+create_appdir() {
+    info "Создание структуры AppDir..."
+    
+    rm -rf "$APPDIR"
+    mkdir -p "$APPDIR/usr/bin"
+    mkdir -p "$APPDIR/usr/share/tenga-proxy"
+    mkdir -p "$APPDIR/usr/share/applications"
+    mkdir -p "$APPDIR/usr/share/icons/hicolor/scalable/apps"
+    mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
+    
+    # Copy Python source
+    cp -r src "$APPDIR/usr/share/tenga-proxy/"
+    cp gui.py "$APPDIR/usr/share/tenga-proxy/"
+    cp cli.py "$APPDIR/usr/share/tenga-proxy/"
+    
+    # Copy core files
+    mkdir -p "$APPDIR/usr/share/tenga-proxy/core/bin"
+    cp core/bin/sing-box "$APPDIR/usr/share/tenga-proxy/core/bin/"
+    chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/sing-box"
+    
+    # Copy default config files
+    cp core/proxy_list.txt "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
+    cp core/direct_list.txt "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
+    
+    # Copy assets
+    cp -r assets "$APPDIR/usr/share/tenga-proxy/" 2>/dev/null || true
+    
+    # Desktop and icons
+    cp assets/tenga-proxy.desktop "$APPDIR/usr/share/applications/"
+    cp assets/tenga-proxy.desktop "$APPDIR/"
+    cp assets/tenga-proxy.svg "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+    cp assets/tenga-proxy.svg "$APPDIR/tenga-proxy.svg"
+    
+    if command -v rsvg-convert &>/dev/null; then
+        rsvg-convert -w 256 -h 256 assets/tenga-proxy.svg \
+            -o "$APPDIR/usr/share/icons/hicolor/256x256/apps/tenga-proxy.png"
+    fi
+    
+    # Create launcher script
+    cat > "$APPDIR/usr/bin/tenga-proxy" << 'LAUNCHER'
+#!/bin/bash
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="$SCRIPT_DIR/../share/tenga-proxy"
+
+# Set up environment
+export TENGA_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tenga-proxy"
+export GI_TYPELIB_PATH="/usr/lib/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH}"
+
+# Wayland compatibility
+if [ -n "$WAYLAND_DISPLAY" ] && [ -n "$DISPLAY" ]; then
+    export GDK_BACKEND=x11
+fi
+
+# Make sing-box available
+export PATH="$APP_DIR/core/bin:$PATH"
+
+# Create config dir
+mkdir -p "$TENGA_CONFIG_DIR"
+
+# Copy default files on first run
+if [ ! -f "$TENGA_CONFIG_DIR/proxy_list.txt" ] && [ -f "$APP_DIR/core/proxy_list.txt" ]; then
+    cp "$APP_DIR/core/proxy_list.txt" "$TENGA_CONFIG_DIR/"
+fi
+if [ ! -f "$TENGA_CONFIG_DIR/direct_list.txt" ] && [ -f "$APP_DIR/core/direct_list.txt" ]; then
+    cp "$APP_DIR/core/direct_list.txt" "$TENGA_CONFIG_DIR/"
+fi
+
+# Run with system Python
+cd "$APP_DIR"
+exec python3 gui.py "$@"
+LAUNCHER
+    chmod +x "$APPDIR/usr/bin/tenga-proxy"
+    
+    # Create AppRun
+    cat > "$APPDIR/AppRun" << 'APPRUN'
+#!/bin/bash
+SELF=$(readlink -f "$0")
+HERE=${SELF%/*}
+exec "${HERE}/usr/bin/tenga-proxy" "$@"
+APPRUN
+    chmod +x "$APPDIR/AppRun"
+    
+    success "AppDir создан"
+}
+
+# Build AppImage
+build_appimage() {
+    info "Сборка AppImage..."
+    
+    local output="$SCRIPT_DIR/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    mkdir -p "$SCRIPT_DIR/dist"
+    rm -f "$output"
+    
+    ARCH=x86_64 "$BUILD_DIR/appimagetool-x86_64.AppImage" \
+        --no-appstream \
+        "$APPDIR" \
+        "$output"
+    
+    chmod +x "$output"
+    
+    success "AppImage создан: $output"
+    echo
+    echo "=========================================="
+    echo "           Сборка завершена!              "
+    echo "=========================================="
+    echo
+    echo "Файл: dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    echo "Размер: $(du -h "$output" | cut -f1)"
+    echo
+    echo "Установка: ./install_appimage.sh"
+}
+
+# Main
+main() {
+    echo "=========================================="
+    echo "      Tenga Proxy - AppImage Build        "
+    echo "=========================================="
+    echo
+    
+    check_deps
+    get_appimagetool
+    create_appdir
+    build_appimage
+}
+
+main "$@"
+
