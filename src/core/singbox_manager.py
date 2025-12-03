@@ -7,13 +7,14 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, IO
 
 import requests
 
 from src.core.config import (
     DEFAULT_CLASH_API_ADDR,
     DEFAULT_CLASH_API_SECRET,
+    SINGBOX_LOG_FILE,
     find_singbox_binary,
 )
 
@@ -79,6 +80,7 @@ class SingBoxManager:
         self._process: Optional[subprocess.Popen] = None
         self._config_file: Optional[Path] = None
         self._on_stop_callback: Optional[Callable[[], None]] = None
+        self._log_file: Optional[IO[bytes]] = None
         
     @property
     def binary_path(self) -> str:
@@ -160,17 +162,37 @@ class SingBoxManager:
         
         # Start process
         try:
-            self._process = subprocess.Popen(
-                [self._binary_path, "run", "-c", str(self._config_file)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-            )
+            SINGBOX_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self._log_file = open(SINGBOX_LOG_FILE, "ab", buffering=0)
+        except Exception as e:
+            logger.warning("Unable to open sing-box log file %s: %s", SINGBOX_LOG_FILE, e)
+            self._log_file = None
+
+        try:
+            if self._log_file is not None:
+                # Redirect both stdout and stderr to the log file
+                self._process = subprocess.Popen(
+                    [self._binary_path, "run", "-c", str(self._config_file)],
+                    stdout=self._log_file,
+                    stderr=subprocess.STDOUT,
+                )
+            else:
+                self._process = subprocess.Popen(
+                    [self._binary_path, "run", "-c", str(self._config_file)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
             time.sleep(0.5)
 
             if self._process.poll() is not None:
-                _, stderr = self._process.communicate(timeout=5)
-                error_msg = stderr.decode("utf-8", errors="replace").strip()
+                error_msg: str
+                if self._log_file is None and self._process.stderr is not None:
+                    _, stderr = self._process.communicate(timeout=5)
+                    error_msg = stderr.decode("utf-8", errors="replace").strip()
+                else:
+                    error_msg = f"see log file: {SINGBOX_LOG_FILE}"
+
                 self._cleanup()
                 return False, f"sing-box exited with error: {error_msg}"
             
@@ -242,6 +264,13 @@ class SingBoxManager:
     def _cleanup(self) -> None:
         """Clean up resources."""
         self._process = None
+
+        if self._log_file is not None:
+            try:
+                self._log_file.close()
+            except Exception:
+                pass
+            self._log_file = None
 
         if self._config_file and self._config_file.exists():
             try:

@@ -59,6 +59,7 @@ SINGBOX_BINARY_NAME: str = "sing-box"
 LOG_DIR: Path = _get_log_dir()
 GUI_LOG_FILE: Path = LOG_DIR / "tenga_gui.log"
 CLI_LOG_FILE: Path = LOG_DIR / "tenga_cli.log"
+SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
