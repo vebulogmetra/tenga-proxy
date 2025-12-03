@@ -245,6 +245,115 @@ def connect_vpn(connection_name: str) -> bool:
         return False
 
 
+def list_network_interfaces() -> List[str]:
+    """
+    Get list of all available network interfaces.
+    
+    Returns:
+        List of interface names
+    """
+    interfaces: List[str] = []
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "link", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if not line:
+                    continue
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    interface = parts[1].strip().split("@")[0].strip()
+                    if interface and interface != "lo":
+                        interfaces.append(interface)
+        
+        return sorted(interfaces)
+    except FileNotFoundError:
+        logger.warning("ip command not found, cannot list network interfaces")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout listing network interfaces")
+        return []
+    except Exception as e:
+        logger.error("Error listing network interfaces: %s", e)
+        return []
+
+
+def get_default_interface(vpn_interface: Optional[str] = None) -> Optional[str]:
+    """
+    Get default network interface.
+    
+    Args:
+        vpn_interface: VPN interface name to exclude
+        
+    Returns:
+        Default interface name or None
+    """
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if "default via" in line or "default dev" in line:
+                    parts = line.split()
+                    if "dev" in parts:
+                        idx = parts.index("dev")
+                        if idx + 1 < len(parts):
+                            interface = parts[idx + 1]
+                            # Exclude VPN interfaces
+                            if vpn_interface and interface == vpn_interface:
+                                continue
+                            if interface.startswith(("tun", "tap")):
+                                continue
+                            return interface
+
+        result = subprocess.run(
+            ["ip", "-o", "link", "show", "up"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        
+        if result.returncode == 0:
+            for line in result.stdout.split("\n"):
+                if not line:
+                    continue
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    interface = parts[1].strip().split("@")[0].strip()
+                    if interface == "lo":
+                        continue
+                    if vpn_interface and interface == vpn_interface:
+                        continue
+                    if interface.startswith(("tun", "tap")):
+                        continue
+                    if interface.startswith(("eth", "enp", "wlan", "wlp", "ens")):
+                        return interface
+        
+        return None
+    except FileNotFoundError:
+        logger.warning("ip command not found, cannot get default interface")
+        return None
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout getting default interface")
+        return None
+    except Exception as e:
+        logger.error("Error getting default interface: %s", e)
+        return None
+
+
 def disconnect_vpn(connection_name: str) -> bool:
     """
     Disconnect VPN connection via NetworkManager.

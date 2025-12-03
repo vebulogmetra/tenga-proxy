@@ -8,8 +8,9 @@ gi.require_version('Gtk', '3.0')
 
 from gi.repository import Gtk, Pango
 
+from src import __version__ as APP_VERSION, __app_name__ as APP_NAME, __app_description__, __app_author__, __app_website__
 from src.db.config import DnsProvider
-from src.sys.vpn import is_vpn_active, get_vpn_interface, list_vpn_connections
+from src.sys.vpn import is_vpn_active, get_vpn_interface, list_vpn_connections, list_network_interfaces
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -58,6 +59,9 @@ class SettingsDialog(Gtk.Dialog):
         # Tab: VPN & routes
         vpn_page = self._create_vpn_page()
         notebook.append_page(vpn_page, Gtk.Label(label="VPN и маршруты"))
+        # Tab: About
+        about_page = self._create_about_page()
+        notebook.append_page(about_page, Gtk.Label(label="О программе"))
         
         content.show_all()
 
@@ -286,17 +290,37 @@ class SettingsDialog(Gtk.Dialog):
             completion.set_inline_selection(True)
             self._vpn_connection_entry.set_completion(completion)
         
-        connection_grid.attach(Gtk.Label(label="Интерфейс:", halign=Gtk.Align.END), 0, 1, 1, 1)
-        self._vpn_interface_entry = Gtk.Entry()
-        self._vpn_interface_entry.set_placeholder_text("Автоопределение")
-        self._vpn_interface_entry.set_tooltip_text("Имя интерфейса VPN. Оставьте пустым для автоопределения.")
-        connection_grid.attach(self._vpn_interface_entry, 1, 1, 1, 1)
+        connection_grid.attach(Gtk.Label(label="Интерфейс VPN:", halign=Gtk.Align.END), 0, 1, 1, 1)
+        self._vpn_interface_combo = Gtk.ComboBoxText()
+        self._vpn_interface_combo.set_tooltip_text("Выберите интерфейс VPN. 'Автоопределение' - автоматический выбор.")
+        self._vpn_interface_combo.append_text("Автоопределение")
+        self._vpn_interface_combo.set_active(0)
+        try:
+            interfaces = list_network_interfaces()
+            for iface in interfaces:
+                self._vpn_interface_combo.append_text(iface)
+        except Exception:
+            pass
+        connection_grid.attach(self._vpn_interface_combo, 1, 1, 1, 1)
+
+        connection_grid.attach(Gtk.Label(label="Интерфейс Direct:", halign=Gtk.Align.END), 0, 2, 1, 1)
+        self._direct_interface_combo = Gtk.ComboBoxText()
+        self._direct_interface_combo.set_tooltip_text("Выберите интерфейс для прямого трафика (обход VPN). 'Автоопределение' - автоматический выбор.")
+        self._direct_interface_combo.append_text("Автоопределение")
+        self._direct_interface_combo.set_active(0)
+        try:
+            interfaces = list_network_interfaces()
+            for iface in interfaces:
+                self._direct_interface_combo.append_text(iface)
+        except Exception:
+            pass
+        connection_grid.attach(self._direct_interface_combo, 1, 2, 1, 1)
 
         self._vpn_auto_connect_check = Gtk.CheckButton(label="Подключать VPN при запуске профиля")
         self._vpn_auto_connect_check.set_tooltip_text(
             "Перед запуском профиля автоматически выполнять включать VPN"
         )
-        connection_grid.attach(self._vpn_auto_connect_check, 0, 2, 2, 1)
+        connection_grid.attach(self._vpn_auto_connect_check, 0, 3, 2, 1)
 
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         status_box.set_margin_start(10)
@@ -386,11 +410,80 @@ class SettingsDialog(Gtk.Dialog):
 
         return scrolled
     
+    def _create_about_page(self) -> Gtk.Widget:
+        """Create about page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        box.set_margin_start(20)
+        box.set_margin_end(20)
+        box.set_margin_top(20)
+        box.set_margin_bottom(20)
+
+        name_label = Gtk.Label()
+        name_label.set_markup(f"<span size='xx-large' weight='bold'>{APP_NAME}</span>")
+        name_label.set_halign(Gtk.Align.CENTER)
+        box.pack_start(name_label, False, False, 0)
+
+        version_label = Gtk.Label()
+        version_label.set_markup(f"<span size='large'>Версия {APP_VERSION}</span>")
+        version_label.set_halign(Gtk.Align.CENTER)
+        box.pack_start(version_label, False, False, 0)
+
+        desc_label = Gtk.Label()
+        desc_label.set_markup(__app_description__)
+        desc_label.set_line_wrap(True)
+        desc_label.set_halign(Gtk.Align.CENTER)
+        desc_label.set_max_width_chars(60)
+        desc_label.set_use_markup(True)
+        box.pack_start(desc_label, False, False, 0)
+
+        # Separator
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        box.pack_start(separator, False, False, 10)
+
+        info_frame = Gtk.Frame()
+        info_frame.set_label("Информация")
+        box.pack_start(info_frame, False, False, 0)
+
+        info_grid = Gtk.Grid()
+        info_grid.set_row_spacing(8)
+        info_grid.set_column_spacing(15)
+        info_grid.set_margin_start(15)
+        info_grid.set_margin_end(15)
+        info_grid.set_margin_top(15)
+        info_grid.set_margin_bottom(15)
+        info_frame.add(info_grid)
+
+        info_grid.attach(Gtk.Label(label="Автор:", halign=Gtk.Align.START), 0, 0, 1, 1)
+        author_label = Gtk.Label(label=__app_author__)
+        author_label.set_halign(Gtk.Align.START)
+        info_grid.attach(author_label, 1, 0, 1, 1)
+
+        info_grid.attach(Gtk.Label(label="GitHub:", halign=Gtk.Align.START), 0, 1, 1, 1)
+        website_label = Gtk.Label()
+        website_label.set_markup(f"<a href='{__app_website__}'>{__app_website__}</a>")
+        website_label.set_halign(Gtk.Align.START)
+        website_label.set_use_markup(True)
+        info_grid.attach(website_label, 1, 1, 1, 1)
+
+        info_grid.attach(Gtk.Label(label="Лицензия:", halign=Gtk.Align.START), 0, 2, 1, 1)
+        license_label = Gtk.Label(label="MIT License")
+        license_label.set_halign(Gtk.Align.START)
+        info_grid.attach(license_label, 1, 2, 1, 1)
+
+        box.pack_start(Gtk.Box(), True, True, 0)
+
+        scrolled.add(box)
+        return scrolled
+    
     def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:
         """VPN enable checkbox handler."""
         enabled = check.get_active()
         self._vpn_connection_entry.set_sensitive(enabled)
-        self._vpn_interface_entry.set_sensitive(enabled)
+        self._vpn_interface_combo.set_sensitive(enabled)
+        self._direct_interface_combo.set_sensitive(enabled)
         self._vpn_networks_text.set_sensitive(enabled)
     
     def _on_vpn_refresh_clicked(self, button: Optional[Gtk.Button]) -> None:
@@ -444,7 +537,33 @@ class SettingsDialog(Gtk.Dialog):
         vpn = config.vpn
         self._vpn_enable_check.set_active(vpn.enabled)
         self._vpn_connection_entry.set_text(vpn.connection_name)
-        self._vpn_interface_entry.set_text(vpn.interface_name)
+
+        vpn_interface = vpn.interface_name
+        if vpn_interface:
+            model = self._vpn_interface_combo.get_model()
+            for i, row in enumerate(model):
+                if row[0] == vpn_interface:
+                    self._vpn_interface_combo.set_active(i)
+                    break
+            else:
+                self._vpn_interface_combo.append_text(vpn_interface)
+                self._vpn_interface_combo.set_active(len(model))
+        else:
+            self._vpn_interface_combo.set_active(0)
+
+        direct_interface = getattr(vpn, "direct_interface", "") or ""
+        if direct_interface:
+            model = self._direct_interface_combo.get_model()
+            for i, row in enumerate(model):
+                if row[0] == direct_interface:
+                    self._direct_interface_combo.set_active(i)
+                    break
+            else:
+                self._direct_interface_combo.append_text(direct_interface)
+                self._direct_interface_combo.set_active(len(model))
+        else:
+            self._direct_interface_combo.set_active(0)
+        
         self._vpn_auto_connect_check.set_active(getattr(vpn, "auto_connect", False))
 
         all_networks = vpn.corporate_networks + vpn.corporate_domains
@@ -487,7 +606,16 @@ class SettingsDialog(Gtk.Dialog):
         vpn = config.vpn
         vpn.enabled = self._vpn_enable_check.get_active()
         vpn.connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
-        vpn.interface_name = self._vpn_interface_entry.get_text().strip()
+        vpn_interface_text = self._vpn_interface_combo.get_active_text()
+        if vpn_interface_text and vpn_interface_text.strip() and vpn_interface_text.strip() != "Автоопределение":
+            vpn.interface_name = vpn_interface_text.strip()
+        else:
+            vpn.interface_name = ""
+        direct_interface_text = self._direct_interface_combo.get_active_text()
+        if direct_interface_text and direct_interface_text.strip() and direct_interface_text.strip() != "Автоопределение":
+            vpn.direct_interface = direct_interface_text.strip()
+        else:
+            vpn.direct_interface = ""
         vpn.auto_connect = self._vpn_auto_connect_check.get_active()
 
         # Validate VPN connection name if integration is enabled

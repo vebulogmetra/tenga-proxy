@@ -327,6 +327,8 @@ class VpnSettings(ConfigBase):
     # Conn name from NetworkManager
     connection_name: str = "my-vpn"
     interface_name: str = ""
+    # Direct traffic interface (for bypassing VPN)
+    direct_interface: str = ""
     # Connect VPN on profile start
     auto_connect: bool = False
     corporate_networks: List[str] = field(default_factory=list)

@@ -18,7 +18,7 @@ from src.core.logging_utils import setup_logging as setup_core_logging
 from src.db.config import RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
-from src.sys.vpn import get_vpn_interface, is_vpn_active, connect_vpn, disconnect_vpn
+from src.sys.vpn import get_vpn_interface, is_vpn_active, connect_vpn, disconnect_vpn, get_default_interface
 from src.ui.main_window import MainWindow
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.tray import TrayIcon
@@ -36,8 +36,9 @@ def setup_logging(context: AppContext) -> None:
 class TengaApp:
     """Main Tenga application."""
     
-    def __init__(self, context: Optional[AppContext] = None):
+    def __init__(self, context: Optional[AppContext] = None, lock=None):
         self._context = context or get_context()
+        self._lock = lock
         
         self._tray: Optional[TrayIcon] = None
         self._window: Optional[MainWindow] = None
@@ -55,6 +56,8 @@ class TengaApp:
     def _on_signal(self, signum: int, frame) -> None:
         """Signal handler."""
         logger.info("Received signal %s, terminating application", signum)
+        if self._lock:
+            self._lock.release()
         self.quit()
     
     def run(self) -> int:
@@ -110,6 +113,9 @@ class TengaApp:
         except Exception as e:
             logger.exception("Unhandled exception in TengaApp.run: %s", e)
             return 1
+        finally:
+            if self._lock:
+                self._lock.release()
     
     def quit(self) -> None:
         """Quit application."""
@@ -376,8 +382,7 @@ class TengaApp:
                         logger.warning("VPN is enabled but interface not found")
                 else:
                     logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
-            
-            # Local networks always direct (except PROXY_ALL mode)
+
             if routing.mode != RoutingMode.PROXY_ALL:
                 local_networks = {
                     "ip_cidr": [
@@ -396,8 +401,19 @@ class TengaApp:
 
             final_outbound = proxy_tag
             # Outbounds
+            direct_outbound = {"type": "direct", "tag": "direct"}
+            if vpn_tag and vpn_interface:
+                direct_interface = getattr(vpn_settings, "direct_interface", "") or ""
+                if not direct_interface:
+                    direct_interface = get_default_interface(vpn_interface)
+                
+                if direct_interface:
+                    direct_outbound["bind_interface"] = direct_interface
+                    logger.info("Direct outbound bound to interface: %s (bypassing VPN %s)", 
+                               direct_interface, vpn_interface)
+            
             outbounds = [
-                {"type": "direct", "tag": "direct"},
+                direct_outbound,
                 outbound,
             ]
             
@@ -464,7 +480,7 @@ class TengaApp:
                 "route": {
                     "rules": route_rules,
                     "final": final_outbound,
-                    "auto_detect_interface": True,
+                    "auto_detect_interface": not (vpn_tag and vpn_interface),
                 }
             }
             
@@ -479,9 +495,14 @@ class TengaApp:
             return None
 
 
-def run_app(config_dir: Optional[Path] = None) -> int:
-    """Run application."""
+def run_app(config_dir: Optional[Path] = None, lock=None) -> int:
+    """Run application.
+    
+    Args:
+        config_dir: Configuration directory
+        lock: SingleInstance lock object
+    """
     context = init_context(config_dir=config_dir)
     setup_logging(context)
-    app = TengaApp(context)
+    app = TengaApp(context, lock=lock)
     return app.run()
