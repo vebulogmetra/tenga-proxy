@@ -81,10 +81,7 @@ create_appdir() {
     mkdir -p "$APPDIR/usr/share/tenga-proxy/core/bin"
     cp "$PROJECT_ROOT/core/bin/sing-box" "$APPDIR/usr/share/tenga-proxy/core/bin/"
     chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/sing-box"
-    
-    # Copy default config files
-    cp "$PROJECT_ROOT/core/proxy_list.txt" "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
-    cp "$PROJECT_ROOT/core/direct_list.txt" "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
+
     
     # Copy assets
     cp -r "$PROJECT_ROOT/assets" "$APPDIR/usr/share/tenga-proxy/" 2>/dev/null || true
@@ -120,14 +117,6 @@ export PATH="$APP_DIR/core/bin:$PATH"
 
 # Create config dir
 mkdir -p "$TENGA_CONFIG_DIR"
-
-# Copy default files on first run
-if [ ! -f "$TENGA_CONFIG_DIR/proxy_list.txt" ] && [ -f "$APP_DIR/core/proxy_list.txt" ]; then
-    cp "$APP_DIR/core/proxy_list.txt" "$TENGA_CONFIG_DIR/"
-fi
-if [ ! -f "$TENGA_CONFIG_DIR/direct_list.txt" ] && [ -f "$APP_DIR/core/direct_list.txt" ]; then
-    cp "$APP_DIR/core/direct_list.txt" "$TENGA_CONFIG_DIR/"
-fi
 
 # Run with system Python
 cd "$APP_DIR"

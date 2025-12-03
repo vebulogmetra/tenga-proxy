@@ -132,20 +132,3 @@ def init_config_files() -> None:
     """
     if not _is_frozen():
         return
-    
-    defaults = [
-        ("proxy_list.txt", "# Domains/IPs to route through proxy\n# Example:\n# google.com\n# 8.8.8.8/32\n"),
-        ("direct_list.txt", "# Domains/IPs to route directly\n# Example:\n# local.dev\n# 192.168.0.0/16\n"),
-    ]
-    
-    for filename, default_content in defaults:
-        target = CORE_DIR / filename
-        if target.exists():
-            continue
-
-        bundled = BUNDLE_DIR / "core" / filename
-        if bundled.exists():
-            import shutil
-            shutil.copy2(bundled, target)
-        else:
-            target.write_text(default_content, encoding="utf-8")
