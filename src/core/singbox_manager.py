@@ -228,6 +228,25 @@ class SingBoxManager:
             time.sleep(0.2)
         return False
     
+    def reload_config(self, config: Dict[str, Any]) -> tuple[bool, str]:
+        """
+        Reload sing-box configuration without stopping the process.
+        
+        Args:
+            config: New sing-box configuration
+            
+        Returns:
+            (success, error_message)
+        """
+        if not self.is_running:
+            return self.start(config)
+
+        stop_success, stop_error = self.stop()
+        if not stop_success:
+            logger.warning("Error stopping sing-box during reload: %s", stop_error)
+
+        return self.start(config)
+    
     def stop(self) -> tuple[bool, str]:
         """
         Stop sing-box.

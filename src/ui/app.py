@@ -101,6 +101,7 @@ class TengaApp:
             self._window = MainWindow(self._context)
             self._window.set_on_connect(self._on_connect)
             self._window.set_on_disconnect(self._on_disconnect)
+            self._window.set_on_config_reload(self._reload_config)
             # Show window on startup
             self._window.show_all()
             # Start GTK main loop
@@ -179,8 +180,8 @@ class TengaApp:
             self._window.present()
     
     def _on_settings(self) -> None:
-        """Open settings."""       
-        show_settings_dialog(self._context, self._window)
+        """Open settings."""
+        show_settings_dialog(self._context, self._window, on_config_reload=self._reload_config)
     
     def _connect(self, profile_id: int) -> bool:
         """Connect to profile."""
@@ -252,6 +253,53 @@ class TengaApp:
             logger.exception("Error starting sing-box: %s", e)
             if self._tray:
                 self._tray.show_notification("Error", f"Failed to start: {e}")
+            return False
+    
+    def _reload_config(self) -> bool:
+        """
+        Reload configuration.
+        
+        Returns:
+            True if reload was successful, False otherwise
+        """
+        if not self._context.proxy_state.is_running:
+            logger.debug("Proxy is not running, nothing to reload")
+            return False
+        
+        profile_id = self._context.proxy_state.started_profile_id
+        profile = self._context.profiles.get_profile(profile_id)
+        if not profile:
+            logger.error("Profile %s not found for reload", profile_id)
+            return False
+        
+        logger.info("Reloading configuration for profile %s", profile_id)
+        config = self._create_config(profile)
+        if not config:
+            logger.error("Failed to create configuration for reload")
+            return False
+
+        config_path = self._context.config_dir / "current_config.json"
+        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+        logger.info("Reloaded configuration for profile id=%s, file: %s", profile_id, config_path)
+        
+        # Reload sing-box
+        try:
+            success, error = self._context.singbox_manager.reload_config(config)
+            if not success:
+                logger.error("Error reloading sing-box: %s", error)
+                if self._tray:
+                    self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {error}")
+                return False
+            
+            logger.info("Configuration reloaded successfully")
+            if self._tray:
+                self._tray.show_notification("Конфигурация обновлена", "Настройки применены")
+            return True
+            
+        except Exception as e:
+            logger.exception("Error reloading sing-box: %s", e)
+            if self._tray:
+                self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {e}")
             return False
     
     def _disconnect(self) -> None:
