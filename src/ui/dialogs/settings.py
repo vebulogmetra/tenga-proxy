@@ -8,6 +8,7 @@ gi.require_version('Gtk', '3.0')
 
 from gi.repository import Gtk, Pango
 
+from src import __version__ as APP_VERSION, __app_name__ as APP_NAME, __app_description__, __app_author__, __app_website__
 from src.db.config import DnsProvider
 from src.sys.vpn import is_vpn_active, get_vpn_interface, list_vpn_connections, list_network_interfaces
 
@@ -58,6 +59,9 @@ class SettingsDialog(Gtk.Dialog):
         # Tab: VPN & routes
         vpn_page = self._create_vpn_page()
         notebook.append_page(vpn_page, Gtk.Label(label="VPN и маршруты"))
+        # Tab: About
+        about_page = self._create_about_page()
+        notebook.append_page(about_page, Gtk.Label(label="О программе"))
         
         content.show_all()
 
@@ -404,6 +408,74 @@ class SettingsDialog(Gtk.Dialog):
 
         scrolled.add(box)
 
+        return scrolled
+    
+    def _create_about_page(self) -> Gtk.Widget:
+        """Create about page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
+        box.set_margin_start(20)
+        box.set_margin_end(20)
+        box.set_margin_top(20)
+        box.set_margin_bottom(20)
+
+        name_label = Gtk.Label()
+        name_label.set_markup(f"<span size='xx-large' weight='bold'>{APP_NAME}</span>")
+        name_label.set_halign(Gtk.Align.CENTER)
+        box.pack_start(name_label, False, False, 0)
+
+        version_label = Gtk.Label()
+        version_label.set_markup(f"<span size='large'>Версия {APP_VERSION}</span>")
+        version_label.set_halign(Gtk.Align.CENTER)
+        box.pack_start(version_label, False, False, 0)
+
+        desc_label = Gtk.Label()
+        desc_label.set_markup(__app_description__)
+        desc_label.set_line_wrap(True)
+        desc_label.set_halign(Gtk.Align.CENTER)
+        desc_label.set_max_width_chars(60)
+        desc_label.set_use_markup(True)
+        box.pack_start(desc_label, False, False, 0)
+
+        # Separator
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        box.pack_start(separator, False, False, 10)
+
+        info_frame = Gtk.Frame()
+        info_frame.set_label("Информация")
+        box.pack_start(info_frame, False, False, 0)
+
+        info_grid = Gtk.Grid()
+        info_grid.set_row_spacing(8)
+        info_grid.set_column_spacing(15)
+        info_grid.set_margin_start(15)
+        info_grid.set_margin_end(15)
+        info_grid.set_margin_top(15)
+        info_grid.set_margin_bottom(15)
+        info_frame.add(info_grid)
+
+        info_grid.attach(Gtk.Label(label="Автор:", halign=Gtk.Align.START), 0, 0, 1, 1)
+        author_label = Gtk.Label(label=__app_author__)
+        author_label.set_halign(Gtk.Align.START)
+        info_grid.attach(author_label, 1, 0, 1, 1)
+
+        info_grid.attach(Gtk.Label(label="GitHub:", halign=Gtk.Align.START), 0, 1, 1, 1)
+        website_label = Gtk.Label()
+        website_label.set_markup(f"<a href='{__app_website__}'>{__app_website__}</a>")
+        website_label.set_halign(Gtk.Align.START)
+        website_label.set_use_markup(True)
+        info_grid.attach(website_label, 1, 1, 1, 1)
+
+        info_grid.attach(Gtk.Label(label="Лицензия:", halign=Gtk.Align.START), 0, 2, 1, 1)
+        license_label = Gtk.Label(label="MIT License")
+        license_label.set_halign(Gtk.Align.START)
+        info_grid.attach(license_label, 1, 2, 1, 1)
+
+        box.pack_start(Gtk.Box(), True, True, 0)
+
+        scrolled.add(box)
         return scrolled
     
     def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:

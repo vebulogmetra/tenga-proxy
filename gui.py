@@ -60,6 +60,7 @@ except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
     raise
 
+from src import __version__ as APP_VERSION, __app_name__ as APP_NAME
 from src.core.config import init_config_files, find_singbox_binary, BUNDLE_DIR, CORE_DIR, get_lock_file
 from src.sys.single_instance import SingleInstance
 from src.ui.app import run_app
@@ -89,7 +90,7 @@ def main() -> int:
     parser.add_argument(
         '--version',
         action='version',
-        version='Tenga Proxy 1.0.0'
+        version=f'{APP_NAME} {APP_VERSION}'
     )
     
     args = parser.parse_args()
