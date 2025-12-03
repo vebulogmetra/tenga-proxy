@@ -18,7 +18,7 @@ from src.core.logging_utils import setup_logging as setup_core_logging
 from src.db.config import RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
-from src.sys.vpn import get_vpn_interface, is_vpn_active, connect_vpn
+from src.sys.vpn import get_vpn_interface, is_vpn_active, connect_vpn, disconnect_vpn
 from src.ui.main_window import MainWindow
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.tray import TrayIcon
@@ -188,8 +188,14 @@ class TengaApp:
             return False
 
         vpn_settings = self._context.config.vpn
+        try:
+            self._context.proxy_state.vpn_auto_connected = False
+        except Exception:
+            pass
+
         if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False):
-            if not is_vpn_active(vpn_settings.connection_name):
+            was_active_before = is_vpn_active(vpn_settings.connection_name)
+            if not was_active_before:
                 logger.info(
                     "Auto-connecting VPN '%s' before starting profile %s",
                     vpn_settings.connection_name,
@@ -200,6 +206,11 @@ class TengaApp:
                         "Failed to auto-connect VPN '%s', continuing without VPN",
                         vpn_settings.connection_name,
                     )
+                else:
+                    try:
+                        self._context.proxy_state.vpn_auto_connected = True
+                    except Exception:
+                        pass
         
         self._last_profile_id = profile_id
         config = self._create_config(profile)
@@ -247,7 +258,28 @@ class TengaApp:
         except Exception as e:
             logger.exception("Exception when stopping sing-box: %s", e)
 
-        # Clear system proxy
+        try:
+            vpn_settings = self._context.config.vpn
+            auto_flag = getattr(self._context.proxy_state, "vpn_auto_connected", False)
+            if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False) and auto_flag:
+                if disconnect_vpn(vpn_settings.connection_name):
+                    logger.info(
+                        "Auto-disconnected VPN '%s' after stopping profile",
+                        vpn_settings.connection_name,
+                    )
+                else:
+                    logger.warning(
+                        "Failed to auto-disconnect VPN '%s' after stopping profile",
+                        vpn_settings.connection_name,
+                    )
+        except Exception as e:
+            logger.exception("Error during VPN auto-disconnect: %s", e)
+        finally:
+            try:
+                self._context.proxy_state.vpn_auto_connected = False
+            except Exception:
+                pass
+
         clear_system_proxy()
         # Update state
         self._context.proxy_state.set_stopped()

@@ -243,3 +243,49 @@ def connect_vpn(connection_name: str) -> bool:
     except Exception as e:
         logger.error("Error connecting VPN %s: %s", connection_name, e)
         return False
+
+
+def disconnect_vpn(connection_name: str) -> bool:
+    """
+    Disconnect VPN connection via NetworkManager.
+
+    Args:
+        connection_name: VPN connection name
+
+    Returns:
+        True on success or if it is already disconnected.
+    """
+    if not connection_name:
+        return False
+
+    if not is_vpn_active(connection_name):
+        return True
+
+    try:
+        logger.info("Disconnecting VPN via nmcli: %s", connection_name)
+        result = subprocess.run(
+            ["nmcli", "connection", "down", connection_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.info("VPN connection %s deactivated", connection_name)
+            return True
+
+        logger.warning(
+            "Failed to deactivate VPN connection %s: %s",
+            connection_name,
+            result.stderr.strip(),
+        )
+        return False
+    except FileNotFoundError:
+        logger.warning("nmcli not found, cannot disconnect VPN")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout disconnecting VPN: %s", connection_name)
+        return False
+    except Exception as e:
+        logger.error("Error disconnecting VPN %s: %s", connection_name, e)
+        return False
