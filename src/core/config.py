@@ -64,6 +64,19 @@ SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
 
+def get_lock_file(config_dir: Optional[Path] = None) -> Path:
+    """Get lock file path.
+    
+    Args:
+        config_dir: Optional configuration directory. If None, uses default CORE_DIR.
+    
+    Returns:
+        Path to lock file
+    """
+    if config_dir:
+        return config_dir / "tenga-proxy.lock"
+    return CORE_DIR / "tenga-proxy.lock"
+
 # Clash API
 DEFAULT_CLASH_API_ADDR: str = "127.0.0.1:9090"
 DEFAULT_CLASH_API_SECRET: str = ""
