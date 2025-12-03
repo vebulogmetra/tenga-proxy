@@ -280,6 +280,32 @@ class TengaApp:
             # Build routing rules
             route_rules = []
 
+            # Direct-access rules that must bypass
+            try:
+                direct_networks = getattr(vpn_settings, "direct_networks", []) or []
+                direct_domains = getattr(vpn_settings, "direct_domains", []) or []
+            except Exception:
+                direct_networks = []
+                direct_domains = []
+
+            if direct_networks or direct_domains:
+                all_direct_entries = direct_networks + direct_domains
+                direct_domains_parsed, direct_ips_parsed = routing.parse_entries(all_direct_entries)
+
+                if direct_ips_parsed:
+                    route_rules.append({
+                        "ip_cidr": direct_ips_parsed,
+                        "outbound": "direct",
+                    })
+                    logger.debug("Added DIRECT routing for IPs: %s", direct_ips_parsed)
+
+                if direct_domains_parsed:
+                    route_rules.append({
+                        "domain_suffix": direct_domains_parsed,
+                        "outbound": "direct",
+                    })
+                    logger.debug("Added DIRECT routing for domains: %s", direct_domains_parsed)
+
             vpn_tag = None
             vpn_interface = None
             if vpn_settings.enabled:

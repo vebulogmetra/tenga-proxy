@@ -10,7 +10,6 @@ from gi.repository import Gtk, Pango
 
 from src.db.config import RoutingMode, DnsProvider
 from src.sys.vpn import is_vpn_active, get_vpn_interface, list_vpn_connections
-from src.sys.vpn import is_vpn_active, get_vpn_interface
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -461,7 +460,40 @@ class SettingsDialog(Gtk.Dialog):
         self._vpn_networks_text.modify_font(Pango.FontDescription("monospace 10"))
         networks_scroll.add(self._vpn_networks_text)
         networks_box.pack_start(networks_scroll, True, True, 0)
-        
+        # Direct access lists
+        direct_frame = Gtk.Frame()
+        direct_frame.set_label("Прямой доступ (без прокси и VPN)")
+        box.pack_start(direct_frame, True, True, 0)
+
+        direct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        direct_box.set_margin_start(10)
+        direct_box.set_margin_end(10)
+        direct_box.set_margin_top(10)
+        direct_box.set_margin_bottom(10)
+        direct_frame.add(direct_box)
+
+        direct_hint = Gtk.Label()
+        direct_hint.set_markup(
+            "<small>Укажите подсети и домены, которые должны всегда идти напрямую, "
+            "без использования VPN/прокси.\n"
+            "Одна запись на строку. Примеры:\n"
+            "  • <tt>gosuslugi.ru</tt>\n"
+            "  • <tt>provider.portal.local</tt>\n"
+            "  • <tt>100.64.0.0/10</tt></small>"
+        )
+        direct_hint.set_halign(Gtk.Align.START)
+        direct_hint.get_style_context().add_class("dim-label")
+        direct_box.pack_start(direct_hint, False, False, 0)
+
+        direct_scroll = Gtk.ScrolledWindow()
+        direct_scroll.set_shadow_type(Gtk.ShadowType.IN)
+        direct_scroll.set_min_content_height(160)
+        self._vpn_direct_text = Gtk.TextView()
+        self._vpn_direct_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self._vpn_direct_text.modify_font(Pango.FontDescription("monospace 10"))
+        direct_scroll.add(self._vpn_direct_text)
+        direct_box.pack_start(direct_scroll, True, True, 0)
+
         return box
     
     def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:
@@ -574,6 +606,12 @@ class SettingsDialog(Gtk.Dialog):
         all_networks = vpn.corporate_networks + vpn.corporate_domains
         networks_text = "\n".join(all_networks)
         self._vpn_networks_text.get_buffer().set_text(networks_text)
+        # Direct access lists
+        direct_networks = getattr(vpn, "direct_networks", []) or []
+        direct_domains = getattr(vpn, "direct_domains", []) or []
+        all_direct = direct_networks + direct_domains
+        direct_text = "\n".join(all_direct)
+        self._vpn_direct_text.get_buffer().set_text(direct_text)
         self._on_vpn_enable_changed(self._vpn_enable_check)
         self._on_vpn_refresh_clicked(None)
     
@@ -663,6 +701,13 @@ class SettingsDialog(Gtk.Dialog):
 
         entries = [line.strip() for line in networks_text.split("\n") if line.strip()]
         vpn.corporate_domains, vpn.corporate_networks = config.routing.parse_entries(entries)
+
+        direct_buffer = self._vpn_direct_text.get_buffer()
+        start, end = direct_buffer.get_bounds()
+        direct_text = direct_buffer.get_text(start, end, True)
+
+        direct_entries = [line.strip() for line in direct_text.split("\n") if line.strip()]
+        vpn.direct_domains, vpn.direct_networks = config.routing.parse_entries(direct_entries)
         
         # Save
         self._context.save_config()
