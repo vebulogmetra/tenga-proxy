@@ -393,39 +393,6 @@ class TengaApp:
                     "outbound": "direct",
                 }
                 route_rules.append(local_networks)
-            
-            # In CUSTOM mode load rules from files
-            if routing.mode == RoutingMode.CUSTOM:
-                proxy_file = self._context.config_dir / "proxy_list.txt"
-                direct_file = self._context.config_dir / "direct_list.txt"
-
-                proxy_entries = routing.load_list_file(proxy_file)
-                if proxy_entries:
-                    proxy_domains, proxy_ips = routing.parse_entries(proxy_entries)
-                    if proxy_domains:
-                        route_rules.append({
-                            "domain_suffix": proxy_domains,
-                            "outbound": proxy_tag,
-                        })
-                    if proxy_ips:
-                        route_rules.append({
-                            "ip_cidr": proxy_ips,
-                            "outbound": proxy_tag,
-                        })
-
-                direct_entries = routing.load_list_file(direct_file)
-                if direct_entries:
-                    direct_domains, direct_ips = routing.parse_entries(direct_entries)
-                    if direct_domains:
-                        route_rules.append({
-                            "domain_suffix": direct_domains,
-                            "outbound": "direct",
-                        })
-                    if direct_ips:
-                        route_rules.append({
-                            "ip_cidr": direct_ips,
-                            "outbound": "direct",
-                        })
 
             final_outbound = proxy_tag
             # Outbounds
