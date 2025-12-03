@@ -19,6 +19,7 @@ class ProxyState:
     started_profile_id: int = -1
     upload_bytes: int = 0
     download_bytes: int = 0
+    vpn_auto_connected: bool = False
     
     # Listeners
     _state_listeners: List[Callable[['ProxyState'], None]] = field(default_factory=list)

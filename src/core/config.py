@@ -59,6 +59,7 @@ SINGBOX_BINARY_NAME: str = "sing-box"
 LOG_DIR: Path = _get_log_dir()
 GUI_LOG_FILE: Path = LOG_DIR / "tenga_gui.log"
 CLI_LOG_FILE: Path = LOG_DIR / "tenga_cli.log"
+SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
@@ -131,20 +132,3 @@ def init_config_files() -> None:
     """
     if not _is_frozen():
         return
-    
-    defaults = [
-        ("proxy_list.txt", "# Domains/IPs to route through proxy\n# Example:\n# google.com\n# 8.8.8.8/32\n"),
-        ("direct_list.txt", "# Domains/IPs to route directly\n# Example:\n# local.dev\n# 192.168.0.0/16\n"),
-    ]
-    
-    for filename, default_content in defaults:
-        target = CORE_DIR / filename
-        if target.exists():
-            continue
-
-        bundled = BUNDLE_DIR / "core" / filename
-        if bundled.exists():
-            import shutil
-            shutil.copy2(bundled, target)
-        else:
-            target.write_text(default_content, encoding="utf-8")
