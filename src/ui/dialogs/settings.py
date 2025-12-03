@@ -9,6 +9,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Pango
 
 from src.db.config import RoutingMode, DnsProvider
+from src.sys.vpn import is_vpn_active, get_vpn_interface
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -57,6 +58,9 @@ class SettingsDialog(Gtk.Dialog):
         # Tab: Routing
         routing_page = self._create_routing_page()
         notebook.append_page(routing_page, Gtk.Label(label="Маршрутизация"))
+        # Tab: VPN
+        vpn_page = self._create_vpn_page()
+        notebook.append_page(vpn_page, Gtk.Label(label="VPN"))
         
         content.show_all()
     
@@ -332,6 +336,138 @@ class SettingsDialog(Gtk.Dialog):
         
         return box
     
+    def _create_vpn_page(self) -> Gtk.Widget:
+        """Create VPN settings page."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        box.set_margin_start(15)
+        box.set_margin_end(15)
+        box.set_margin_top(15)
+        box.set_margin_bottom(15)
+
+        enable_frame = Gtk.Frame()
+        enable_frame.set_label("Интеграция VPN")
+        box.pack_start(enable_frame, False, False, 0)
+        
+        enable_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        enable_box.set_margin_start(10)
+        enable_box.set_margin_end(10)
+        enable_box.set_margin_top(10)
+        enable_box.set_margin_bottom(10)
+        enable_frame.add(enable_box)
+        
+        self._vpn_enable_check = Gtk.CheckButton(label="Включить интеграцию VPN")
+        self._vpn_enable_check.set_tooltip_text(
+            "Автоматически маршрутизировать часть трафика через VPN.\n"
+            "VPN должен быть подключен вручную через NetworkManager."
+        )
+        self._vpn_enable_check.connect("toggled", self._on_vpn_enable_changed)
+        enable_box.pack_start(self._vpn_enable_check, False, False, 0)
+
+        connection_frame = Gtk.Frame()
+        connection_frame.set_label("Подключение VPN")
+        box.pack_start(connection_frame, False, False, 0)
+        
+        connection_grid = Gtk.Grid()
+        connection_grid.set_row_spacing(8)
+        connection_grid.set_column_spacing(10)
+        connection_grid.set_margin_start(10)
+        connection_grid.set_margin_end(10)
+        connection_grid.set_margin_top(10)
+        connection_grid.set_margin_bottom(10)
+        connection_frame.add(connection_grid)
+        
+        connection_grid.attach(Gtk.Label(label="Имя подключения:", halign=Gtk.Align.END), 0, 0, 1, 1)
+        self._vpn_connection_entry = Gtk.Entry()
+        self._vpn_connection_entry.set_placeholder_text("aiso")
+        self._vpn_connection_entry.set_tooltip_text("Имя VPN подключения в NetworkManager")
+        connection_grid.attach(self._vpn_connection_entry, 1, 0, 1, 1)
+        
+        connection_grid.attach(Gtk.Label(label="Интерфейс:", halign=Gtk.Align.END), 0, 1, 1, 1)
+        self._vpn_interface_entry = Gtk.Entry()
+        self._vpn_interface_entry.set_placeholder_text("Автоопределение")
+        self._vpn_interface_entry.set_tooltip_text("Имя интерфейса VPN. Оставьте пустым для автоопределения.")
+        connection_grid.attach(self._vpn_interface_entry, 1, 1, 1, 1)
+
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        status_box.set_margin_start(10)
+        status_box.set_margin_end(10)
+        status_box.set_margin_top(5)
+        status_box.set_margin_bottom(5)
+        connection_frame.add(status_box)
+        
+        status_label = Gtk.Label(label="Статус:")
+        status_label.set_halign(Gtk.Align.START)
+        status_box.pack_start(status_label, False, False, 0)
+        
+        self._vpn_status_label = Gtk.Label()
+        self._vpn_status_label.set_halign(Gtk.Align.START)
+        status_box.pack_start(self._vpn_status_label, True, True, 0)
+        
+        refresh_btn = Gtk.Button(label="Обновить")
+        refresh_btn.connect("clicked", self._on_vpn_refresh_clicked)
+        status_box.pack_end(refresh_btn, False, False, 0)
+
+        networks_frame = Gtk.Frame()
+        networks_frame.set_label("Подсети")
+        box.pack_start(networks_frame, True, True, 0)
+        
+        networks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        networks_box.set_margin_start(10)
+        networks_box.set_margin_end(10)
+        networks_box.set_margin_top(10)
+        networks_box.set_margin_bottom(10)
+        networks_frame.add(networks_box)
+        
+        networks_hint = Gtk.Label()
+        networks_hint.set_markup(
+            "<small>Укажите подсети и домены, которые должны маршрутизироваться через VPN.\n"
+            "Одна запись на строку. Примеры:\n"
+            "  • <tt>10.0.0.0/8</tt> — IP подсеть\n"
+            "  • <tt>172.16.0.0/12</tt> — IP подсеть\n"
+            "  • <tt>my.example.com</tt> — домен</small>"
+        )
+        networks_hint.set_halign(Gtk.Align.START)
+        networks_hint.get_style_context().add_class("dim-label")
+        networks_box.pack_start(networks_hint, False, False, 0)
+        
+        networks_scroll = Gtk.ScrolledWindow()
+        networks_scroll.set_shadow_type(Gtk.ShadowType.IN)
+        networks_scroll.set_min_content_height(200)
+        self._vpn_networks_text = Gtk.TextView()
+        self._vpn_networks_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self._vpn_networks_text.modify_font(Pango.FontDescription("monospace 10"))
+        networks_scroll.add(self._vpn_networks_text)
+        networks_box.pack_start(networks_scroll, True, True, 0)
+        
+        return box
+    
+    def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:
+        """VPN enable checkbox handler."""
+        enabled = check.get_active()
+        self._vpn_connection_entry.set_sensitive(enabled)
+        self._vpn_interface_entry.set_sensitive(enabled)
+        self._vpn_networks_text.set_sensitive(enabled)
+    
+    def _on_vpn_refresh_clicked(self, button: Optional[Gtk.Button]) -> None:
+        """Refresh VPN status."""
+        connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
+        is_active = is_vpn_active(connection_name)
+        
+        if is_active:
+            interface = get_vpn_interface(connection_name)
+            if interface:
+                self._vpn_status_label.set_markup(
+                    f"<span color='green'>●</span> <b>Подключено</b> (интерфейс: {interface})"
+                )
+            else:
+                self._vpn_status_label.set_markup(
+                    "<span color='green'>●</span> <b>Подключено</b> (интерфейс не определён)"
+                )
+        else:
+            self._vpn_status_label.set_markup(
+                "<span color='red'>●</span> <b>Не подключено</b>"
+            )
+    
     def _on_dns_provider_changed(self, radio: Gtk.RadioButton) -> None:
         """DNS provider change handler."""
         pass  # Do nothing for now
@@ -404,6 +540,18 @@ class SettingsDialog(Gtk.Dialog):
             self._dns_radios[dns.provider].set_active(True)
         self._dns_custom_entry.set_text(dns.custom_url)
         self._dns_use_proxy_check.set_active(dns.use_proxy)
+        
+        # VPN settings
+        vpn = config.vpn
+        self._vpn_enable_check.set_active(vpn.enabled)
+        self._vpn_connection_entry.set_text(vpn.connection_name)
+        self._vpn_interface_entry.set_text(vpn.interface_name)
+
+        all_networks = vpn.corporate_networks + vpn.corporate_domains
+        networks_text = "\n".join(all_networks)
+        self._vpn_networks_text.get_buffer().set_text(networks_text)
+        self._on_vpn_enable_changed(self._vpn_enable_check)
+        self._on_vpn_refresh_clicked(None)
     
     def save_settings(self) -> None:
         """Save settings."""
@@ -449,6 +597,19 @@ class SettingsDialog(Gtk.Dialog):
                 break
         dns.custom_url = self._dns_custom_entry.get_text().strip()
         dns.use_proxy = self._dns_use_proxy_check.get_active()
+        
+        # VPN settings
+        vpn = config.vpn
+        vpn.enabled = self._vpn_enable_check.get_active()
+        vpn.connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
+        vpn.interface_name = self._vpn_interface_entry.get_text().strip()
+
+        networks_buffer = self._vpn_networks_text.get_buffer()
+        start, end = networks_buffer.get_bounds()
+        networks_text = networks_buffer.get_text(start, end, True)
+
+        entries = [line.strip() for line in networks_text.split("\n") if line.strip()]
+        vpn.corporate_domains, vpn.corporate_networks = config.routing.parse_entries(entries)
         
         # Save
         self._context.save_config()

@@ -18,6 +18,7 @@ from src.core.logging_utils import setup_logging as setup_core_logging
 from src.db.config import RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.vpn import get_vpn_interface, is_vpn_active
 from src.ui.main_window import MainWindow
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.tray import TrayIcon
@@ -260,8 +261,49 @@ class TengaApp:
             proxy_tag = outbound["tag"]
             port = self._context.config.inbound_socks_port
             routing = self._context.config.routing
+            vpn_settings = self._context.config.vpn
+            
             # Build routing rules
             route_rules = []
+
+            vpn_tag = None
+            vpn_interface = None
+            if vpn_settings.enabled:
+                if is_vpn_active(vpn_settings.connection_name):
+                    if vpn_settings.interface_name:
+                        vpn_interface = vpn_settings.interface_name
+                    else:
+                        vpn_interface = get_vpn_interface(vpn_settings.connection_name)
+                    
+                    if vpn_interface:
+                        vpn_tag = "vpn"
+                        logger.info("VPN integration enabled, interface: %s", vpn_interface)
+                        corporate_ips = []
+                        corporate_domains = []
+                        
+                        # Combine networks and domains from settings
+                        all_entries = vpn_settings.corporate_networks + vpn_settings.corporate_domains
+                        if all_entries:
+                            corporate_domains, corporate_ips = routing.parse_entries(all_entries)
+                        
+                        # Add routing rules for VPN
+                        if corporate_ips:
+                            route_rules.append({
+                                "ip_cidr": corporate_ips,
+                                "outbound": vpn_tag,
+                            })
+                            logger.debug("Added VPN routing for IPs: %s", corporate_ips)
+                        
+                        if corporate_domains:
+                            route_rules.append({
+                                "domain_suffix": corporate_domains,
+                                "outbound": vpn_tag,
+                            })
+                            logger.debug("Added VPN routing for domains: %s", corporate_domains)
+                    else:
+                        logger.warning("VPN is enabled but interface not found")
+                else:
+                    logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
             
             # Local networks always direct (except PROXY_ALL mode)
             if routing.mode != RoutingMode.PROXY_ALL:
@@ -319,6 +361,16 @@ class TengaApp:
                 {"type": "direct", "tag": "direct"},
                 outbound,
             ]
+            
+            # Add VPN outbound
+            if vpn_tag and vpn_interface:
+                vpn_outbound = {
+                    "type": "direct",
+                    "tag": vpn_tag,
+                    "bind_interface": vpn_interface,
+                }
+                outbounds.append(vpn_outbound)
+                logger.info("Added VPN outbound with interface: %s", vpn_interface)
             # DNS
             dns_settings = self._context.config.dns
             dns_url = dns_settings.get_dns_url()
