@@ -326,5 +326,6 @@ class VpnSettings(ConfigBase):
     enabled: bool = False
     connection_name: str = "my-vpn"  # Conn name from NetworkManager
     interface_name: str = ""  # Auto-detect when empty
+    auto_connect: bool = False  # Connect VPN on profile start
     corporate_networks: List[str] = field(default_factory=list)  # IP/CIDR
     corporate_domains: List[str] = field(default_factory=list)

@@ -18,7 +18,7 @@ from src.core.logging_utils import setup_logging as setup_core_logging
 from src.db.config import RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
-from src.sys.vpn import get_vpn_interface, is_vpn_active
+from src.sys.vpn import get_vpn_interface, is_vpn_active, connect_vpn
 from src.ui.main_window import MainWindow
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.tray import TrayIcon
@@ -181,12 +181,26 @@ class TengaApp:
         # If connected - disconnect
         if self._context.proxy_state.is_running:
             self._disconnect()
-
+        
         profile = self._context.profiles.get_profile(profile_id)
         if not profile:
             logger.error("Profile %s not found", profile_id)
             return False
 
+        vpn_settings = self._context.config.vpn
+        if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False):
+            if not is_vpn_active(vpn_settings.connection_name):
+                logger.info(
+                    "Auto-connecting VPN '%s' before starting profile %s",
+                    vpn_settings.connection_name,
+                    profile_id,
+                )
+                if not connect_vpn(vpn_settings.connection_name):
+                    logger.warning(
+                        "Failed to auto-connect VPN '%s', continuing without VPN",
+                        vpn_settings.connection_name,
+                    )
+        
         self._last_profile_id = profile_id
         config = self._create_config(profile)
         if not config:

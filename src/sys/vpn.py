@@ -197,3 +197,49 @@ def get_vpn_interface_ip(interface_name: str) -> Optional[str]:
     except Exception as e:
         logger.error("Error getting VPN interface IP: %s", e)
         return None
+
+
+def connect_vpn(connection_name: str) -> bool:
+    """
+    Ensure VPN connection is up using NetworkManager.
+
+    Args:
+        connection_name: VPN connection name
+
+    Returns:
+        True on success or if already active.
+    """
+    if not connection_name:
+        return False
+
+    if is_vpn_active(connection_name):
+        return True
+
+    try:
+        logger.info("Connecting VPN via nmcli: %s", connection_name)
+        result = subprocess.run(
+            ["nmcli", "connection", "up", connection_name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if result.returncode == 0:
+            logger.info("VPN connection %s activated", connection_name)
+            return True
+
+        logger.warning(
+            "Failed to activate VPN connection %s: %s",
+            connection_name,
+            result.stderr.strip(),
+        )
+        return False
+    except FileNotFoundError:
+        logger.warning("nmcli not found, cannot connect VPN")
+        return False
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout connecting VPN: %s", connection_name)
+        return False
+    except Exception as e:
+        logger.error("Error connecting VPN %s: %s", connection_name, e)
+        return False

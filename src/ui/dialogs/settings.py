@@ -405,6 +405,12 @@ class SettingsDialog(Gtk.Dialog):
         self._vpn_interface_entry.set_tooltip_text("Имя интерфейса VPN. Оставьте пустым для автоопределения.")
         connection_grid.attach(self._vpn_interface_entry, 1, 1, 1, 1)
 
+        self._vpn_auto_connect_check = Gtk.CheckButton(label="Подключать VPN при запуске профиля")
+        self._vpn_auto_connect_check.set_tooltip_text(
+            "Перед запуском профиля автоматически выполнять включать VPN"
+        )
+        connection_grid.attach(self._vpn_auto_connect_check, 0, 2, 2, 1)
+
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         status_box.set_margin_start(10)
         status_box.set_margin_end(10)
@@ -563,6 +569,7 @@ class SettingsDialog(Gtk.Dialog):
         self._vpn_enable_check.set_active(vpn.enabled)
         self._vpn_connection_entry.set_text(vpn.connection_name)
         self._vpn_interface_entry.set_text(vpn.interface_name)
+        self._vpn_auto_connect_check.set_active(getattr(vpn, "auto_connect", False))
 
         all_networks = vpn.corporate_networks + vpn.corporate_domains
         networks_text = "\n".join(all_networks)
@@ -624,6 +631,7 @@ class SettingsDialog(Gtk.Dialog):
         vpn.enabled = self._vpn_enable_check.get_active()
         vpn.connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
         vpn.interface_name = self._vpn_interface_entry.get_text().strip()
+        vpn.auto_connect = self._vpn_auto_connect_check.get_active()
 
         # Validate VPN connection name if integration is enabled
         if vpn.enabled:
