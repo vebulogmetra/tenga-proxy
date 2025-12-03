@@ -60,7 +60,8 @@ except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
     raise
 
-from src.core.config import init_config_files, find_singbox_binary, BUNDLE_DIR, CORE_DIR
+from src.core.config import init_config_files, find_singbox_binary, BUNDLE_DIR, CORE_DIR, get_lock_file
+from src.sys.single_instance import SingleInstance
 from src.ui.app import run_app
 
 logger.info(f"BUNDLE_DIR: {BUNDLE_DIR}")
@@ -93,8 +94,36 @@ def main() -> int:
     
     args = parser.parse_args()
     
+    # Check for single instance
+    lock_file = get_lock_file(args.config_dir)
+    single_instance = SingleInstance(lock_file)
+    
+    if single_instance.is_running():
+        logger.warning("Another instance is already running")
+        try:
+            dialog = Gtk.MessageDialog(
+                flags=0,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Приложение уже запущено"
+            )
+            dialog.format_secondary_text(
+                "Tenga Proxy уже запущен.\n"
+                "Проверьте иконку в системном трее или закройте существующий экземпляр перед запуском нового."
+            )
+            dialog.run()
+            dialog.destroy()
+        except Exception as e:
+            logger.error("Error showing dialog: %s", e)
+            print("Приложение уже запущено. Проверьте иконку в системном трее.")
+        return 1
+
+    if not single_instance.acquire():
+        logger.error("Failed to acquire lock")
+        return 1
+    
     try:
-        return run_app(config_dir=args.config_dir)
+        return run_app(config_dir=args.config_dir, lock=single_instance)
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
         print("\nУбедитесь, что установлены зависимости:")
@@ -106,6 +135,8 @@ def main() -> int:
         import traceback
         traceback.print_exc()
         return 1
+    finally:
+        single_instance.release()
 
 
 if __name__ == "__main__":
