@@ -2,9 +2,51 @@ from __future__ import annotations
 
 import logging
 import subprocess
-from typing import Optional
+from typing import Optional, List
 
 logger = logging.getLogger("tenga.sys.vpn")
+
+
+def list_vpn_connections() -> List[str]:
+    """
+    Get list of VPN connections from NetworkManager.
+
+    Returns:
+        List of connection names
+    """
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME,TYPE", "connection", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            return []
+
+        names: List[str] = []
+        for line in result.stdout.split("\n"):
+            if not line:
+                continue
+            parts = line.split(":")
+            if len(parts) < 2:
+                continue
+            name, ctype = parts[0], parts[1]
+            if ctype in ("vpn", "wireguard", "tun"):
+                names.append(name)
+
+        return names
+    except FileNotFoundError:
+        logger.warning("nmcli not found, cannot list VPN connections")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout listing VPN connections")
+        return []
+    except Exception as e:
+        logger.error("Error listing VPN connections: %s", e)
+        return []
 
 
 def is_vpn_active(connection_name: str) -> bool:

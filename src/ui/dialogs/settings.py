@@ -9,6 +9,7 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Pango
 
 from src.db.config import RoutingMode, DnsProvider
+from src.sys.vpn import is_vpn_active, get_vpn_interface, list_vpn_connections
 from src.sys.vpn import is_vpn_active, get_vpn_interface
 
 if TYPE_CHECKING:
@@ -381,6 +382,22 @@ class SettingsDialog(Gtk.Dialog):
         self._vpn_connection_entry.set_placeholder_text("aiso")
         self._vpn_connection_entry.set_tooltip_text("Имя VPN подключения в NetworkManager")
         connection_grid.attach(self._vpn_connection_entry, 1, 0, 1, 1)
+
+        try:
+            vpn_names = list_vpn_connections()
+        except Exception:
+            vpn_names = []
+
+        if vpn_names:
+            store = Gtk.ListStore(str)
+            for name in vpn_names:
+                store.append([name])
+            completion = Gtk.EntryCompletion()
+            completion.set_model(store)
+            completion.set_text_column(0)
+            completion.set_inline_completion(True)
+            completion.set_inline_selection(True)
+            self._vpn_connection_entry.set_completion(completion)
         
         connection_grid.attach(Gtk.Label(label="Интерфейс:", halign=Gtk.Align.END), 0, 1, 1, 1)
         self._vpn_interface_entry = Gtk.Entry()
@@ -553,8 +570,12 @@ class SettingsDialog(Gtk.Dialog):
         self._on_vpn_enable_changed(self._vpn_enable_check)
         self._on_vpn_refresh_clicked(None)
     
-    def save_settings(self) -> None:
-        """Save settings."""
+    def save_settings(self) -> bool:
+        """Save settings.
+
+        Returns:
+            True if settings were saved successfully
+        """
         config = self._context.config
         routing = config.routing
         dns = config.dns
@@ -604,6 +625,30 @@ class SettingsDialog(Gtk.Dialog):
         vpn.connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
         vpn.interface_name = self._vpn_interface_entry.get_text().strip()
 
+        # Validate VPN connection name if integration is enabled
+        if vpn.enabled:
+            try:
+                available = list_vpn_connections()
+            except Exception:
+                available = []
+
+            if available and vpn.connection_name not in available:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.ERROR,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="VPN подключение не найдено",
+                )
+                dialog.format_secondary_text(
+                    f"Подключение с именем \"{vpn.connection_name}\" "
+                    "не найдено в NetworkManager.\n\n"
+                    "Проверьте имя или создайте VPN-подключение в настройках сети."
+                )
+                dialog.run()
+                dialog.destroy()
+                return False
+
         networks_buffer = self._vpn_networks_text.get_buffer()
         start, end = networks_buffer.get_bounds()
         networks_text = networks_buffer.get_text(start, end, True)
@@ -613,6 +658,7 @@ class SettingsDialog(Gtk.Dialog):
         
         # Save
         self._context.save_config()
+        return True
 
 
 def show_settings_dialog(context: 'AppContext', parent: Optional[Gtk.Window] = None) -> bool:
@@ -623,12 +669,16 @@ def show_settings_dialog(context: 'AppContext', parent: Optional[Gtk.Window] = N
         True if settings were applied
     """
     dialog = SettingsDialog(context, parent)
-    response = dialog.run()
-    
     applied = False
-    if response == Gtk.ResponseType.APPLY:
-        dialog.save_settings()
-        applied = True
-    
+    while True:
+        response = dialog.run()
+        if response == Gtk.ResponseType.APPLY:
+            if dialog.save_settings():
+                applied = True
+                break
+            continue
+        else:
+            break
+
     dialog.destroy()
     return applied
