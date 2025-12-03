@@ -10,6 +10,7 @@ from src.db.config import (
     ExtraCores,
     DnsSettings,
     RoutingSettings,
+    VpnSettings,
 )
 
 
@@ -84,6 +85,8 @@ class DataStore(ConfigBase):
     routing: RoutingSettings = field(default_factory=RoutingSettings)
     # DNS settings
     dns: DnsSettings = field(default_factory=DnsSettings)
+    # VPN settings
+    vpn: VpnSettings = field(default_factory=VpnSettings)
     # Misc
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000

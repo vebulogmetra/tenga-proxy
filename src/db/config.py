@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, Union, Optional, Type, TypeVar, get_type_hints, get_origin, get_args
+from typing import Any, Dict, Union, Optional, Type, TypeVar, List, get_type_hints, get_origin, get_args
 from abc import ABC
 
 
@@ -318,3 +318,19 @@ class RoutingSettings(ConfigBase):
             domains.append(entry)
         
         return domains, ips
+
+
+@dataclass
+class VpnSettings(ConfigBase):
+    """VPN integration settings."""
+    enabled: bool = False
+    # Conn name from NetworkManager
+    connection_name: str = "my-vpn"
+    interface_name: str = ""
+    # Connect VPN on profile start
+    auto_connect: bool = False
+    corporate_networks: List[str] = field(default_factory=list)
+    corporate_domains: List[str] = field(default_factory=list)
+    # Direct-bypass lists
+    direct_networks: List[str] = field(default_factory=list)
+    direct_domains: List[str] = field(default_factory=list)

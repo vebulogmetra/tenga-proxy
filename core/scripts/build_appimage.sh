@@ -7,11 +7,12 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="1.0.0"
-BUILD_DIR="$SCRIPT_DIR/build"
+APP_VERSION="1.2.4"
+BUILD_DIR="$PROJECT_ROOT/build"
 APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
 
 RED='\033[0;31m'
@@ -28,7 +29,7 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 check_deps() {
     info "Проверка зависимостей..."
     
-    if [ ! -f "core/bin/sing-box" ]; then
+    if [ ! -f "$PROJECT_ROOT/core/bin/sing-box" ]; then
         error "sing-box не найден в core/bin/"
     fi
     
@@ -72,30 +73,27 @@ create_appdir() {
     mkdir -p "$APPDIR/usr/share/icons/hicolor/256x256/apps"
     
     # Copy Python source
-    cp -r src "$APPDIR/usr/share/tenga-proxy/"
-    cp gui.py "$APPDIR/usr/share/tenga-proxy/"
-    cp cli.py "$APPDIR/usr/share/tenga-proxy/"
+    cp -r "$PROJECT_ROOT/src" "$APPDIR/usr/share/tenga-proxy/"
+    cp "$PROJECT_ROOT/gui.py" "$APPDIR/usr/share/tenga-proxy/"
+    cp "$PROJECT_ROOT/cli.py" "$APPDIR/usr/share/tenga-proxy/"
     
     # Copy core files
     mkdir -p "$APPDIR/usr/share/tenga-proxy/core/bin"
-    cp core/bin/sing-box "$APPDIR/usr/share/tenga-proxy/core/bin/"
+    cp "$PROJECT_ROOT/core/bin/sing-box" "$APPDIR/usr/share/tenga-proxy/core/bin/"
     chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/sing-box"
-    
-    # Copy default config files
-    cp core/proxy_list.txt "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
-    cp core/direct_list.txt "$APPDIR/usr/share/tenga-proxy/core/" 2>/dev/null || true
+
     
     # Copy assets
-    cp -r assets "$APPDIR/usr/share/tenga-proxy/" 2>/dev/null || true
+    cp -r "$PROJECT_ROOT/assets" "$APPDIR/usr/share/tenga-proxy/" 2>/dev/null || true
     
     # Desktop and icons
-    cp assets/tenga-proxy.desktop "$APPDIR/usr/share/applications/"
-    cp assets/tenga-proxy.desktop "$APPDIR/"
-    cp assets/tenga-proxy.svg "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
-    cp assets/tenga-proxy.svg "$APPDIR/tenga-proxy.svg"
+    cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/usr/share/applications/"
+    cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/"
+    cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
+    cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/tenga-proxy.svg"
     
     if command -v rsvg-convert &>/dev/null; then
-        rsvg-convert -w 256 -h 256 assets/tenga-proxy.svg \
+        rsvg-convert -w 256 -h 256 "$PROJECT_ROOT/assets/tenga-proxy.svg" \
             -o "$APPDIR/usr/share/icons/hicolor/256x256/apps/tenga-proxy.png"
     fi
     
@@ -120,14 +118,6 @@ export PATH="$APP_DIR/core/bin:$PATH"
 # Create config dir
 mkdir -p "$TENGA_CONFIG_DIR"
 
-# Copy default files on first run
-if [ ! -f "$TENGA_CONFIG_DIR/proxy_list.txt" ] && [ -f "$APP_DIR/core/proxy_list.txt" ]; then
-    cp "$APP_DIR/core/proxy_list.txt" "$TENGA_CONFIG_DIR/"
-fi
-if [ ! -f "$TENGA_CONFIG_DIR/direct_list.txt" ] && [ -f "$APP_DIR/core/direct_list.txt" ]; then
-    cp "$APP_DIR/core/direct_list.txt" "$TENGA_CONFIG_DIR/"
-fi
-
 # Run with system Python
 cd "$APP_DIR"
 exec python3 gui.py "$@"
@@ -150,8 +140,8 @@ APPRUN
 build_appimage() {
     info "Сборка AppImage..."
     
-    local output="$SCRIPT_DIR/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
-    mkdir -p "$SCRIPT_DIR/dist"
+    local output="$PROJECT_ROOT/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    mkdir -p "$PROJECT_ROOT/dist"
     rm -f "$output"
     
     ARCH=x86_64 "$BUILD_DIR/appimagetool-x86_64.AppImage" \
@@ -170,7 +160,6 @@ build_appimage() {
     echo "Файл: dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
     echo "Размер: $(du -h "$output" | cut -f1)"
     echo
-    echo "Установка: ./install_appimage.sh"
 }
 
 # Main
@@ -187,4 +176,3 @@ main() {
 }
 
 main "$@"
-

@@ -17,6 +17,7 @@
 - Импорт подписок (base64, plain text)
 - Генерация конфигураций sing-box
 - Автоматическая настройка системного прокси (GNOME/KDE)
+- Гибкая маршрутизация трафика (через VLESS, VPN или напрямую)
 - Управление профилями
 - Системный трей с уведомлениями (GTK)
 - Мониторинг через Clash API (статистика, соединения)
@@ -27,11 +28,15 @@
 tenga-proxy/
 ├── cli.py              # CLI точка входа
 ├── gui.py              # GUI точка входа
+├── setup.sh            # Скрипт сборки и установки AppImage
 ├── requirements.txt    # Python зависимости
-├── install.sh          # Установщик
 ├── README.md           # Документация
 ├── core/
-│   └── bin/            # Бинарник sing-box
+│   ├── bin/            # Бинарник sing-box
+│   └── scripts/        # Скрипты сборки и установки
+│       ├── build_appimage.sh    # Сборка AppImage
+│       ├── install_appimage.sh  # Установка AppImage
+│       └── install_dev.sh       # Установка окружения для разработки
 └── src/                # Основной Python модуль
     ├── core/           # Контекст и менеджер sing-box
     ├── db/             # Хранение конфигурации и профилей
@@ -44,38 +49,34 @@ tenga-proxy/
 
 ## Установка
 
-### Автоматическая установка
+### Быстрая установка
 
-Для Ubuntu/Debian систем доступен автоматический установщик:
-
-```bash
-./install.sh
-```
-
-Установщик выполнит:
-- Проверку операционной системы (только Linux)
-- Установку системных зависимостей
-- Создание виртуального окружения Python
-- Установку Python зависимостей
-- Скачивание sing-box
-
-### Ручная установка
-
-#### Системные зависимости (Ubuntu/Debian)
+Для сборки и установки AppImage в систему:
 
 ```bash
-sudo apt install python3-pip python3-venv curl
-sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-notify-0.7
-sudo apt install libfuse2t64
+./setup.sh
 ```
 
-#### Python зависимости
+- Соберёт AppImage
+- Установит его в систему
+- Создаст ярлык в меню приложений
+
+После этого приложение будет доступно в меню.
+
+### Установка окружения для разработки
+
+Для разработки и запуска из исходников:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip && pip install -r requirements.txt
+core/scripts/install_dev.sh
 ```
+
+- Системные зависимости
+- Python venv
+- Python зависимости из `requirements.txt`
+- Бинарник sing-box
+
+Этот скрипт нужен только для разработки. Для обычного использования достаточно `./setup.sh`.
 
 #### Установка sing-box
 
@@ -98,28 +99,29 @@ chmod +x core/bin/sing-box
 
 ### Требования для сборки
 
-- Системные зависимости (устанавливаются через `./install.sh`)
+- Системные зависимости (устанавливаются через `core/scripts/install_dev.sh`)
+- Бинарник `sing-box` в `core/bin/sing-box`
 
 ### Сборка
 
 ```bash
-./build_appimage.sh
+core/scripts/build_appimage.sh
 ```
 
-Результат будет в `dist/tenga-proxy-x.x.x-x86_64.AppImage`.
+Результат будет в `dist/tenga-proxy-x.AppImage`.
 
 ### Установка AppImage в систему
 
 ```bash
-./install_appimage.sh
+core/scripts/install_appimage.sh
 ```
 
-После установки "Tenga Proxy" будет доступен в меню приложений
+После установки "Tenga Proxy" будет доступен в меню приложений.
 
 ### Удаление AppImage
 
 ```bash
-./install_appimage.sh uninstall
+core/scripts/install_appimage.sh uninstall
 ```
 
 ## Использование
@@ -171,7 +173,7 @@ python gui.py
 - Системный трей с быстрым подключением/отключением
 - Управление профилями (добавление, удаление, выбор)
 - Уведомления о статусе подключения
-- Настройки DNS, Маршрутизации
+- Настройки DNS, VPN и маршрутов
 - Статистика подключений и задержки
 
 ![Основное окно приложения](assets/main-screen.png)
