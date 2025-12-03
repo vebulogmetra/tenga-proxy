@@ -338,6 +338,9 @@ class SettingsDialog(Gtk.Dialog):
     
     def _create_vpn_page(self) -> Gtk.Widget:
         """Create VPN settings page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         box.set_margin_start(15)
         box.set_margin_end(15)
@@ -494,7 +497,9 @@ class SettingsDialog(Gtk.Dialog):
         direct_scroll.add(self._vpn_direct_text)
         direct_box.pack_start(direct_scroll, True, True, 0)
 
-        return box
+        scrolled.add(box)
+
+        return scrolled
     
     def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:
         """VPN enable checkbox handler."""

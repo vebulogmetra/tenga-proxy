@@ -10,7 +10,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="1.0.0"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,18 +25,18 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 find_appimage() {
     local appimage=""
 
-    if [ -f "$PROJECT_ROOT/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
-        appimage="$PROJECT_ROOT/dist/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
-    elif [ -f "$PROJECT_ROOT/${APP_NAME}-${APP_VERSION}-x86_64.AppImage" ]; then
-        appimage="$PROJECT_ROOT/${APP_NAME}-${APP_VERSION}-x86_64.AppImage"
+    if ls "$PROJECT_ROOT/dist/${APP_NAME}-"*"-x86_64.AppImage" >/dev/null 2>&1; then
+        appimage=$(ls -t "$PROJECT_ROOT"/dist/${APP_NAME}-*-x86_64.AppImage | head -1)
+    elif ls "$PROJECT_ROOT/${APP_NAME}-"*"-x86_64.AppImage" >/dev/null 2>&1; then
+        appimage=$(ls -t "$PROJECT_ROOT"/${APP_NAME}-*-x86_64.AppImage | head -1)
     else
-        appimage=$(find "$PROJECT_ROOT" -maxdepth 2 -name "${APP_NAME}*.AppImage" -type f | head -1)
+        appimage=$(find "$PROJECT_ROOT" -maxdepth 2 -name "${APP_NAME}-*-x86_64.AppImage" -type f -printf "%T@ %p\n" 2>/dev/null | sort -nr | head -1 | awk '{print $2}')
     fi
-    
+
     if [ -z "$appimage" ] || [ ! -f "$appimage" ]; then
         error "AppImage не найден. Сначала запустите core/scripts/build_appimage.sh"
     fi
-    
+
     echo "$appimage"
 }
 
