@@ -31,3 +31,4 @@ core/proxy_list.txt
 
 build/
 dist/
+.coverage
