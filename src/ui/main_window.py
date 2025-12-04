@@ -37,6 +37,7 @@ class MainWindow(Gtk.Window):
         # Callbacks
         self._on_connect: Optional[Callable[[int], None]] = None
         self._on_disconnect: Optional[Callable[[], None]] = None
+        self._on_config_reload: Optional[Callable[[], None]] = None
         # UI elements
         self._profile_list: Optional[Gtk.TreeView] = None
         self._profile_store: Optional[Gtk.ListStore] = None
@@ -782,7 +783,7 @@ class MainWindow(Gtk.Window):
     def _on_settings_clicked(self, button: Gtk.Button) -> None:
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
-        show_settings_dialog(self._context, self)
+        show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
     
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
@@ -805,6 +806,10 @@ class MainWindow(Gtk.Window):
     def set_on_disconnect(self, callback: Callable[[], None]) -> None:
         """Set callback for disconnection."""
         self._on_disconnect = callback
+    
+    def set_on_config_reload(self, callback: Callable[[], None]) -> None:
+        """Set callback for configuration reload."""
+        self._on_config_reload = callback
     
     def refresh(self) -> None:
         """Refresh UI."""
