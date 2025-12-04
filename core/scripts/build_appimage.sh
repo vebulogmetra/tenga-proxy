@@ -118,6 +118,50 @@ export PATH="$APP_DIR/core/bin:$PATH"
 # Create config dir
 mkdir -p "$TENGA_CONFIG_DIR"
 
+# Check dependencies
+check_deps() {
+    local missing=()
+    
+    # Check Python3
+    if ! command -v python3 &> /dev/null; then
+        missing+=("python3")
+    fi
+    
+    # Check Python packages
+    if command -v python3 &> /dev/null; then
+        if ! python3 -c "import gi" 2>/dev/null; then
+            missing+=("python3-gi")
+        fi
+        if ! python3 -c "from gi.repository import Gtk" 2>/dev/null; then
+            missing+=("python3-gi (GTK3)")
+        fi
+        if ! python3 -c "import requests" 2>/dev/null; then
+            missing+=("python3-requests или pip install requests")
+        fi
+        if ! python3 -c "import yaml" 2>/dev/null; then
+            missing+=("python3-yaml или pip install PyYAML")
+        fi
+    fi
+    
+    if [ ${#missing[@]} -gt 0 ]; then
+        echo "Ошибка: отсутствуют необходимые зависимости:" >&2
+        for dep in "${missing[@]}"; do
+            echo "  - $dep" >&2
+        done
+        echo "" >&2
+        echo "Для Ubuntu/Debian установите:" >&2
+        echo "  sudo apt update" >&2
+        echo "  sudo apt install -y python3 python3-gi python3-pip gir1.2-gtk-3.0 \\" >&2
+        echo "    gir1.2-appindicator3-0.1 gir1.2-notify-0.7" >&2
+        echo "  pip3 install requests PyYAML" >&2
+        echo "" >&2
+        echo "Подробнее см. README.md: https://github.com/vebulogmetra/tenga-proxy#зависимости" >&2
+        exit 1
+    fi
+}
+
+check_deps
+
 # Run with system Python
 cd "$APP_DIR"
 exec python3 gui.py "$@"
