@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -661,10 +661,19 @@ class SettingsDialog(Gtk.Dialog):
         return True
 
 
-def show_settings_dialog(context: 'AppContext', parent: Optional[Gtk.Window] = None) -> bool:
+def show_settings_dialog(
+    context: 'AppContext',
+    parent: Optional[Gtk.Window] = None,
+    on_config_reload: Optional[Callable[[], None]] = None,
+) -> bool:
     """
     Show settings dialog.
     
+    Args:
+        context: Application context
+        parent: Parent window
+        on_config_reload: Optional callback to reload configuration after saving
+        
     Returns:
         True if settings were applied
     """
@@ -675,6 +684,12 @@ def show_settings_dialog(context: 'AppContext', parent: Optional[Gtk.Window] = N
         if response == Gtk.ResponseType.APPLY:
             if dialog.save_settings():
                 applied = True
+                # If proxy is running and reload callback is provided, reload config
+                if context.proxy_state.is_running and on_config_reload:
+                    try:
+                        on_config_reload()
+                    except Exception as e:
+                        logger.exception("Error reloading configuration: %s", e)
                 break
             continue
         else:
