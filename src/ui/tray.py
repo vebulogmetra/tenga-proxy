@@ -24,9 +24,9 @@ class TrayIcon:
     """System tray icon."""
     
     APP_ID = "tenga-proxy"
-    ICON_DISCONNECTED = "network-offline"
-    ICON_CONNECTED = "network-transmit-receive"
-    ICON_CONNECTING = "network-idle"
+    ICON_DISCONNECTED = "tenga-proxy"
+    ICON_CONNECTED = "tenga-proxy"
+    ICON_CONNECTING = "tenga-proxy"
     
     def __init__(self, context: 'AppContext'):
         self._context = context
@@ -88,7 +88,7 @@ class TrayIcon:
         
         self._update_profiles_menu()
         # Add profile
-        add_profile_item = Gtk.MenuItem(label="➕ Добавить профиль...")
+        add_profile_item = Gtk.MenuItem(label="Добавить профиль...")
         add_profile_item.connect("activate", self._on_add_profile_clicked)
         self._menu.append(add_profile_item)
         
@@ -98,7 +98,7 @@ class TrayIcon:
         show_item.connect("activate", self._on_show_clicked)
         self._menu.append(show_item)
         # Settings
-        settings_item = Gtk.MenuItem(label="⚙️ Настройки...")
+        settings_item = Gtk.MenuItem(label="Настройки...")
         settings_item.connect("activate", self._on_settings_clicked)
         self._menu.append(settings_item)
         
