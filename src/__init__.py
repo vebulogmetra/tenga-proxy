@@ -1,4 +1,4 @@
-__version__ = "1.2.6"
+__version__ = "1.3.0"
 __app_name__ = "Tenga Proxy"
 __app_description__ = "Клиент прокси с бекэндом <a href='https://github.com/SagerNet/sing-box'>sing-box</a>"
 __app_author__ = "Artem G."
