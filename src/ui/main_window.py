@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import array
 import threading
 from typing import TYPE_CHECKING, Callable, Optional
 
 import gi
 gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, Gdk, GLib, Pango
+from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf
 from src.ui.dialogs import show_edit_profile_dialog
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ class MainWindow(Gtk.Window):
         self._profile_store: Optional[Gtk.ListStore] = None
         self._connect_button: Optional[Gtk.Button] = None
         self._status_label: Optional[Gtk.Label] = None
+        self._header_icon: Optional[Gtk.Image] = None
         # Stats UI elements
         self._stats_frame: Optional[Gtk.Frame] = None
         self._upload_label: Optional[Gtk.Label] = None
@@ -129,16 +131,19 @@ class MainWindow(Gtk.Window):
         """Setup UI."""
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
         self.add(main_box)
-        
+
         # Header
-        header = Gtk.Label()
-        header.set_markup("<big><b>Tenga Proxy</b></big>")
-        main_box.pack_start(header, False, False, 5)
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        header_box.set_halign(Gtk.Align.CENTER)
+        self._header_icon = Gtk.Image.new_from_icon_name("tenga-proxy", Gtk.IconSize.DIALOG)
+        self._header_icon.set_pixel_size(64)
+        header_box.pack_start(self._header_icon, False, False, 0)
+        main_box.pack_start(header_box, False, False, 5)
         # Status
-        self._status_label = Gtk.Label(label="Статус: Отключено")
+        self._status_label = Gtk.Label(label="Отключено")
         self._status_label.get_style_context().add_class("status-disconnected")
         main_box.pack_start(self._status_label, False, False, 5)
-        # Statistics panel
+        # Info panel
         self._setup_stats_panel(main_box)
         # Separator
         main_box.pack_start(Gtk.Separator(), False, False, 5)
@@ -179,7 +184,7 @@ class MainWindow(Gtk.Window):
         scrolled.add(self._profile_list)
         # Profile management buttons
         profile_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        profile_button_box.set_halign(Gtk.Align.START)
+        profile_button_box.set_halign(Gtk.Align.CENTER)
         main_box.pack_start(profile_button_box, False, False, 0)
         
         add_button = Gtk.Button(label="➕ Добавить")
@@ -204,12 +209,12 @@ class MainWindow(Gtk.Window):
         button_box.set_halign(Gtk.Align.CENTER)
         main_box.pack_start(button_box, False, False, 10)
         
-        self._connect_button = Gtk.Button(label="Подключить")
+        self._connect_button = Gtk.Button(label="⏻ Подключить")
         self._connect_button.get_style_context().add_class("connect-button")
         self._connect_button.connect("clicked", self._on_connect_clicked)
         button_box.pack_start(self._connect_button, False, False, 0)
         
-        refresh_button = Gtk.Button(label="Обновить")
+        refresh_button = Gtk.Button(label="🔄 Обновить")
         refresh_button.connect("clicked", self._on_refresh_clicked)
         button_box.pack_start(refresh_button, False, False, 0)
         
@@ -220,7 +225,7 @@ class MainWindow(Gtk.Window):
     
     def _setup_stats_panel(self, parent_box: Gtk.Box) -> None:
         """Setup statistics panel."""
-        expander = Gtk.Expander(label="📊 Статистика")
+        expander = Gtk.Expander(label="ℹ️ Информация")
         expander.set_expanded(False)
         parent_box.pack_start(expander, False, False, 5)
         
@@ -627,24 +632,97 @@ class MainWindow(Gtk.Window):
         """State change handler."""
         GLib.idle_add(self._update_ui, state)
     
+    def _update_icon_color(self, color: str) -> None:
+        """Update header icon color."""
+        if not self._header_icon:
+            return
+        
+        try:
+            icon_theme = Gtk.IconTheme.get_default()
+            icon_info = icon_theme.lookup_icon("tenga-proxy", 64, 0)
+            if icon_info:
+                filename = icon_info.get_filename()
+                if filename:
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(filename)
+                    if color.startswith("#"):
+                        r = int(color[1:3], 16)
+                        g = int(color[3:5], 16)
+                        b = int(color[5:7], 16)
+                    else:
+                        r, g, b = 128, 128, 128
+
+                    width = pixbuf.get_width()
+                    height = pixbuf.get_height()
+                    has_alpha = pixbuf.get_has_alpha()
+                    n_channels = pixbuf.get_n_channels()
+                    rowstride = pixbuf.get_rowstride()
+                    pixels = pixbuf.get_pixels()
+
+                    new_pixbuf = GdkPixbuf.Pixbuf.new(
+                        GdkPixbuf.Colorspace.RGB,
+                        has_alpha,
+                        8,
+                        width,
+                        height
+                    )
+                    pixels_array = array.array('B', pixels)
+                    new_pixels_array = array.array('B', [0] * (height * new_pixbuf.get_rowstride()))
+                    
+                    for y in range(height):
+                        for x in range(width):
+                            idx = y * rowstride + x * n_channels
+                            new_idx = y * new_pixbuf.get_rowstride() + x * n_channels
+                            
+                            if has_alpha and n_channels == 4:
+                                alpha = pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
+                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                new_pixels_array[new_idx] = int(gray * r / 255)
+                                new_pixels_array[new_idx + 1] = int(gray * g / 255)
+                                new_pixels_array[new_idx + 2] = int(gray * b / 255)
+                                new_pixels_array[new_idx + 3] = alpha
+                            elif n_channels == 3:
+                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                new_pixels_array[new_idx] = int(gray * r / 255)
+                                new_pixels_array[new_idx + 1] = int(gray * g / 255)
+                                new_pixels_array[new_idx + 2] = int(gray * b / 255)
+                    
+                    new_pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
+                        GLib.Bytes.new(new_pixels_array.tobytes()),
+                        GdkPixbuf.Colorspace.RGB,
+                        has_alpha,
+                        8,
+                        width,
+                        height,
+                        new_pixbuf.get_rowstride()
+                    )
+                    self._header_icon.set_from_pixbuf(new_pixbuf)
+        except Exception:
+            pass
+    
     def _update_ui(self, state: 'ProxyState') -> None:
         """Update UI."""
         if state.is_running:
             profile = self._context.profiles.get_profile(state.started_profile_id)
             name = profile.name if profile else "Unknown"
             
-            self._status_label.set_text(f"Статус: Подключено ({name})")
+            self._status_label.set_text(f"Подключено ({name})")
             self._status_label.get_style_context().remove_class("status-disconnected")
             self._status_label.get_style_context().add_class("status-connected")
             
-            self._connect_button.set_label("Отключить")
+            if self._header_icon:
+                self._update_icon_color("#4CAF50")
+            
+            self._connect_button.set_label("⏻ Отключить")
             self._start_stats_timer()
         else:
-            self._status_label.set_text("Статус: Отключено")
+            self._status_label.set_text("Отключено")
             self._status_label.get_style_context().remove_class("status-connected")
             self._status_label.get_style_context().add_class("status-disconnected")
             
-            self._connect_button.set_label("Подключить")
+            if self._header_icon:
+                self._update_icon_color("#9E9E9E")
+            
+            self._connect_button.set_label("⏻ Подключить")
             self._stop_stats_timer()
             self._reset_stats_display()
         
