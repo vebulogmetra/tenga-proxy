@@ -336,3 +336,10 @@ class VpnSettings(ConfigBase):
     # Direct-bypass lists
     direct_networks: List[str] = field(default_factory=list)
     direct_domains: List[str] = field(default_factory=list)
+
+@dataclass
+class MonitoringSettings(ConfigBase):
+    """Connection monitoring settings."""
+    enabled: bool = False
+    check_interval_seconds: int = 10
+    test_url: str = "https://www.google.com/generate_204"
