@@ -59,6 +59,10 @@ class MainWindow(Gtk.Window):
         self._monitoring_vpn_status: Optional[Gtk.Label] = None
         self._monitoring_last_check: Optional[Gtk.Label] = None
         self._monitoring_notebook: Optional[Gtk.Notebook] = None
+        # Window state tracking
+        self._saved_width: int = 400
+        self._saved_height: int = 500
+        self._is_maximized: bool = False
         
         self._setup_window()
         self._setup_ui()
@@ -72,6 +76,10 @@ class MainWindow(Gtk.Window):
     def _setup_window(self) -> None:
         """Setup window."""
         self.set_default_size(400, 500)
+        self._saved_width = 400
+        self._saved_height = 500
+        self.set_size_request(350, 400)
+        self.set_resizable(True)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_border_width(10)
         self.set_icon_name("network-transmit-receive")
@@ -82,6 +90,8 @@ class MainWindow(Gtk.Window):
         
         # On close - hide
         self.connect("delete-event", self._on_delete)
+        self.connect("window-state-event", self._on_window_state_event)
+        self.connect("configure-event", self._on_configure_event)
 
         css = b"""
         .status-connected {
@@ -148,20 +158,20 @@ class MainWindow(Gtk.Window):
         self._status_label = Gtk.Label(label="Отключено")
         self._status_label.get_style_context().add_class("status-disconnected")
         main_box.pack_start(self._status_label, False, False, 5)
-        # Info panel
-        self._setup_stats_panel(main_box)
-        # Separator
-        main_box.pack_start(Gtk.Separator(), False, False, 5)
-        
+
         # Notebook with tabs
         self._monitoring_notebook = Gtk.Notebook()
         main_box.pack_start(self._monitoring_notebook, True, True, 0)
-        
+
         # Tab 1: Profiles
         profiles_page = self._create_profiles_page()
         self._monitoring_notebook.append_page(profiles_page, Gtk.Label(label="Профили"))
-        
-        # Tab 2: Monitoring
+
+        # Tab 2: Connection
+        connection_page = self._create_connection_page()
+        self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
+
+        # Tab 3: Monitoring
         monitoring_page = self._create_monitoring_page()
         self._monitoring_notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
         
@@ -348,16 +358,25 @@ class MainWindow(Gtk.Window):
         if monitor:
             monitor.check_now()
     
-    def _setup_stats_panel(self, parent_box: Gtk.Box) -> None:
-        """Setup statistics panel."""
-        expander = Gtk.Expander(label="ℹ️ Информация")
-        expander.set_expanded(False)
-        parent_box.pack_start(expander, False, False, 5)
+    def _create_connection_page(self) -> Gtk.Widget:
+        """Create connection information page."""
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        page_box.set_margin_start(15)
+        page_box.set_margin_end(15)
+        page_box.set_margin_top(15)
+        page_box.set_margin_bottom(15)
+        
+        # Title
+        title_label = Gtk.Label()
+        title_label.set_markup("<b>Информация о подключении</b>")
+        title_label.set_halign(Gtk.Align.START)
+        page_box.pack_start(title_label, False, False, 0)
         
         # Stats frame
         self._stats_frame = Gtk.Frame()
         self._stats_frame.get_style_context().add_class("stats-frame")
-        expander.add(self._stats_frame)
+        self._stats_frame.set_label("Статистика")
+        page_box.pack_start(self._stats_frame, False, False, 0)
         
         stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         stats_box.set_margin_top(8)
@@ -423,6 +442,7 @@ class MainWindow(Gtk.Window):
         # Buttons row
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         button_box.set_margin_top(10)
+        button_box.set_halign(Gtk.Align.CENTER)
         stats_box.pack_start(button_box, False, False, 0)
         # Test delay button
         test_delay_btn = Gtk.Button(label="🔍 Тест задержки")
@@ -439,6 +459,11 @@ class MainWindow(Gtk.Window):
         close_all_btn.set_tooltip_text("Закрыть все активные подключения")
         close_all_btn.connect("clicked", self._on_close_all_connections_clicked)
         button_box.pack_start(close_all_btn, False, False, 0)
+        
+        # Empty space
+        page_box.pack_start(Gtk.Box(), True, True, 0)
+        
+        return page_box
     
     def _start_stats_timer(self) -> None:
         """Start statistics update timer."""
@@ -987,6 +1012,24 @@ class MainWindow(Gtk.Window):
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
         show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
+    
+    def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
+        """Handle window state changes (maximize/restore)."""
+        is_maximized = bool(event.new_window_state & Gdk.WindowState.MAXIMIZED)
+        
+        if self._is_maximized and not is_maximized:
+            self.resize(self._saved_width, self._saved_height)
+        
+        self._is_maximized = is_maximized
+    
+    def _on_configure_event(self, widget: Gtk.Widget, event: Gdk.EventConfigure) -> None:
+        """Handle window configuration changes (size/position)."""
+        if not self._is_maximized:
+            width, height = self.get_size()
+            if width > 0 and height > 0:
+                self._saved_width = width
+                self._saved_height = height
+        return False
     
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
