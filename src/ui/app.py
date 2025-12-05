@@ -15,6 +15,7 @@ from gi.repository import Gtk
 from src.core.config import GUI_LOG_FILE
 from src.core.context import AppContext, get_context, init_context
 from src.core.logging_utils import setup_logging as setup_core_logging
+from src.core.monitor import ConnectionMonitor, ConnectionStatus
 from src.db.config import RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
@@ -46,7 +47,59 @@ class TengaApp:
         # Last selected profile
         self._last_profile_id: Optional[int] = None
         
+        # Connection monitor
+        self._monitor: Optional[ConnectionMonitor] = None
+        self._setup_monitor()
+        
         self._setup_signal_handlers()
+    
+    def _setup_monitor(self) -> None:
+        """Setup connection monitor."""
+        self._monitor = ConnectionMonitor(self._context)
+        self._monitor.set_on_status_changed(self._on_monitoring_status_changed)
+        self._context.set_monitor(self._monitor)
+    
+    def _on_monitoring_status_changed(
+        self,
+        previous: ConnectionStatus,
+        current: ConnectionStatus,
+    ) -> None:
+        """Handle monitoring status changes."""
+        if self._window:
+            from gi.repository import GLib
+            GLib.idle_add(
+                self._window.update_monitoring_status,
+                current.proxy_ok,
+                current.vpn_ok,
+                current.last_check_time,
+                current.proxy_error,
+                current.vpn_error,
+            )
+
+        if self._tray:
+            if previous.proxy_ok != current.proxy_ok:
+                if current.proxy_ok:
+                    self._tray.show_notification(
+                        "Прокси-соединение восстановлено",
+                        "Прокси работает нормально"
+                    )
+                else:
+                    self._tray.show_notification(
+                        "Прокси-соединение потеряно",
+                        current.proxy_error or "Прокси недоступен"
+                    )
+
+            if self._context.config.vpn.enabled and previous.vpn_ok != current.vpn_ok:
+                if current.vpn_ok:
+                    self._tray.show_notification(
+                        "VPN соединение восстановлено",
+                        "VPN работает нормально"
+                    )
+                else:
+                    self._tray.show_notification(
+                        "VPN соединение потеряно",
+                        current.vpn_error or "VPN недоступен"
+                    )
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers."""
@@ -247,6 +300,9 @@ class TengaApp:
             if self._tray:
                 self._tray.show_notification("Connected", f"Profile: {name}")
 
+            if self._monitor:
+                self._monitor.start()
+
             return True
 
         except Exception as e:
@@ -337,6 +393,9 @@ class TengaApp:
         clear_system_proxy()
         # Update state
         self._context.proxy_state.set_stopped()
+
+        if self._monitor:
+            self._monitor.stop()
 
         if self._tray:
             self._tray.show_notification("Disconnected", "Proxy disconnected")
