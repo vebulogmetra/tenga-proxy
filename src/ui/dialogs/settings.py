@@ -53,6 +53,9 @@ class SettingsDialog(Gtk.Dialog):
         # Tab: General
         general_page = self._create_general_page()
         notebook.append_page(general_page, Gtk.Label(label="Основные"))
+        # Tab: Monitoring
+        monitoring_page = self._create_monitoring_page()
+        notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
         # Tab: DNS
         dns_page = self._create_dns_page()
         notebook.append_page(dns_page, Gtk.Label(label="DNS"))
@@ -116,6 +119,19 @@ class SettingsDialog(Gtk.Dialog):
         for level in ["trace", "debug", "info", "warn", "error", "fatal", "panic"]:
             self._log_combo.append_text(level)
         log_grid.attach(self._log_combo, 1, 0, 1, 1)
+        
+        # Empty space
+        box.pack_start(Gtk.Box(), True, True, 0)
+        
+        return box
+    
+    def _create_monitoring_page(self) -> Gtk.Widget:
+        """Create monitoring settings page."""
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        box.set_margin_start(15)
+        box.set_margin_end(15)
+        box.set_margin_top(15)
+        box.set_margin_bottom(15)
         
         # Monitoring settings
         monitoring_frame = Gtk.Frame()
