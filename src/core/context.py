@@ -8,6 +8,7 @@ from src.core.config import CORE_DIR, find_singbox_binary
 
 if TYPE_CHECKING:
     from src.core.singbox_manager import SingBoxManager
+    from src.core.monitor import ConnectionMonitor
     from src.db.data_store import DataStore
     from src.db.profiles import ProfileManager
 
@@ -73,6 +74,7 @@ class AppContext:
         self._profiles: Optional['ProfileManager'] = None
         self._singbox_manager: Optional['SingBoxManager'] = None
         self._proxy_state = ProxyState()
+        self._monitor: Optional['ConnectionMonitor'] = None
         
         # Ensure config dir exists
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -123,6 +125,15 @@ class AppContext:
     def proxy_state(self) -> ProxyState:
         """Proxy state."""
         return self._proxy_state
+    
+    @property
+    def monitor(self) -> Optional['ConnectionMonitor']:
+        """Connection monitor."""
+        return self._monitor
+    
+    def set_monitor(self, monitor: Optional['ConnectionMonitor']) -> None:
+        """Set connection monitor."""
+        self._monitor = monitor
     
     def find_singbox_binary(self) -> Optional[str]:
         """Find sing-box binary."""

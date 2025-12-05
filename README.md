@@ -22,36 +22,11 @@
 - Системный трей с уведомлениями (GTK)
 - Мониторинг через Clash API (статистика, соединения)
 
-## Структура проекта
-
-```
-tenga-proxy/
-├── cli.py              # CLI точка входа
-├── gui.py              # GUI точка входа
-├── setup.sh            # Скрипт сборки и установки AppImage
-├── requirements.txt    # Python зависимости
-├── README.md           # Документация
-├── core/
-│   ├── bin/            # Бинарник sing-box
-│   └── scripts/        # Скрипты сборки и установки
-│       ├── build_appimage.sh    # Сборка AppImage
-│       ├── install_appimage.sh  # Установка AppImage
-│       └── install_dev.sh       # Установка окружения для разработки
-└── src/                # Основной Python модуль
-    ├── core/           # Контекст и менеджер sing-box
-    ├── db/             # Хранение конфигурации и профилей
-    ├── fmt/            # Парсинг и форматирование протоколов
-    │   └── protocols/  # Реализации протоколов
-    ├── sub/            # Работа с подписками
-    ├── sys/            # Системные функции (прокси)
-    └── ui/             # GTK интерфейс
-```
-
 ## Установка
 
 ### Быстрая установка
 
-Для сборки и установки AppImage в систему:
+Для сборки и установки/обновления AppImage в систему:
 
 ```bash
 ./setup.sh
@@ -195,9 +170,32 @@ curl -x http://127.0.0.1:2080 https://ifconfig.me
 
 ## Зависимости
 
-### Системные (для GUI)
+### Требования для AppImage
 
-- `python3-gi` — Python bindings для GTK
-- `gir1.2-appindicator3-0.1` или `gir1.2-ayatanaappindicator3-0.1` — индикатор в трее
-- `gir1.2-notify-0.7` — уведомления
-- `libfuse2t64` или `libfuse2` — для запуска AppImage
+AppImage использует системный Python3 и требует установленных зависимостей.
+
+#### Системные пакеты (Ubuntu/Debian)
+
+```bash
+sudo apt update
+sudo apt install -y \
+    python3 \
+    python3-gi \
+    python3-pip \
+    gir1.2-gtk-3.0 \
+    gir1.2-appindicator3-0.1 \
+    gir1.2-notify-0.7 \
+    libfuse2t64
+```
+
+#### Python пакеты
+
+```bash
+pip3 install requests PyYAML
+```
+
+Или установите все зависимости из `requirements.txt`:
+
+```bash
+pip3 install -r requirements.txt
+```

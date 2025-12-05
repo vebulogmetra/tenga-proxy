@@ -54,6 +54,11 @@ class MainWindow(Gtk.Window):
         self._delay_label: Optional[Gtk.Label] = None
         # Stats update timer
         self._stats_timer_id: Optional[int] = None
+        # Monitoring UI elements
+        self._monitoring_proxy_status: Optional[Gtk.Label] = None
+        self._monitoring_vpn_status: Optional[Gtk.Label] = None
+        self._monitoring_last_check: Optional[Gtk.Label] = None
+        self._monitoring_notebook: Optional[Gtk.Notebook] = None
         
         self._setup_window()
         self._setup_ui()
@@ -147,16 +152,56 @@ class MainWindow(Gtk.Window):
         self._setup_stats_panel(main_box)
         # Separator
         main_box.pack_start(Gtk.Separator(), False, False, 5)
+        
+        # Notebook with tabs
+        self._monitoring_notebook = Gtk.Notebook()
+        main_box.pack_start(self._monitoring_notebook, True, True, 0)
+        
+        # Tab 1: Profiles
+        profiles_page = self._create_profiles_page()
+        self._monitoring_notebook.append_page(profiles_page, Gtk.Label(label="Профили"))
+        
+        # Tab 2: Monitoring
+        monitoring_page = self._create_monitoring_page()
+        self._monitoring_notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
+        
+        # Connection buttons (outside notebook)
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        button_box.set_halign(Gtk.Align.CENTER)
+        main_box.pack_start(button_box, False, False, 10)
+        
+        self._connect_button = Gtk.Button(label="⏻ Подключить")
+        self._connect_button.get_style_context().add_class("connect-button")
+        self._connect_button.connect("clicked", self._on_connect_clicked)
+        button_box.pack_start(self._connect_button, False, False, 0)
+        
+        refresh_button = Gtk.Button(label="🔄 Обновить")
+        refresh_button.connect("clicked", self._on_refresh_clicked)
+        button_box.pack_start(refresh_button, False, False, 0)
+        
+        settings_button = Gtk.Button(label="⚙️ Настройки")
+        settings_button.set_tooltip_text("Настройки приложения")
+        settings_button.connect("clicked", self._on_settings_clicked)
+        button_box.pack_start(settings_button, False, False, 0)
+    
+    def _create_profiles_page(self) -> Gtk.Widget:
+        """Create profiles page."""
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page_box.set_margin_start(5)
+        page_box.set_margin_end(5)
+        page_box.set_margin_top(5)
+        page_box.set_margin_bottom(5)
+        
         # Profile list
         profiles_label = Gtk.Label()
         profiles_label.set_markup("<b>Профили</b>")
         profiles_label.set_halign(Gtk.Align.START)
-        main_box.pack_start(profiles_label, False, False, 0)
+        page_box.pack_start(profiles_label, False, False, 0)
         # ScrolledWindow for list
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_min_content_height(200)
-        main_box.pack_start(scrolled, True, True, 0)
+        page_box.pack_start(scrolled, True, True, 0)
         # TreeView
         self._profile_store = Gtk.ListStore(int, str, str, str)  # id, name, type, address
         self._profile_list = Gtk.TreeView(model=self._profile_store)
@@ -185,7 +230,7 @@ class MainWindow(Gtk.Window):
         # Profile management buttons
         profile_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         profile_button_box.set_halign(Gtk.Align.CENTER)
-        main_box.pack_start(profile_button_box, False, False, 0)
+        page_box.pack_start(profile_button_box, False, False, 0)
         
         add_button = Gtk.Button(label="➕ Добавить")
         add_button.set_tooltip_text("Добавить профиль по share link")
@@ -202,26 +247,106 @@ class MainWindow(Gtk.Window):
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
         
-        # Separator
-        main_box.pack_start(Gtk.Separator(), False, False, 5)
-        # Connection buttons
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-        button_box.set_halign(Gtk.Align.CENTER)
-        main_box.pack_start(button_box, False, False, 10)
+        return page_box
+    
+    def _create_monitoring_page(self) -> Gtk.Widget:
+        """Create monitoring page."""
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        page_box.set_margin_start(15)
+        page_box.set_margin_end(15)
+        page_box.set_margin_top(15)
+        page_box.set_margin_bottom(15)
         
-        self._connect_button = Gtk.Button(label="⏻ Подключить")
-        self._connect_button.get_style_context().add_class("connect-button")
-        self._connect_button.connect("clicked", self._on_connect_clicked)
-        button_box.pack_start(self._connect_button, False, False, 0)
+        # Title
+        title_label = Gtk.Label()
+        title_label.set_markup("<b>Мониторинг соединений</b>")
+        title_label.set_halign(Gtk.Align.START)
+        page_box.pack_start(title_label, False, False, 0)
         
-        refresh_button = Gtk.Button(label="🔄 Обновить")
-        refresh_button.connect("clicked", self._on_refresh_clicked)
-        button_box.pack_start(refresh_button, False, False, 0)
+        # Proxy status frame
+        proxy_frame = Gtk.Frame()
+        proxy_frame.set_label("Статус прокси")
+        proxy_frame.set_margin_top(10)
+        page_box.pack_start(proxy_frame, False, False, 0)
         
-        settings_button = Gtk.Button(label="⚙️ Настройки")
-        settings_button.set_tooltip_text("Настройки приложения")
-        settings_button.connect("clicked", self._on_settings_clicked)
-        button_box.pack_start(settings_button, False, False, 0)
+        proxy_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        proxy_box.set_margin_start(10)
+        proxy_box.set_margin_end(10)
+        proxy_box.set_margin_top(10)
+        proxy_box.set_margin_bottom(10)
+        proxy_frame.add(proxy_box)
+        
+        proxy_status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        proxy_status_label = Gtk.Label(label="Статус:")
+        proxy_status_label.set_halign(Gtk.Align.START)
+        proxy_status_box.pack_start(proxy_status_label, False, False, 0)
+        
+        self._monitoring_proxy_status = Gtk.Label(label="—")
+        self._monitoring_proxy_status.set_halign(Gtk.Align.START)
+        self._monitoring_proxy_status.get_style_context().add_class("status-disconnected")
+        proxy_status_box.pack_start(self._monitoring_proxy_status, False, False, 0)
+        proxy_box.pack_start(proxy_status_box, False, False, 0)
+        
+        # VPN status frame
+        vpn_frame = Gtk.Frame()
+        vpn_frame.set_label("Статус VPN")
+        vpn_frame.set_margin_top(10)
+        page_box.pack_start(vpn_frame, False, False, 0)
+        
+        vpn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vpn_box.set_margin_start(10)
+        vpn_box.set_margin_end(10)
+        vpn_box.set_margin_top(10)
+        vpn_box.set_margin_bottom(10)
+        vpn_frame.add(vpn_box)
+        
+        vpn_status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        vpn_status_label = Gtk.Label(label="Статус:")
+        vpn_status_label.set_halign(Gtk.Align.START)
+        vpn_status_box.pack_start(vpn_status_label, False, False, 0)
+        
+        self._monitoring_vpn_status = Gtk.Label(label="—")
+        self._monitoring_vpn_status.set_halign(Gtk.Align.START)
+        self._monitoring_vpn_status.get_style_context().add_class("status-disconnected")
+        vpn_status_box.pack_start(self._monitoring_vpn_status, False, False, 0)
+        vpn_box.pack_start(vpn_status_box, False, False, 0)
+        
+        # Last check time
+        last_check_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        last_check_label = Gtk.Label(label="Последняя проверка:")
+        last_check_label.set_halign(Gtk.Align.START)
+        last_check_box.pack_start(last_check_label, False, False, 0)
+        
+        self._monitoring_last_check = Gtk.Label(label="—")
+        self._monitoring_last_check.set_halign(Gtk.Align.START)
+        last_check_box.pack_start(self._monitoring_last_check, False, False, 0)
+        page_box.pack_start(last_check_box, False, False, 10)
+        
+        # Refresh button
+        refresh_monitoring_btn = Gtk.Button(label="🔄 Обновить сейчас")
+        refresh_monitoring_btn.set_tooltip_text("Выполнить проверку соединений сейчас")
+        refresh_monitoring_btn.connect("clicked", self._on_refresh_monitoring_clicked)
+        page_box.pack_start(refresh_monitoring_btn, False, False, 0)
+        
+        # Info label
+        info_label = Gtk.Label()
+        info_label.set_markup(
+            "<small>Мониторинг автоматически проверяет статус соединений "
+            "с заданным интервалом. Уведомления отправляются при изменении статуса.</small>"
+        )
+        info_label.set_line_wrap(True)
+        info_label.set_halign(Gtk.Align.START)
+        info_label.set_margin_top(10)
+        page_box.pack_start(info_label, False, False, 0)
+        
+        return page_box
+    
+    def _on_refresh_monitoring_clicked(self, button: Gtk.Button) -> None:
+        """Refresh monitoring status manually."""
+        # Trigger manual check if monitor is available
+        monitor = self._context.monitor
+        if monitor:
+            monitor.check_now()
     
     def _setup_stats_panel(self, parent_box: Gtk.Box) -> None:
         """Setup statistics panel."""
@@ -892,3 +1017,53 @@ class MainWindow(Gtk.Window):
     def refresh(self) -> None:
         """Refresh UI."""
         GLib.idle_add(self._refresh_profiles)
+    
+    def update_monitoring_status(
+        self,
+        proxy_ok: bool,
+        vpn_ok: bool,
+        last_check_time: float,
+        proxy_error: str = "",
+        vpn_error: str = "",
+    ) -> None:
+        """Update monitoring status display."""
+        if not self._monitoring_proxy_status or not self._monitoring_vpn_status:
+            return
+        
+        # Update proxy status
+        ctx = self._monitoring_proxy_status.get_style_context()
+        ctx.remove_class("status-connected")
+        ctx.remove_class("status-disconnected")
+        
+        if proxy_ok:
+            self._monitoring_proxy_status.set_text("🟢 Работает")
+            ctx.add_class("status-connected")
+        else:
+            self._monitoring_proxy_status.set_text("🔴 Не работает")
+            if proxy_error:
+                self._monitoring_proxy_status.set_tooltip_text(proxy_error)
+            ctx.add_class("status-disconnected")
+        
+        # Update VPN status
+        ctx = self._monitoring_vpn_status.get_style_context()
+        ctx.remove_class("status-connected")
+        ctx.remove_class("status-disconnected")
+        
+        if vpn_ok:
+            self._monitoring_vpn_status.set_text("🟢 Подключен")
+            ctx.add_class("status-connected")
+        else:
+            self._monitoring_vpn_status.set_text("🔴 Отключен")
+            if vpn_error:
+                self._monitoring_vpn_status.set_tooltip_text(vpn_error)
+            ctx.add_class("status-disconnected")
+        
+        # Update last check time
+        if self._monitoring_last_check:
+            if last_check_time > 0:
+                import datetime
+                check_time = datetime.datetime.fromtimestamp(last_check_time)
+                time_str = check_time.strftime("%H:%M:%S")
+                self._monitoring_last_check.set_text(time_str)
+            else:
+                self._monitoring_last_check.set_text("—")
