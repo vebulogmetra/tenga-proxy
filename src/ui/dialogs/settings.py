@@ -117,6 +117,31 @@ class SettingsDialog(Gtk.Dialog):
             self._log_combo.append_text(level)
         log_grid.attach(self._log_combo, 1, 0, 1, 1)
         
+        # Monitoring settings
+        monitoring_frame = Gtk.Frame()
+        monitoring_frame.set_label("Мониторинг соединений")
+        box.pack_start(monitoring_frame, False, False, 0)
+        
+        monitoring_grid = Gtk.Grid()
+        monitoring_grid.set_row_spacing(8)
+        monitoring_grid.set_column_spacing(10)
+        monitoring_grid.set_margin_start(10)
+        monitoring_grid.set_margin_end(10)
+        monitoring_grid.set_margin_top(10)
+        monitoring_grid.set_margin_bottom(10)
+        monitoring_frame.add(monitoring_grid)
+        
+        self._monitoring_enable_check = Gtk.CheckButton(label="Включить мониторинг соединений")
+        self._monitoring_enable_check.set_tooltip_text(
+            "Автоматически проверять статус прокси и VPN соединений и отправлять уведомления при изменениях"
+        )
+        monitoring_grid.attach(self._monitoring_enable_check, 0, 0, 2, 1)
+        
+        monitoring_grid.attach(Gtk.Label(label="Интервал проверки (сек):", halign=Gtk.Align.END), 0, 1, 1, 1)
+        self._monitoring_interval_spin = Gtk.SpinButton.new_with_range(5, 60, 1)
+        self._monitoring_interval_spin.set_tooltip_text("Интервал между проверками статуса соединений (5-60 секунд)")
+        monitoring_grid.attach(self._monitoring_interval_spin, 1, 1, 1, 1)
+        
         # Empty space
         box.pack_start(Gtk.Box(), True, True, 0)
         
@@ -527,6 +552,11 @@ class SettingsDialog(Gtk.Dialog):
         else:
             self._log_combo.set_active(2)  # info
         
+        # Monitoring settings
+        monitoring = config.monitoring
+        self._monitoring_enable_check.set_active(monitoring.enabled)
+        self._monitoring_interval_spin.set_value(monitoring.check_interval_seconds)
+        
         # DNS settings
         if dns.provider in self._dns_radios:
             self._dns_radios[dns.provider].set_active(True)
@@ -593,6 +623,11 @@ class SettingsDialog(Gtk.Dialog):
         
         log_levels = ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
         config.log_level = log_levels[self._log_combo.get_active()]
+        
+        # Monitoring settings
+        monitoring = config.monitoring
+        monitoring.enabled = self._monitoring_enable_check.get_active()
+        monitoring.check_interval_seconds = int(self._monitoring_interval_spin.get_value())
         
         # DNS settings
         for provider, radio in self._dns_radios.items():

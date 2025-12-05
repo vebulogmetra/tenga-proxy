@@ -11,6 +11,7 @@ from src.db.config import (
     DnsSettings,
     RoutingSettings,
     VpnSettings,
+    MonitoringSettings,
 )
 
 
@@ -87,6 +88,8 @@ class DataStore(ConfigBase):
     dns: DnsSettings = field(default_factory=DnsSettings)
     # VPN settings
     vpn: VpnSettings = field(default_factory=VpnSettings)
+    # Monitoring settings
+    monitoring: MonitoringSettings = field(default_factory=MonitoringSettings)
     # Misc
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000
