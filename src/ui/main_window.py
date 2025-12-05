@@ -158,20 +158,20 @@ class MainWindow(Gtk.Window):
         self._status_label = Gtk.Label(label="Отключено")
         self._status_label.get_style_context().add_class("status-disconnected")
         main_box.pack_start(self._status_label, False, False, 5)
-        # Info panel
-        self._setup_stats_panel(main_box)
-        # Separator
-        main_box.pack_start(Gtk.Separator(), False, False, 5)
-        
+
         # Notebook with tabs
         self._monitoring_notebook = Gtk.Notebook()
         main_box.pack_start(self._monitoring_notebook, True, True, 0)
-        
+
         # Tab 1: Profiles
         profiles_page = self._create_profiles_page()
         self._monitoring_notebook.append_page(profiles_page, Gtk.Label(label="Профили"))
-        
-        # Tab 2: Monitoring
+
+        # Tab 2: Connection
+        connection_page = self._create_connection_page()
+        self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
+
+        # Tab 3: Monitoring
         monitoring_page = self._create_monitoring_page()
         self._monitoring_notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
         
@@ -358,16 +358,25 @@ class MainWindow(Gtk.Window):
         if monitor:
             monitor.check_now()
     
-    def _setup_stats_panel(self, parent_box: Gtk.Box) -> None:
-        """Setup statistics panel."""
-        expander = Gtk.Expander(label="ℹ️ Информация")
-        expander.set_expanded(False)
-        parent_box.pack_start(expander, False, False, 5)
+    def _create_connection_page(self) -> Gtk.Widget:
+        """Create connection information page."""
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        page_box.set_margin_start(15)
+        page_box.set_margin_end(15)
+        page_box.set_margin_top(15)
+        page_box.set_margin_bottom(15)
+        
+        # Title
+        title_label = Gtk.Label()
+        title_label.set_markup("<b>Информация о подключении</b>")
+        title_label.set_halign(Gtk.Align.START)
+        page_box.pack_start(title_label, False, False, 0)
         
         # Stats frame
         self._stats_frame = Gtk.Frame()
         self._stats_frame.get_style_context().add_class("stats-frame")
-        expander.add(self._stats_frame)
+        self._stats_frame.set_label("Статистика")
+        page_box.pack_start(self._stats_frame, False, False, 0)
         
         stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         stats_box.set_margin_top(8)
@@ -433,6 +442,7 @@ class MainWindow(Gtk.Window):
         # Buttons row
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         button_box.set_margin_top(10)
+        button_box.set_halign(Gtk.Align.CENTER)
         stats_box.pack_start(button_box, False, False, 0)
         # Test delay button
         test_delay_btn = Gtk.Button(label="🔍 Тест задержки")
@@ -449,6 +459,11 @@ class MainWindow(Gtk.Window):
         close_all_btn.set_tooltip_text("Закрыть все активные подключения")
         close_all_btn.connect("clicked", self._on_close_all_connections_clicked)
         button_box.pack_start(close_all_btn, False, False, 0)
+        
+        # Empty space
+        page_box.pack_start(Gtk.Box(), True, True, 0)
+        
+        return page_box
     
     def _start_stats_timer(self) -> None:
         """Start statistics update timer."""
