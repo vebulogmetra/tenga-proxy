@@ -59,6 +59,10 @@ class MainWindow(Gtk.Window):
         self._monitoring_vpn_status: Optional[Gtk.Label] = None
         self._monitoring_last_check: Optional[Gtk.Label] = None
         self._monitoring_notebook: Optional[Gtk.Notebook] = None
+        # Window state tracking
+        self._saved_width: int = 400
+        self._saved_height: int = 500
+        self._is_maximized: bool = False
         
         self._setup_window()
         self._setup_ui()
@@ -72,6 +76,10 @@ class MainWindow(Gtk.Window):
     def _setup_window(self) -> None:
         """Setup window."""
         self.set_default_size(400, 500)
+        self._saved_width = 400
+        self._saved_height = 500
+        self.set_size_request(350, 400)
+        self.set_resizable(True)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_border_width(10)
         self.set_icon_name("network-transmit-receive")
@@ -82,6 +90,8 @@ class MainWindow(Gtk.Window):
         
         # On close - hide
         self.connect("delete-event", self._on_delete)
+        self.connect("window-state-event", self._on_window_state_event)
+        self.connect("configure-event", self._on_configure_event)
 
         css = b"""
         .status-connected {
@@ -987,6 +997,24 @@ class MainWindow(Gtk.Window):
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
         show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
+    
+    def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
+        """Handle window state changes (maximize/restore)."""
+        is_maximized = bool(event.new_window_state & Gdk.WindowState.MAXIMIZED)
+        
+        if self._is_maximized and not is_maximized:
+            self.resize(self._saved_width, self._saved_height)
+        
+        self._is_maximized = is_maximized
+    
+    def _on_configure_event(self, widget: Gtk.Widget, event: Gdk.EventConfigure) -> None:
+        """Handle window configuration changes (size/position)."""
+        if not self._is_maximized:
+            width, height = self.get_size()
+            if width > 0 and height > 0:
+                self._saved_width = width
+                self._saved_height = height
+        return False
     
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
