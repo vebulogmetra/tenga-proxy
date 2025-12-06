@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Callable, Optional
 import gi
 gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, Pango
+from gi.repository import Gtk, Gdk, Pango
 
 from src import __version__ as APP_VERSION, __app_name__ as APP_NAME, __app_description__, __app_author__, __app_website__
 from src.db.config import DnsProvider
@@ -27,6 +27,10 @@ class SettingsDialog(Gtk.Dialog):
             transient_for=parent,
             flags=0,
         )
+        self.set_wmclass("tenga-proxy", "tenga-proxy")
+        self.set_role("tenga-proxy")
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.connect("realize", self._on_realize)
         
         self.add_buttons(
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -35,12 +39,23 @@ class SettingsDialog(Gtk.Dialog):
         
         self.set_default_size(650, 550)
         self.set_modal(True)
+        self.set_skip_taskbar_hint(True)
         
         self._context = context
         self._core_dir = context.config_dir
         
         self._setup_ui()
         self._load_settings()
+    
+    def _on_realize(self, widget: Gtk.Widget) -> None:
+        """Handle window realization - set WM_CLASS via Gdk.Window."""
+        window = self.get_window()
+        if window:
+            try:
+                window.set_wmclass("tenga-proxy", "tenga-proxy")
+                self.set_skip_taskbar_hint(True)
+            except Exception:
+                pass
     
     def _setup_ui(self) -> None:
         """Setup UI."""
@@ -684,6 +699,9 @@ class SettingsDialog(Gtk.Dialog):
                     buttons=Gtk.ButtonsType.OK,
                     text="VPN подключение не найдено",
                 )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
                 dialog.format_secondary_text(
                     f"Подключение с именем \"{vpn.connection_name}\" "
                     "не найдено в NetworkManager.\n\n"
