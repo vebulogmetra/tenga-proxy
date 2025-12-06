@@ -21,6 +21,10 @@ class AddProfileDialog(Gtk.Dialog):
             transient_for=parent,
             flags=0,
         )
+        self.set_wmclass("tenga-proxy", "tenga-proxy")
+        self.set_role("tenga-proxy")
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.connect("realize", self._on_realize)
         
         self.add_buttons(
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -29,6 +33,7 @@ class AddProfileDialog(Gtk.Dialog):
         
         self.set_default_size(500, 200)
         self.set_modal(True)
+        self.set_skip_taskbar_hint(True)
         
         self._link_entry: Optional[Gtk.Entry] = None
         self._name_entry: Optional[Gtk.Entry] = None
@@ -36,6 +41,17 @@ class AddProfileDialog(Gtk.Dialog):
         self._parsed_bean: Optional['ProxyBean'] = None
         
         self._setup_ui()
+    
+    def _on_realize(self, widget: Gtk.Widget) -> None:
+        """Handle window realization - set WM_CLASS via Gdk.Window."""
+        window = self.get_window()
+        if window:
+            try:
+                window.set_wmclass("tenga-proxy", "tenga-proxy")
+                # Ensure skip taskbar is set after window is realized
+                self.set_skip_taskbar_hint(True)
+            except Exception:
+                pass
     
     def _setup_ui(self) -> None:
         """Setup UI."""

@@ -161,9 +161,11 @@ class SingBoxManager:
             return False, f"Error writing configuration: {e}"
         
         # Start process
+        log_file_opened = False
         try:
             SINGBOX_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
             self._log_file = open(SINGBOX_LOG_FILE, "ab", buffering=0)
+            log_file_opened = True
         except Exception as e:
             logger.warning("Unable to open sing-box log file %s: %s", SINGBOX_LOG_FILE, e)
             self._log_file = None
@@ -208,6 +210,12 @@ class SingBoxManager:
             self._cleanup()
             return False, f"Binary not found: {self._binary_path}"
         except Exception as e:
+            if log_file_opened and self._log_file is not None:
+                try:
+                    self._log_file.close()
+                except Exception:
+                    pass
+                self._log_file = None
             self._cleanup()
             return False, f"Startup error: {e}"
     
