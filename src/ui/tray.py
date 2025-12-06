@@ -242,3 +242,10 @@ class TrayIcon:
             notification.show()
         except Exception as e:
             print(f"Failed to show notification: {e}")
+    
+    def cleanup(self) -> None:
+        """Cleanup resources - remove listeners."""
+        try:
+            self._context.proxy_state.remove_listener(self._on_state_changed)
+        except Exception:
+            pass

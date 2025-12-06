@@ -182,6 +182,11 @@ class TengaApp:
             self._disconnect()
         # Save configuration
         self._context.save_all()
+        # Cleanup resources
+        if self._tray:
+            self._tray.cleanup()
+        if self._window:
+            pass
         # Quit GTK
         Gtk.main_quit()
     
