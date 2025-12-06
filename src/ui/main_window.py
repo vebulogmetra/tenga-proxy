@@ -94,6 +94,7 @@ class MainWindow(Gtk.Window):
         
         # On close - hide
         self.connect("delete-event", self._on_delete)
+        self.connect("destroy", self._on_destroy)
         self.connect("window-state-event", self._on_window_state_event)
         self.connect("configure-event", self._on_configure_event)
 
@@ -1075,6 +1076,16 @@ class MainWindow(Gtk.Window):
         self._stop_stats_timer()
         self.hide()
         return True
+    
+    def _on_destroy(self, widget: Gtk.Widget) -> None:
+        """Handle window destruction - cleanup resources."""
+        # Stop stats timer
+        self._stop_stats_timer()
+        # Remove state listener to prevent memory leak
+        try:
+            self._context.proxy_state.remove_listener(self._on_state_changed)
+        except Exception:
+            pass
     
     def show_all(self) -> None:
         """Override show_all to restart stats timer if connected."""
