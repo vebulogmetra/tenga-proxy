@@ -91,8 +91,12 @@ class ConnectionMonitor:
         Returns:
             True to continue timer, False to stop
         """
+        if self._timer_id is None:
+            return False
+        
         if not self._context.config.monitoring.enabled:
             logger.debug("Monitoring disabled, stopping checks")
+            self.stop()
             return False
         
         logger.debug("Checking connections...")

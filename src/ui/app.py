@@ -134,6 +134,10 @@ class TengaApp:
                     buttons=Gtk.ButtonsType.OK,
                     text="sing-box не найден"
                 )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                from gi.repository import Gdk
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
                 dialog.format_secondary_text(error_msg)
                 dialog.run()
                 dialog.destroy()
@@ -178,6 +182,11 @@ class TengaApp:
             self._disconnect()
         # Save configuration
         self._context.save_all()
+        # Cleanup resources
+        if self._tray:
+            self._tray.cleanup()
+        if self._window:
+            pass
         # Quit GTK
         Gtk.main_quit()
     

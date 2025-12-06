@@ -87,9 +87,14 @@ class MainWindow(Gtk.Window):
         # icon_path = Path(__file__).parent.parent.parent / "res" / "icon.png"
         # if icon_path.exists():
         #     self.set_icon_from_file(str(icon_path))
+
+        self.set_wmclass("tenga-proxy", "tenga-proxy")
+        self.set_role("tenga-proxy")
+        self.connect("realize", self._on_realize)
         
         # On close - hide
         self.connect("delete-event", self._on_delete)
+        self.connect("destroy", self._on_destroy)
         self.connect("window-state-event", self._on_window_state_event)
         self.connect("configure-event", self._on_configure_event)
 
@@ -546,6 +551,9 @@ class MainWindow(Gtk.Window):
                 buttons=Gtk.ButtonsType.OK,
                 text="Прокси не подключен",
             )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text("Подключитесь к прокси для тестирования задержки.")
             dialog.run()
             dialog.destroy()
@@ -614,6 +622,9 @@ class MainWindow(Gtk.Window):
                 buttons=Gtk.ButtonsType.OK,
                 text="Прокси не подключен",
             )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text("Подключитесь к прокси для просмотра подключений.")
             dialog.run()
             dialog.destroy()
@@ -750,6 +761,9 @@ class MainWindow(Gtk.Window):
             buttons=Gtk.ButtonsType.YES_NO,
             text="Закрыть все подключения?",
         )
+        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        dialog.set_skip_taskbar_hint(True)
         dialog.format_secondary_text("Все активные подключения будут разорваны.")
         response = dialog.run()
         dialog.destroy()
@@ -913,6 +927,9 @@ class MainWindow(Gtk.Window):
                     buttons=Gtk.ButtonsType.OK,
                     text="Выберите профиль",
                 )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
                 dialog.format_secondary_text("Выберите профиль из списка для подключения.")
                 dialog.run()
                 dialog.destroy()
@@ -941,6 +958,9 @@ class MainWindow(Gtk.Window):
                 buttons=Gtk.ButtonsType.OK,
                 text="Профиль добавлен",
             )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text(f"{entry.name}\n{profile.display_address}")
             dialog.run()
             dialog.destroy()
@@ -957,6 +977,9 @@ class MainWindow(Gtk.Window):
                 buttons=Gtk.ButtonsType.OK,
                 text="Выберите профиль",
             )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text("Выберите профиль для удаления.")
             dialog.run()
             dialog.destroy()
@@ -973,6 +996,9 @@ class MainWindow(Gtk.Window):
             buttons=Gtk.ButtonsType.YES_NO,
             text="Удалить профиль?",
         )
+        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        dialog.set_skip_taskbar_hint(True)
         dialog.format_secondary_text(f"Удалить профиль '{profile.name}'?")
         response = dialog.run()
         dialog.destroy()
@@ -994,6 +1020,9 @@ class MainWindow(Gtk.Window):
                 buttons=Gtk.ButtonsType.OK,
                 text="Выберите профиль",
             )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text("Выберите профиль для редактирования.")
             dialog.run()
             dialog.destroy()
@@ -1012,6 +1041,16 @@ class MainWindow(Gtk.Window):
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
         show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
+    
+    def _on_realize(self, widget: Gtk.Widget) -> None:
+        """Handle window realization - set WM_CLASS via Gdk.Window."""
+        window = self.get_window()
+        if window:
+            # Set WM_CLASS directly via Gdk.Window for better compatibility
+            try:
+                window.set_wmclass("tenga-proxy", "tenga-proxy")
+            except Exception:
+                pass
     
     def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
         """Handle window state changes (maximize/restore)."""
@@ -1037,6 +1076,16 @@ class MainWindow(Gtk.Window):
         self._stop_stats_timer()
         self.hide()
         return True
+    
+    def _on_destroy(self, widget: Gtk.Widget) -> None:
+        """Handle window destruction - cleanup resources."""
+        # Stop stats timer
+        self._stop_stats_timer()
+        # Remove state listener to prevent memory leak
+        try:
+            self._context.proxy_state.remove_listener(self._on_state_changed)
+        except Exception:
+            pass
     
     def show_all(self) -> None:
         """Override show_all to restart stats timer if connected."""

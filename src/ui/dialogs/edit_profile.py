@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk, Gdk  # noqa: E402
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
@@ -22,6 +22,11 @@ class EditProfileDialog(Gtk.Dialog):
             flags=0,
         )
 
+        self.set_wmclass("tenga-proxy", "tenga-proxy")
+        self.set_role("tenga-proxy")
+        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        self.connect("realize", self._on_realize)
+
         self._profile = profile
 
         self.add_buttons(
@@ -33,12 +38,24 @@ class EditProfileDialog(Gtk.Dialog):
 
         self.set_default_size(500, 200)
         self.set_modal(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_taskbar_hint(True)
 
         self._name_entry: Optional[Gtk.Entry] = None
         self._address_entry: Optional[Gtk.Entry] = None
         self._port_entry: Optional[Gtk.SpinButton] = None
 
         self._setup_ui()
+    
+    def _on_realize(self, widget: Gtk.Widget) -> None:
+        """Handle window realization - set WM_CLASS via Gdk.Window."""
+        window = self.get_window()
+        if window:
+            try:
+                window.set_wmclass("tenga-proxy", "tenga-proxy")
+                self.set_skip_taskbar_hint(True)
+            except Exception:
+                pass
 
     def _setup_ui(self) -> None:
         """Setup UI."""
