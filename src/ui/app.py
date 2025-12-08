@@ -89,17 +89,21 @@ class TengaApp:
                         current.proxy_error or "Прокси недоступен"
                     )
 
-            if self._context.config.vpn.enabled and previous.vpn_ok != current.vpn_ok:
-                if current.vpn_ok:
-                    self._tray.show_notification(
-                        "VPN соединение восстановлено",
-                        "VPN работает нормально"
-                    )
-                else:
-                    self._tray.show_notification(
-                        "VPN соединение потеряно",
-                        current.vpn_error or "VPN недоступен"
-                    )
+            profile_id = getattr(self._context.proxy_state, "started_profile_id", None)
+            if profile_id:
+                profile = self._context.profiles.get_profile(profile_id)
+                if profile and profile.vpn_settings and profile.vpn_settings.enabled:
+                    if previous.vpn_ok != current.vpn_ok:
+                        if current.vpn_ok:
+                            self._tray.show_notification(
+                                "VPN соединение восстановлено",
+                                "VPN работает нормально"
+                            )
+                        else:
+                            self._tray.show_notification(
+                                "VPN соединение потеряно",
+                                current.vpn_error or "VPN недоступен"
+                            )
     
     def _setup_signal_handlers(self) -> None:
         """Setup signal handlers."""
@@ -256,24 +260,23 @@ class TengaApp:
             logger.error("Profile %s not found", profile_id)
             return False
 
-        vpn_settings = self._context.config.vpn
         try:
             self._context.proxy_state.vpn_auto_connected = False
         except Exception:
             pass
 
-        if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False):
-            was_active_before = is_vpn_active(vpn_settings.connection_name)
+        if profile.vpn_settings and profile.vpn_settings.enabled and getattr(profile.vpn_settings, "auto_connect", False):
+            was_active_before = is_vpn_active(profile.vpn_settings.connection_name)
             if not was_active_before:
                 logger.info(
                     "Auto-connecting VPN '%s' before starting profile %s",
-                    vpn_settings.connection_name,
+                    profile.vpn_settings.connection_name,
                     profile_id,
                 )
-                if not connect_vpn(vpn_settings.connection_name):
+                if not connect_vpn(profile.vpn_settings.connection_name):
                     logger.warning(
                         "Failed to auto-connect VPN '%s', continuing without VPN",
-                        vpn_settings.connection_name,
+                        profile.vpn_settings.connection_name,
                     )
                 else:
                     try:
@@ -378,19 +381,23 @@ class TengaApp:
             logger.exception("Exception when stopping sing-box: %s", e)
 
         try:
-            vpn_settings = self._context.config.vpn
-            auto_flag = getattr(self._context.proxy_state, "vpn_auto_connected", False)
-            if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False) and auto_flag:
-                if disconnect_vpn(vpn_settings.connection_name):
-                    logger.info(
-                        "Auto-disconnected VPN '%s' after stopping profile",
-                        vpn_settings.connection_name,
-                    )
-                else:
-                    logger.warning(
-                        "Failed to auto-disconnect VPN '%s' after stopping profile",
-                        vpn_settings.connection_name,
-                    )
+            profile_id = getattr(self._context.proxy_state, "started_profile_id", None)
+            if profile_id:
+                profile = self._context.profiles.get_profile(profile_id)
+                if profile and profile.vpn_settings:
+                    vpn_settings = profile.vpn_settings
+                    auto_flag = getattr(self._context.proxy_state, "vpn_auto_connected", False)
+                    if vpn_settings.enabled and getattr(vpn_settings, "auto_connect", False) and auto_flag:
+                        if disconnect_vpn(vpn_settings.connection_name):
+                            logger.info(
+                                "Auto-disconnected VPN '%s' after stopping profile",
+                                vpn_settings.connection_name,
+                            )
+                        else:
+                            logger.warning(
+                                "Failed to auto-disconnect VPN '%s' after stopping profile",
+                                vpn_settings.connection_name,
+                            )
         except Exception as e:
             logger.exception("Error during VPN auto-disconnect: %s", e)
         finally:
@@ -429,75 +436,78 @@ class TengaApp:
             proxy_tag = outbound["tag"]
             port = self._context.config.inbound_socks_port
             routing = self._context.config.routing
-            vpn_settings = self._context.config.vpn
             
             # Build routing rules
             route_rules = []
 
-            # Direct-access rules that must bypass
-            try:
-                direct_networks = getattr(vpn_settings, "direct_networks", []) or []
-                direct_domains = getattr(vpn_settings, "direct_domains", []) or []
-            except Exception:
-                direct_networks = []
-                direct_domains = []
+            # Use profile VPN settings only
+            vpn_settings = profile.vpn_settings
+            
+            if vpn_settings:
+                # Direct-access rules that must bypass
+                try:
+                    direct_networks = getattr(vpn_settings, "direct_networks", []) or []
+                    direct_domains = getattr(vpn_settings, "direct_domains", []) or []
+                except Exception:
+                    direct_networks = []
+                    direct_domains = []
 
-            if direct_networks or direct_domains:
-                all_direct_entries = direct_networks + direct_domains
-                direct_domains_parsed, direct_ips_parsed = routing.parse_entries(all_direct_entries)
+                if direct_networks or direct_domains:
+                    all_direct_entries = direct_networks + direct_domains
+                    direct_domains_parsed, direct_ips_parsed = routing.parse_entries(all_direct_entries)
 
-                if direct_ips_parsed:
-                    route_rules.append({
-                        "ip_cidr": direct_ips_parsed,
-                        "outbound": "direct",
-                    })
-                    logger.debug("Added DIRECT routing for IPs: %s", direct_ips_parsed)
+                    if direct_ips_parsed:
+                        route_rules.append({
+                            "ip_cidr": direct_ips_parsed,
+                            "outbound": "direct",
+                        })
+                        logger.debug("Added DIRECT routing for IPs: %s", direct_ips_parsed)
 
-                if direct_domains_parsed:
-                    route_rules.append({
-                        "domain_suffix": direct_domains_parsed,
-                        "outbound": "direct",
-                    })
-                    logger.debug("Added DIRECT routing for domains: %s", direct_domains_parsed)
+                    if direct_domains_parsed:
+                        route_rules.append({
+                            "domain_suffix": direct_domains_parsed,
+                            "outbound": "direct",
+                        })
+                        logger.debug("Added DIRECT routing for domains: %s", direct_domains_parsed)
 
-            vpn_tag = None
-            vpn_interface = None
-            if vpn_settings.enabled:
-                if is_vpn_active(vpn_settings.connection_name):
-                    if vpn_settings.interface_name:
-                        vpn_interface = vpn_settings.interface_name
+                vpn_tag = None
+                vpn_interface = None
+                if vpn_settings.enabled:
+                    if is_vpn_active(vpn_settings.connection_name):
+                        if vpn_settings.interface_name:
+                            vpn_interface = vpn_settings.interface_name
+                        else:
+                            vpn_interface = get_vpn_interface(vpn_settings.connection_name)
+                        
+                        if vpn_interface:
+                            vpn_tag = "vpn"
+                            logger.info("VPN integration enabled, interface: %s", vpn_interface)
+                            corporate_ips = []
+                            corporate_domains = []
+                            
+                            # Combine networks and domains from settings
+                            all_entries = vpn_settings.corporate_networks + vpn_settings.corporate_domains
+                            if all_entries:
+                                corporate_domains, corporate_ips = routing.parse_entries(all_entries)
+                            
+                            # Add routing rules for VPN
+                            if corporate_ips:
+                                route_rules.append({
+                                    "ip_cidr": corporate_ips,
+                                    "outbound": vpn_tag,
+                                })
+                                logger.debug("Added VPN routing for IPs: %s", corporate_ips)
+                            
+                            if corporate_domains:
+                                route_rules.append({
+                                    "domain_suffix": corporate_domains,
+                                    "outbound": vpn_tag,
+                                })
+                                logger.debug("Added VPN routing for domains: %s", corporate_domains)
+                        else:
+                            logger.warning("VPN is enabled but interface not found")
                     else:
-                        vpn_interface = get_vpn_interface(vpn_settings.connection_name)
-                    
-                    if vpn_interface:
-                        vpn_tag = "vpn"
-                        logger.info("VPN integration enabled, interface: %s", vpn_interface)
-                        corporate_ips = []
-                        corporate_domains = []
-                        
-                        # Combine networks and domains from settings
-                        all_entries = vpn_settings.corporate_networks + vpn_settings.corporate_domains
-                        if all_entries:
-                            corporate_domains, corporate_ips = routing.parse_entries(all_entries)
-                        
-                        # Add routing rules for VPN
-                        if corporate_ips:
-                            route_rules.append({
-                                "ip_cidr": corporate_ips,
-                                "outbound": vpn_tag,
-                            })
-                            logger.debug("Added VPN routing for IPs: %s", corporate_ips)
-                        
-                        if corporate_domains:
-                            route_rules.append({
-                                "domain_suffix": corporate_domains,
-                                "outbound": vpn_tag,
-                            })
-                            logger.debug("Added VPN routing for domains: %s", corporate_domains)
-                    else:
-                        logger.warning("VPN is enabled but interface not found")
-                else:
-                    logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
+                        logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
 
             if routing.mode != RoutingMode.PROXY_ALL:
                 local_networks = {
