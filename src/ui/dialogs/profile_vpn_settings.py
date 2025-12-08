@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Callable
 
 import gi
 gi.require_version('Gtk', '3.0')
@@ -404,6 +404,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
 def show_profile_vpn_settings_dialog(
     profile: 'ProfileEntry',
     parent: Optional[Gtk.Window] = None,
+    on_settings_applied: Optional[Callable[[int], None]] = None,
 ) -> bool:
     """
     Show VPN settings dialog for a profile.
@@ -411,6 +412,8 @@ def show_profile_vpn_settings_dialog(
     Args:
         profile: Profile entry to configure
         parent: Parent window
+        on_settings_applied: Optional callback called after settings are applied.
+                            Receives profile_id as argument.
         
     Returns:
         True if settings were applied
@@ -423,6 +426,11 @@ def show_profile_vpn_settings_dialog(
         if response == Gtk.ResponseType.APPLY:
             if dialog.save_settings():
                 applied = True
+                if on_settings_applied:
+                    try:
+                        on_settings_applied(profile.id)
+                    except Exception as e:
+                        logger.exception("Error in on_settings_applied callback: %s", e)
                 break
             continue
         else:

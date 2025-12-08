@@ -943,7 +943,19 @@ class MainWindow(Gtk.Window):
             
             profile = self._context.profiles.get_profile(profile_id)
             if profile:
-                show_profile_vpn_settings_dialog(profile, self)
+                # Callback to reload config if this profile is currently active
+                def on_settings_applied(edited_profile_id: int) -> None:
+                    """Reload configuration if edited profile is currently active."""
+                    if (self._context.proxy_state.is_running and 
+                        self._context.proxy_state.started_profile_id == edited_profile_id and
+                        self._on_config_reload):
+                        try:
+                            self._on_config_reload()
+                        except Exception:
+                            # Silently ignore errors - they will be logged by _reload_config
+                            pass
+                
+                show_profile_vpn_settings_dialog(profile, self, on_settings_applied=on_settings_applied)
                 self._context.profiles.save()
                 return True
         
