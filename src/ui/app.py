@@ -442,9 +442,10 @@ class TengaApp:
 
             # Use profile VPN settings only
             vpn_settings = profile.vpn_settings
-            
+            vpn_tag = None
+            vpn_interface = None
+
             if vpn_settings:
-                # Direct-access rules that must bypass
                 try:
                     direct_networks = getattr(vpn_settings, "direct_networks", []) or []
                     direct_domains = getattr(vpn_settings, "direct_domains", []) or []
@@ -470,44 +471,40 @@ class TengaApp:
                         })
                         logger.debug("Added DIRECT routing for domains: %s", direct_domains_parsed)
 
-                vpn_tag = None
-                vpn_interface = None
-                if vpn_settings.enabled:
-                    if is_vpn_active(vpn_settings.connection_name):
-                        if vpn_settings.interface_name:
-                            vpn_interface = vpn_settings.interface_name
-                        else:
-                            vpn_interface = get_vpn_interface(vpn_settings.connection_name)
-                        
-                        if vpn_interface:
-                            vpn_tag = "vpn"
-                            logger.info("VPN integration enabled, interface: %s", vpn_interface)
-                            corporate_ips = []
-                            corporate_domains = []
-                            
-                            # Combine networks and domains from settings
-                            all_entries = vpn_settings.corporate_networks + vpn_settings.corporate_domains
-                            if all_entries:
-                                corporate_domains, corporate_ips = routing.parse_entries(all_entries)
-                            
-                            # Add routing rules for VPN
-                            if corporate_ips:
-                                route_rules.append({
-                                    "ip_cidr": corporate_ips,
-                                    "outbound": vpn_tag,
-                                })
-                                logger.debug("Added VPN routing for IPs: %s", corporate_ips)
-                            
-                            if corporate_domains:
-                                route_rules.append({
-                                    "domain_suffix": corporate_domains,
-                                    "outbound": vpn_tag,
-                                })
-                                logger.debug("Added VPN routing for domains: %s", corporate_domains)
-                        else:
-                            logger.warning("VPN is enabled but interface not found")
+            # Process VPN routing rules (only if VPN is enabled and active)
+            if vpn_settings and vpn_settings.enabled:
+                if is_vpn_active(vpn_settings.connection_name):
+                    if vpn_settings.interface_name:
+                        vpn_interface = vpn_settings.interface_name
                     else:
-                        logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
+                        vpn_interface = get_vpn_interface(vpn_settings.connection_name)
+                    
+                    if vpn_interface:
+                        vpn_tag = "vpn"
+                        logger.info("VPN integration enabled, interface: %s", vpn_interface)
+                        corporate_ips = []
+                        corporate_domains = []
+                        all_entries = vpn_settings.corporate_networks + vpn_settings.corporate_domains
+                        if all_entries:
+                            corporate_domains, corporate_ips = routing.parse_entries(all_entries)
+
+                        if corporate_ips:
+                            route_rules.append({
+                                "ip_cidr": corporate_ips,
+                                "outbound": vpn_tag,
+                            })
+                            logger.debug("Added VPN routing for IPs: %s", corporate_ips)
+                        
+                        if corporate_domains:
+                            route_rules.append({
+                                "domain_suffix": corporate_domains,
+                                "outbound": vpn_tag,
+                            })
+                            logger.debug("Added VPN routing for domains: %s", corporate_domains)
+                    else:
+                        logger.warning("VPN is enabled but interface not found")
+                else:
+                    logger.warning("VPN integration enabled but connection '%s' is not active", vpn_settings.connection_name)
 
             if routing.mode != RoutingMode.PROXY_ALL:
                 local_networks = {
@@ -528,7 +525,7 @@ class TengaApp:
             final_outbound = proxy_tag
             # Outbounds
             direct_outbound = {"type": "direct", "tag": "direct"}
-            if vpn_tag and vpn_interface:
+            if vpn_tag and vpn_interface and vpn_settings:
                 direct_interface = getattr(vpn_settings, "direct_interface", "") or ""
                 if not direct_interface:
                     direct_interface = get_default_interface(vpn_interface)
@@ -542,8 +539,7 @@ class TengaApp:
                 direct_outbound,
                 outbound,
             ]
-            
-            # Add VPN outbound
+
             if vpn_tag and vpn_interface:
                 vpn_outbound = {
                     "type": "direct",
@@ -552,6 +548,17 @@ class TengaApp:
                 }
                 outbounds.append(vpn_outbound)
                 logger.info("Added VPN outbound with interface: %s", vpn_interface)
+
+            if vpn_settings:
+                if vpn_settings.enabled:
+                    if vpn_tag:
+                        logger.info("Profile configuration: VPN enabled and active, proxy + VPN routing")
+                    else:
+                        logger.info("Profile configuration: VPN enabled but not active, proxy only")
+                else:
+                    logger.info("Profile configuration: VPN disabled, proxy + direct rules (if any)")
+            else:
+                logger.info("Profile configuration: No VPN settings, proxy only")
             # DNS
             dns_settings = self._context.config.dns
             dns_url = dns_settings.get_dns_url()
