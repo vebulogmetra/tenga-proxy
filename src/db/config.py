@@ -340,6 +340,6 @@ class VpnSettings(ConfigBase):
 @dataclass
 class MonitoringSettings(ConfigBase):
     """Connection monitoring settings."""
-    enabled: bool = False
+    enabled: bool = True
     check_interval_seconds: int = 10
     test_url: str = "https://www.google.com/generate_204"

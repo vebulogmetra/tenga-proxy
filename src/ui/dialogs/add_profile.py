@@ -65,8 +65,7 @@ class AddProfileDialog(Gtk.Dialog):
         # Instructions
         info_label = Gtk.Label()
         info_label.set_markup(
-            "<b>Вставьте share link профиля</b>\n"
-            "<small>Поддерживаются: VLESS, Trojan, VMess, Shadowsocks, SOCKS, HTTP</small>"
+            "<b>Вставьте share link</b>\n"
         )
         info_label.set_halign(Gtk.Align.START)
         content.pack_start(info_label, False, False, 0)
@@ -86,7 +85,7 @@ class AddProfileDialog(Gtk.Dialog):
         link_box.pack_start(self._link_entry, True, True, 0)
         
         # Paste button
-        paste_button = Gtk.Button(label="[Paste]")
+        paste_button = Gtk.Button(label="📋")
         paste_button.set_tooltip_text("Вставить из буфера обмена")
         paste_button.connect("clicked", self._on_paste_clicked)
         link_box.pack_start(paste_button, False, False, 0)

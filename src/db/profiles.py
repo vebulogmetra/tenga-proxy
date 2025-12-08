@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Type, TYPE_CHECKING
 
-from src.db.config import ConfigBase
+from src.db.config import ConfigBase, VpnSettings
 
 if TYPE_CHECKING:
     from src.fmt.base import ProxyBean
@@ -54,9 +54,9 @@ class ProfileEntry:
     id: int
     group_id: int
     bean: 'ProxyBean'
-    # Statistics
     latency_ms: int = -1
     last_used: int = 0  # timestamp
+    vpn_settings: Optional[VpnSettings] = None
     
     @property
     def name(self) -> str:
@@ -68,7 +68,7 @@ class ProfileEntry:
     
     def to_dict(self) -> Dict[str, Any]:
         """Serialization."""
-        return {
+        result = {
             "id": self.id,
             "group_id": self.group_id,
             "type": self.proxy_type,
@@ -76,6 +76,9 @@ class ProfileEntry:
             "latency_ms": self.latency_ms,
             "last_used": self.last_used,
         }
+        if self.vpn_settings is not None:
+            result["vpn_settings"] = self.vpn_settings.to_dict()
+        return result
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> Optional['ProfileEntry']:
@@ -88,6 +91,10 @@ class ProfileEntry:
                 return None
             
             bean = bean_class.from_dict(data.get("bean", {}))
+
+            vpn_settings = None
+            if "vpn_settings" in data:
+                vpn_settings = VpnSettings.from_dict(data["vpn_settings"])
             
             return cls(
                 id=data.get("id", 0),
@@ -95,6 +102,7 @@ class ProfileEntry:
                 bean=bean,
                 latency_ms=data.get("latency_ms", -1),
                 last_used=data.get("last_used", 0),
+                vpn_settings=vpn_settings,
             )
         except Exception as e:
             print(f"Error deserializing profile: {e}")

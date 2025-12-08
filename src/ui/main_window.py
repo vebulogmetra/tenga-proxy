@@ -8,7 +8,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 
 from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf
-from src.ui.dialogs import show_edit_profile_dialog
+from src.ui.dialogs import show_edit_profile_dialog, show_profile_vpn_settings_dialog
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
@@ -59,6 +59,8 @@ class MainWindow(Gtk.Window):
         self._monitoring_vpn_status: Optional[Gtk.Label] = None
         self._monitoring_last_check: Optional[Gtk.Label] = None
         self._monitoring_notebook: Optional[Gtk.Notebook] = None
+        self._monitoring_page: Optional[Gtk.Widget] = None
+        self._monitoring_page_index: int = -1
         # Window state tracking
         self._saved_width: int = 400
         self._saved_height: int = 500
@@ -72,6 +74,7 @@ class MainWindow(Gtk.Window):
         # Initial update
         self._refresh_profiles()
         self._update_ui(self._context.proxy_state)
+        self._update_monitoring_tab_visibility()
     
     def _setup_window(self) -> None:
         """Setup window."""
@@ -176,9 +179,13 @@ class MainWindow(Gtk.Window):
         connection_page = self._create_connection_page()
         self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
 
-        # Tab 3: Monitoring
-        monitoring_page = self._create_monitoring_page()
-        self._monitoring_notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
+        # Tab 3: Monitoring (only if monitoring is enabled)
+        self._monitoring_page = self._create_monitoring_page()
+        self._monitoring_page_index = self._monitoring_notebook.append_page(
+            self._monitoring_page, 
+            Gtk.Label(label="Мониторинг")
+        )
+        self._update_monitoring_tab_visibility()
         
         # Connection buttons (outside notebook)
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -218,7 +225,7 @@ class MainWindow(Gtk.Window):
         scrolled.set_min_content_height(200)
         page_box.pack_start(scrolled, True, True, 0)
         # TreeView
-        self._profile_store = Gtk.ListStore(int, str, str, str)  # id, name, type, address
+        self._profile_store = Gtk.ListStore(int, str, str, str, str)
         self._profile_list = Gtk.TreeView(model=self._profile_store)
         self._profile_list.set_headers_visible(True)
         # Columns
@@ -238,8 +245,15 @@ class MainWindow(Gtk.Window):
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
         
-        # Selection on double click
+        # Settings icon column
+        icon_renderer = Gtk.CellRendererPixbuf()
+        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=4)
+        col_settings.set_min_width(30)
+        col_settings.set_max_width(30)
+        self._profile_list.append_column(col_settings)
+
         self._profile_list.connect("row-activated", self._on_row_activated)
+        self._profile_list.connect("button-press-event", self._on_profile_list_button_press)
         
         scrolled.add(self._profile_list)
         # Profile management buttons
@@ -790,6 +804,7 @@ class MainWindow(Gtk.Window):
                 name,
                 profile.proxy_type.upper(),
                 profile.bean.display_address,
+                "preferences-system-symbolic",
             ])
     
     def _on_state_changed(self, state: 'ProxyState') -> None:
@@ -908,6 +923,43 @@ class MainWindow(Gtk.Window):
 
         if self._on_connect:
             self._on_connect(profile_id)
+    
+    def _on_profile_list_button_press(self, tree_view: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        """Handle button press on profile list."""
+        if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
+            return False
+
+        path_info = tree_view.get_path_at_pos(int(event.x), int(event.y))
+        if not path_info:
+            return False
+        
+        path, column, cell_x, cell_y = path_info
+
+        columns = tree_view.get_columns()
+        if column == columns[-1]:
+            model = tree_view.get_model()
+            treeiter = model.get_iter(path)
+            profile_id = model[treeiter][0]
+            
+            profile = self._context.profiles.get_profile(profile_id)
+            if profile:
+                # Callback to reload config if this profile is currently active
+                def on_settings_applied(edited_profile_id: int) -> None:
+                    """Reload configuration if edited profile is currently active."""
+                    if (self._context.proxy_state.is_running and 
+                        self._context.proxy_state.started_profile_id == edited_profile_id and
+                        self._on_config_reload):
+                        try:
+                            self._on_config_reload()
+                        except Exception:
+                            # Silently ignore errors - they will be logged by _reload_config
+                            pass
+                
+                show_profile_vpn_settings_dialog(profile, self, on_settings_applied=on_settings_applied)
+                self._context.profiles.save()
+                return True
+        
+        return False
     
     def _on_connect_clicked(self, button: Gtk.Button) -> None:
         """Click on Connect/Disconnect button."""
@@ -1109,6 +1161,39 @@ class MainWindow(Gtk.Window):
     def refresh(self) -> None:
         """Refresh UI."""
         GLib.idle_add(self._refresh_profiles)
+        self._update_monitoring_tab_visibility()
+    
+    def _update_monitoring_tab_visibility(self) -> None:
+        """Update monitoring tab visibility based on settings."""
+        if not self._monitoring_notebook or not self._monitoring_page:
+            return
+        
+        monitoring_enabled = self._context.config.monitoring.enabled
+        
+        # Find monitoring page index
+        num_pages = self._monitoring_notebook.get_n_pages()
+        monitoring_index = -1
+        for i in range(num_pages):
+            if self._monitoring_notebook.get_nth_page(i) == self._monitoring_page:
+                monitoring_index = i
+                break
+        
+        if monitoring_enabled:
+            # Show tab if it doesn't exist
+            if monitoring_index < 0:
+                # Tab doesn't exist, add it after Connection tab (index 2)
+                # Profiles=0, Connection=1, Monitoring=2
+                self._monitoring_page_index = self._monitoring_notebook.insert_page(
+                    self._monitoring_page,
+                    Gtk.Label(label="Мониторинг"),
+                    2
+                )
+                self._monitoring_notebook.show_all()
+        else:
+            # Hide tab if it exists
+            if monitoring_index >= 0:
+                self._monitoring_notebook.remove_page(monitoring_index)
+                self._monitoring_page_index = -1
     
     def update_monitoring_status(
         self,
