@@ -59,6 +59,8 @@ class MainWindow(Gtk.Window):
         self._monitoring_vpn_status: Optional[Gtk.Label] = None
         self._monitoring_last_check: Optional[Gtk.Label] = None
         self._monitoring_notebook: Optional[Gtk.Notebook] = None
+        self._monitoring_page: Optional[Gtk.Widget] = None
+        self._monitoring_page_index: int = -1
         # Window state tracking
         self._saved_width: int = 400
         self._saved_height: int = 500
@@ -72,6 +74,7 @@ class MainWindow(Gtk.Window):
         # Initial update
         self._refresh_profiles()
         self._update_ui(self._context.proxy_state)
+        self._update_monitoring_tab_visibility()
     
     def _setup_window(self) -> None:
         """Setup window."""
@@ -176,9 +179,13 @@ class MainWindow(Gtk.Window):
         connection_page = self._create_connection_page()
         self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
 
-        # Tab 3: Monitoring
-        monitoring_page = self._create_monitoring_page()
-        self._monitoring_notebook.append_page(monitoring_page, Gtk.Label(label="Мониторинг"))
+        # Tab 3: Monitoring (only if monitoring is enabled)
+        self._monitoring_page = self._create_monitoring_page()
+        self._monitoring_page_index = self._monitoring_notebook.append_page(
+            self._monitoring_page, 
+            Gtk.Label(label="Мониторинг")
+        )
+        self._update_monitoring_tab_visibility()
         
         # Connection buttons (outside notebook)
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
@@ -1142,6 +1149,39 @@ class MainWindow(Gtk.Window):
     def refresh(self) -> None:
         """Refresh UI."""
         GLib.idle_add(self._refresh_profiles)
+        self._update_monitoring_tab_visibility()
+    
+    def _update_monitoring_tab_visibility(self) -> None:
+        """Update monitoring tab visibility based on settings."""
+        if not self._monitoring_notebook or not self._monitoring_page:
+            return
+        
+        monitoring_enabled = self._context.config.monitoring.enabled
+        
+        # Find monitoring page index
+        num_pages = self._monitoring_notebook.get_n_pages()
+        monitoring_index = -1
+        for i in range(num_pages):
+            if self._monitoring_notebook.get_nth_page(i) == self._monitoring_page:
+                monitoring_index = i
+                break
+        
+        if monitoring_enabled:
+            # Show tab if it doesn't exist
+            if monitoring_index < 0:
+                # Tab doesn't exist, add it after Connection tab (index 2)
+                # Profiles=0, Connection=1, Monitoring=2
+                self._monitoring_page_index = self._monitoring_notebook.insert_page(
+                    self._monitoring_page,
+                    Gtk.Label(label="Мониторинг"),
+                    2
+                )
+                self._monitoring_notebook.show_all()
+        else:
+            # Hide tab if it exists
+            if monitoring_index >= 0:
+                self._monitoring_notebook.remove_page(monitoring_index)
+                self._monitoring_page_index = -1
     
     def update_monitoring_status(
         self,

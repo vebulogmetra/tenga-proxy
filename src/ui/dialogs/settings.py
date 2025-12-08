@@ -446,4 +446,12 @@ def show_settings_dialog(
             break
 
     dialog.destroy()
+
+    if applied and parent:
+        def update_ui():
+            if hasattr(parent, '_update_monitoring_tab_visibility'):
+                parent._update_monitoring_tab_visibility()
+        from gi.repository import GLib
+        GLib.idle_add(update_ui)
+    
     return applied
