@@ -8,7 +8,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 
 from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf
-from src.ui.dialogs import show_edit_profile_dialog
+from src.ui.dialogs import show_edit_profile_dialog, show_profile_vpn_settings_dialog
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
@@ -218,7 +218,7 @@ class MainWindow(Gtk.Window):
         scrolled.set_min_content_height(200)
         page_box.pack_start(scrolled, True, True, 0)
         # TreeView
-        self._profile_store = Gtk.ListStore(int, str, str, str)  # id, name, type, address
+        self._profile_store = Gtk.ListStore(int, str, str, str, str)
         self._profile_list = Gtk.TreeView(model=self._profile_store)
         self._profile_list.set_headers_visible(True)
         # Columns
@@ -238,8 +238,15 @@ class MainWindow(Gtk.Window):
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
         
-        # Selection on double click
+        # Settings icon column
+        icon_renderer = Gtk.CellRendererPixbuf()
+        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=4)
+        col_settings.set_min_width(30)
+        col_settings.set_max_width(30)
+        self._profile_list.append_column(col_settings)
+
         self._profile_list.connect("row-activated", self._on_row_activated)
+        self._profile_list.connect("button-press-event", self._on_profile_list_button_press)
         
         scrolled.add(self._profile_list)
         # Profile management buttons
@@ -790,6 +797,7 @@ class MainWindow(Gtk.Window):
                 name,
                 profile.proxy_type.upper(),
                 profile.bean.display_address,
+                "preferences-system-symbolic",
             ])
     
     def _on_state_changed(self, state: 'ProxyState') -> None:
@@ -908,6 +916,31 @@ class MainWindow(Gtk.Window):
 
         if self._on_connect:
             self._on_connect(profile_id)
+    
+    def _on_profile_list_button_press(self, tree_view: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+        """Handle button press on profile list."""
+        if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
+            return False
+
+        path_info = tree_view.get_path_at_pos(int(event.x), int(event.y))
+        if not path_info:
+            return False
+        
+        path, column, cell_x, cell_y = path_info
+
+        columns = tree_view.get_columns()
+        if column == columns[-1]:
+            model = tree_view.get_model()
+            treeiter = model.get_iter(path)
+            profile_id = model[treeiter][0]
+            
+            profile = self._context.profiles.get_profile(profile_id)
+            if profile:
+                show_profile_vpn_settings_dialog(profile, self)
+                self._context.profiles.save()
+                return True
+        
+        return False
     
     def _on_connect_clicked(self, button: Gtk.Button) -> None:
         """Click on Connect/Disconnect button."""
