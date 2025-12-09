@@ -67,7 +67,13 @@ def cmd_subscription(args: argparse.Namespace) -> int:
     print()
     
     try:
-        import requests
+        try:
+            import requests
+        except ImportError:
+            print("[ERROR] Модуль 'requests' не установлен")
+            print("Установите: pip install requests")
+            return 1
+        
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         content = response.text
@@ -201,10 +207,60 @@ def cmd_list(args: argparse.Namespace) -> int:
     print(f"Профили (группа {context.profiles.current_group_id}):")
     print()
     
-    for profile in profiles:
+    for i, profile in enumerate(profiles, 1):
         latency = f"{profile.latency_ms}ms" if profile.latency_ms >= 0 else "-"
-        print(f"  {profile.id}. [{profile.proxy_type.upper()}] {profile.name}")
+        print(f"  {i}. [ID: {profile.id}] [{profile.proxy_type.upper()}] {profile.name}")
         print(f"      {profile.bean.display_address} | Latency: {latency}")
+    
+    return 0
+
+
+def cmd_remove(args: argparse.Namespace) -> int:
+    """Remove profile."""
+    context = init_context()
+    
+    try:
+        profile_id = int(args.profile_id)
+    except ValueError:
+        print(f"[ERROR] Неверный ID профиля: {args.profile_id}")
+        return 1
+    
+    profile = context.profiles.get_profile(profile_id)
+    if not profile:
+        print(f"[ERROR] Профиль с ID {profile_id} не найден")
+        return 1
+    
+    if context.profiles.remove_profile(profile_id):
+        context.profiles.save()
+        print(f"[OK] Профиль удалён: {profile.name} (ID: {profile_id})")
+        return 0
+    else:
+        print(f"[ERROR] Не удалось удалить профиль")
+        return 1
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    """Show version information."""
+    from src import __version__, __app_name__
+    
+    print(f"{__app_name__} {__version__}")
+    
+    # Check sing-box version
+    singbox_path = find_singbox_binary()
+    if singbox_path:
+        try:
+            result = subprocess.run(
+                [singbox_path, "version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                print(f"sing-box: {result.stdout.strip()}")
+        except Exception:
+            print("sing-box: не удалось определить версию")
+    else:
+        print("sing-box: не найден")
     
     return 0
 
@@ -430,6 +486,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         description='Tenga CLI - консольный клиент прокси',
         formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='Примеры:\n'
+               '  %(prog)s parse "vless://..."\n'
+               '  %(prog)s add "vless://..."\n'
+               '  %(prog)s ls\n'
+               '  %(prog)s run 1\n'
+               '  %(prog)s ver',
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Команды')
@@ -443,7 +505,7 @@ def main() -> int:
         help='Формат вывода'
     )
 
-    sub_parser = subparsers.add_parser('subscription', aliases=['sub'], help='Загрузить подписку')
+    sub_parser = subparsers.add_parser('sub', help='Загрузить подписку')
     sub_parser.add_argument('url', help='URL подписки')
     sub_parser.add_argument(
         '-f', '--format',
@@ -452,7 +514,7 @@ def main() -> int:
         help='Формат вывода'
     )
 
-    gen_parser = subparsers.add_parser('generate', aliases=['gen'], help='Сгенерировать конфигурацию')
+    gen_parser = subparsers.add_parser('gen', help='Сгенерировать конфигурацию')
     gen_parser.add_argument('link', help='Share link')
     gen_parser.add_argument('-o', '--output', help='Файл для сохранения')
     gen_parser.add_argument('-p', '--port', type=int, default=2080, help='Порт прокси')
@@ -460,7 +522,12 @@ def main() -> int:
     add_parser = subparsers.add_parser('add', help='Добавить профиль')
     add_parser.add_argument('link', help='Share link')
 
-    subparsers.add_parser('list', aliases=['ls'], help='Показать профили')
+    subparsers.add_parser('ls', help='Показать профили')
+
+    remove_parser = subparsers.add_parser('rm', help='Удалить профиль')
+    remove_parser.add_argument('profile_id', help='ID профиля для удаления')
+
+    subparsers.add_parser('ver', help='Показать версию')
 
     run_parser = subparsers.add_parser('run', help='Запустить прокси')
     run_parser.add_argument('link', nargs='?', help='ID профиля, порядковый номер (из list), имя профиля или share link (или путь к файлу)')
@@ -475,13 +542,12 @@ def main() -> int:
     
     commands = {
         'parse': cmd_parse,
-        'subscription': cmd_subscription,
         'sub': cmd_subscription,
-        'generate': cmd_generate,
         'gen': cmd_generate,
         'add': cmd_add,
-        'list': cmd_list,
         'ls': cmd_list,
+        'rm': cmd_remove,
+        'ver': cmd_version,
         'run': cmd_run,
     }
     
