@@ -245,6 +245,84 @@ def connect_vpn(connection_name: str) -> bool:
         return False
 
 
+def get_vpn_dns_servers(connection_name: str) -> List[str]:
+    """
+    Get DNS servers configured for VPN connection in NetworkManager.
+    
+    Args:
+        connection_name: VPN connection name
+        
+    Returns:
+        List of DNS server IP addresses
+    """
+    if not connection_name:
+        return []
+    
+    try:
+        if is_vpn_active(connection_name):
+            result = subprocess.run(
+                ["nmcli", "-t", "-f", "ipv4.dns", "connection", "show", "--active", connection_name],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            
+            if result.returncode == 0:
+                dns_line = result.stdout.strip()
+                if ":" in dns_line:
+                    dns_line = dns_line.split(":", 1)[1]
+                
+                if dns_line and dns_line != "--":
+                    dns_servers = []
+                    for dns in dns_line.replace(",", " ").split():
+                        dns = dns.strip()
+                        if dns:
+                            dns_servers.append(dns)
+                    if dns_servers:
+                        logger.info("Found DNS servers from active connection %s: %s", connection_name, dns_servers)
+                        return dns_servers
+        
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "ipv4.dns", "connection", "show", connection_name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+        
+        if result.returncode != 0:
+            logger.debug("Failed to get DNS servers for connection %s: %s", connection_name, result.stderr)
+            return []
+        
+        dns_line = result.stdout.strip()
+        if ":" in dns_line:
+            dns_line = dns_line.split(":", 1)[1]
+        
+        if not dns_line or dns_line == "--":
+            logger.debug("No DNS servers configured for connection %s", connection_name)
+            return []
+        
+        dns_servers = []
+        for dns in dns_line.replace(",", " ").split():
+            dns = dns.strip()
+            if dns:
+                dns_servers.append(dns)
+        
+        logger.info("Found DNS servers for VPN connection %s: %s", connection_name, dns_servers)
+        return dns_servers
+        
+    except FileNotFoundError:
+        logger.warning("nmcli not found, cannot get DNS servers")
+        return []
+    except subprocess.TimeoutExpired:
+        logger.warning("Timeout getting DNS servers for connection %s", connection_name)
+        return []
+    except Exception as e:
+        logger.error("Error getting DNS servers for connection %s: %s", connection_name, e)
+        return []
+
+
 def list_network_interfaces() -> List[str]:
     """
     Get list of all available network interfaces.

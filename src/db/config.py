@@ -306,6 +306,20 @@ class RoutingSettings(ConfigBase):
         ips = []
         
         for entry in entries:
+            entry = entry.strip().rstrip(",").strip()
+            if not entry:
+                continue
+
+            if "," in entry:
+                for part in entry.split(","):
+                    part = part.strip().rstrip(",").strip()
+                    if not part:
+                        continue
+                    part_domains, part_ips = self.parse_entries([part])
+                    domains.extend(part_domains)
+                    ips.extend(part_ips)
+                continue
+            
             if "/" in entry:
                 parts = entry.split("/")
                 if len(parts) == 2 and parts[1].isdigit():
@@ -324,16 +338,12 @@ class RoutingSettings(ConfigBase):
 class VpnSettings(ConfigBase):
     """VPN integration settings."""
     enabled: bool = False
-    # Conn name from NetworkManager
     connection_name: str = "my-vpn"
     interface_name: str = ""
-    # Direct traffic interface (for bypassing VPN)
     direct_interface: str = ""
-    # Connect VPN on profile start
     auto_connect: bool = False
-    corporate_networks: List[str] = field(default_factory=list)
-    corporate_domains: List[str] = field(default_factory=list)
-    # Direct-bypass lists
+    over_vpn_networks: List[str] = field(default_factory=list)
+    over_vpn_domains: List[str] = field(default_factory=list)
     direct_networks: List[str] = field(default_factory=list)
     direct_domains: List[str] = field(default_factory=list)
 

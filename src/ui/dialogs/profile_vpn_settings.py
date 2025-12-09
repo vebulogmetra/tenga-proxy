@@ -314,7 +314,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         
         self._vpn_auto_connect_check.set_active(getattr(vpn, "auto_connect", False))
 
-        all_networks = vpn.corporate_networks + vpn.corporate_domains
+        all_networks = vpn.over_vpn_networks + vpn.over_vpn_domains
         networks_text = "\n".join(all_networks)
         self._vpn_networks_text.get_buffer().set_text(networks_text)
         
@@ -389,7 +389,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         networks_text = networks_buffer.get_text(start, end, True)
 
         entries = [line.strip() for line in networks_text.split("\n") if line.strip()]
-        vpn.corporate_domains, vpn.corporate_networks = self._routing.parse_entries(entries)
+        vpn.over_vpn_domains, vpn.over_vpn_networks = self._routing.parse_entries(entries)
 
         direct_buffer = self._vpn_direct_text.get_buffer()
         start, end = direct_buffer.get_bounds()
