@@ -5,6 +5,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import gi
+from src.db.config import RoutingMode
 
 gi.require_version("Gtk", "3.0")
 

@@ -6,6 +6,7 @@ import signal
 from pathlib import Path
 
 import gi
+from src.db.config import RoutingMode
 
 gi.require_version("Gtk", "3.0")
 
@@ -420,48 +421,18 @@ class TengaApp:
 
             proxy_tag = outbound["tag"]
             port = self._context.config.inbound_socks_port
-            routing = self._context.config.routing
 
-            # Build routing rules
+            routing = profile.routing_settings
+            if routing is None:
+                routing = self._context.config.routing
+                if routing.mode == RoutingMode.CUSTOM:
+                    routing.load_lists_from_files(self._context.config_dir)
+
             route_rules = []
-
-            # Use profile VPN settings only
             vpn_settings = profile.vpn_settings
             vpn_tag = None
             vpn_interface = None
             over_vpn_domains_for_dns = []
-
-            if vpn_settings:
-                try:
-                    direct_networks = getattr(vpn_settings, "direct_networks", []) or []
-                    direct_domains = getattr(vpn_settings, "direct_domains", []) or []
-                except Exception:
-                    direct_networks = []
-                    direct_domains = []
-
-                if direct_networks or direct_domains:
-                    all_direct_entries = direct_networks + direct_domains
-                    direct_domains_parsed, direct_ips_parsed = routing.parse_entries(
-                        all_direct_entries
-                    )
-
-                    if direct_ips_parsed:
-                        route_rules.append(
-                            {
-                                "ip_cidr": direct_ips_parsed,
-                                "outbound": "direct",
-                            }
-                        )
-                        logger.debug("Added DIRECT routing for IPs: %s", direct_ips_parsed)
-
-                    if direct_domains_parsed:
-                        route_rules.append(
-                            {
-                                "domain_suffix": direct_domains_parsed,
-                                "outbound": "direct",
-                            }
-                        )
-                        logger.debug("Added DIRECT routing for domains: %s", direct_domains_parsed)
 
             # Process VPN routing rules (only if VPN is enabled and active)
             if vpn_settings and vpn_settings.enabled:
@@ -474,45 +445,6 @@ class TengaApp:
                     if vpn_interface:
                         vpn_tag = "vpn"
                         logger.info("VPN integration enabled, interface: %s", vpn_interface)
-                        over_vpn_ips = []
-                        over_vpn_domains = []
-                        all_entries = vpn_settings.over_vpn_networks + vpn_settings.over_vpn_domains
-                        logger.debug(
-                            "VPN settings - over_vpn_networks: %s, over_vpn_domains: %s",
-                            vpn_settings.over_vpn_networks,
-                            vpn_settings.over_vpn_domains,
-                        )
-                        if all_entries:
-                            over_vpn_domains, over_vpn_ips = routing.parse_entries(all_entries)
-                            over_vpn_domains_for_dns = over_vpn_domains
-                            logger.debug(
-                                "Parsed - over_vpn_domains: %s, over_vpn_ips: %s",
-                                over_vpn_domains,
-                                over_vpn_ips,
-                            )
-                        else:
-                            logger.warning(
-                                "No over_vpn entries found in VPN settings for profile %s",
-                                profile.id,
-                            )
-
-                        if over_vpn_ips:
-                            route_rules.append(
-                                {
-                                    "ip_cidr": over_vpn_ips,
-                                    "outbound": vpn_tag,
-                                }
-                            )
-                            logger.debug("Added VPN routing for IPs: %s", over_vpn_ips)
-
-                        if over_vpn_domains:
-                            route_rules.append(
-                                {
-                                    "domain_suffix": over_vpn_domains,
-                                    "outbound": vpn_tag,
-                                }
-                            )
-                            logger.debug("Added VPN routing for domains: %s", over_vpn_domains)
                     else:
                         logger.warning("VPN is enabled but interface not found")
                 else:
@@ -521,9 +453,12 @@ class TengaApp:
                         vpn_settings.connection_name,
                     )
 
-            if routing.mode != RoutingMode.PROXY_ALL:
-                local_networks = {
-                    "ip_cidr": [
+            # Handle custom routing lists
+            if routing.mode == RoutingMode.CUSTOM:
+                direct_list = list(routing.direct_list) if routing.direct_list else []
+
+                if routing.bypass_local_networks:
+                    local_networks = [
                         "127.0.0.0/8",
                         "10.0.0.0/8",
                         "172.16.0.0/12",
@@ -532,10 +467,68 @@ class TengaApp:
                         "::1/128",
                         "fc00::/7",
                         "fe80::/10",
-                    ],
-                    "outbound": "direct",
-                }
-                route_rules.append(local_networks)
+                    ]
+                    for network in local_networks:
+                        if network not in direct_list:
+                            direct_list.append(network)
+                
+                if direct_list:
+                    direct_domains, direct_ips = routing.parse_entries(direct_list)
+                    if direct_ips:
+                        route_rules.append(
+                            {
+                                "ip_cidr": direct_ips,
+                                "outbound": "direct",
+                            }
+                        )
+                        logger.debug("Added DIRECT routing from list for IPs: %s", direct_ips)
+                    if direct_domains:
+                        route_rules.append(
+                            {
+                                "domain_suffix": direct_domains,
+                                "outbound": "direct",
+                            }
+                        )
+                        logger.debug("Added DIRECT routing from list for domains: %s", direct_domains)
+
+                if routing.vpn_list and vpn_tag and vpn_interface:
+                    vpn_domains, vpn_ips = routing.parse_entries(routing.vpn_list)
+                    if vpn_ips:
+                        route_rules.append(
+                            {
+                                "ip_cidr": vpn_ips,
+                                "outbound": vpn_tag,
+                            }
+                        )
+                        logger.debug("Added VPN routing from list for IPs: %s", vpn_ips)
+                    if vpn_domains:
+                        route_rules.append(
+                            {
+                                "domain_suffix": vpn_domains,
+                                "outbound": vpn_tag,
+                            }
+                        )
+                        logger.debug("Added VPN routing from list for domains: %s", vpn_domains)
+                        over_vpn_domains_for_dns = vpn_domains
+
+                if routing.proxy_list:
+                    proxy_domains, proxy_ips = routing.parse_entries(routing.proxy_list)
+                    if proxy_ips:
+                        route_rules.append(
+                            {
+                                "ip_cidr": proxy_ips,
+                                "outbound": proxy_tag,
+                            }
+                        )
+                        logger.debug("Added PROXY routing from list for IPs: %s", proxy_ips)
+                    if proxy_domains:
+                        route_rules.append(
+                            {
+                                "domain_suffix": proxy_domains,
+                                "outbound": proxy_tag,
+                            }
+                        )
+                        logger.debug("Added PROXY routing from list for domains: %s", proxy_domains)
 
             final_outbound = proxy_tag
             # Outbounds
@@ -653,12 +646,11 @@ class TengaApp:
                     }
                 )
 
-            # Local DNS server
+            # Local DNS server (no detour needed for local type)
             dns_servers.append(
                 {
                     "tag": "local-dns",
                     "type": "local",
-                    "detour": "direct",
                 }
             )
 
