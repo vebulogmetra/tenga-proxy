@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from src.db.config import ConfigBase, VpnSettings
+from src.db.config import ConfigBase, RoutingSettings, VpnSettings
 
 if TYPE_CHECKING:
     from src.fmt.base import ProxyBean
@@ -58,6 +58,7 @@ class ProfileEntry:
     latency_ms: int = -1
     last_used: int = 0  # timestamp
     vpn_settings: VpnSettings | None = None
+    routing_settings: RoutingSettings | None = None
 
     @property
     def name(self) -> str:
@@ -79,6 +80,8 @@ class ProfileEntry:
         }
         if self.vpn_settings is not None:
             result["vpn_settings"] = self.vpn_settings.to_dict()
+        if self.routing_settings is not None:
+            result["routing_settings"] = self.routing_settings.to_dict()
         return result
 
     @classmethod
@@ -97,6 +100,10 @@ class ProfileEntry:
             if "vpn_settings" in data:
                 vpn_settings = VpnSettings.from_dict(data["vpn_settings"])
 
+            routing_settings = None
+            if "routing_settings" in data:
+                routing_settings = RoutingSettings.from_dict(data["routing_settings"])
+
             return cls(
                 id=data.get("id", 0),
                 group_id=data.get("group_id", 0),
@@ -104,6 +111,7 @@ class ProfileEntry:
                 latency_ms=data.get("latency_ms", -1),
                 last_used=data.get("last_used", 0),
                 vpn_settings=vpn_settings,
+                routing_settings=routing_settings,
             )
         except Exception as e:
             print(f"Error deserializing profile: {e}")

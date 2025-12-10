@@ -1,14 +1,10 @@
-.PHONY: help install dev-install run cli gui test lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean
+.PHONY: install dev-install run cli gui test lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean
 
 # Переменные
 PYTHON := uv run python
 CLI := $(PYTHON) cli.py
 GUI := $(PYTHON) gui.py
 
-help:
-	@echo "Доступные команды:"
-	@echo ""
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
 install:
 	uv sync

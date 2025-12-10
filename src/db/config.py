@@ -268,21 +268,18 @@ class RoutingMode:
     """Routing modes."""
 
     PROXY_ALL = "proxy_all"
-    BYPASS_LOCAL = "bypass_local"  # Local networks direct, rest via proxy
     CUSTOM = "custom"  # Manual rules
 
-    ALL = [PROXY_ALL, BYPASS_LOCAL, CUSTOM]
+    ALL = [PROXY_ALL, CUSTOM]
 
     LABELS = {
         PROXY_ALL: "Весь трафик через прокси",
-        BYPASS_LOCAL: "Локальные сети напрямую",
         CUSTOM: "Пользовательские списки",
     }
 
     DESCRIPTIONS = {
-        PROXY_ALL: "Весь интернет-трафик идёт через прокси-сервер",
-        BYPASS_LOCAL: "Локальные сети (127.0.0.0/8, 192.168.0.0/16, etc.) напрямую, остальное через прокси",
-        CUSTOM: "Использовать файлы proxy_list.txt и direct_list.txt",
+        PROXY_ALL: "Весь трафик идёт через прокси",
+        CUSTOM: "Настраиваемые списки",
     }
 
 
@@ -290,7 +287,11 @@ class RoutingMode:
 class RoutingSettings(ConfigBase):
     """Traffic routing settings."""
 
-    mode: str = RoutingMode.BYPASS_LOCAL
+    mode: str = RoutingMode.CUSTOM
+    proxy_list: list[str] = field(default_factory=list)
+    direct_list: list[str] = field(default_factory=list)
+    vpn_list: list[str] = field(default_factory=list)
+    bypass_local_networks: bool = False
 
     def load_list_file(self, filepath: Path) -> list[str]:
         """Load list from file."""
@@ -308,6 +309,33 @@ class RoutingSettings(ConfigBase):
             pass
 
         return result
+
+    def load_lists_from_files(self, config_dir: Path) -> None:
+        """Load routing lists from files in config directory."""
+        proxy_file = config_dir / "proxy_list.txt"
+        direct_file = config_dir / "direct_list.txt"
+        vpn_file = config_dir / "vpn_list.txt"
+
+        self.proxy_list = self.load_list_file(proxy_file)
+        self.direct_list = self.load_list_file(direct_file)
+        self.vpn_list = self.load_list_file(vpn_file)
+
+    def save_lists_to_files(self, config_dir: Path) -> bool:
+        """Save routing lists to files in config directory."""
+        try:
+            config_dir.mkdir(parents=True, exist_ok=True)
+
+            proxy_file = config_dir / "proxy_list.txt"
+            direct_file = config_dir / "direct_list.txt"
+            vpn_file = config_dir / "vpn_list.txt"
+
+            proxy_file.write_text("\n".join(self.proxy_list), encoding="utf-8")
+            direct_file.write_text("\n".join(self.direct_list), encoding="utf-8")
+            vpn_file.write_text("\n".join(self.vpn_list), encoding="utf-8")
+
+            return True
+        except Exception:
+            return False
 
     def parse_entries(self, entries: list[str]) -> tuple[list[str], list[str]]:
         """
