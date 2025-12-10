@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict
 from unittest.mock import Mock, patch
 
 from src.db.data_store import DataStore
@@ -11,7 +10,7 @@ class MockBean:
     display_name: str = "Test"
     proxy_type: str = "test"
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> dict[str, str]:
         return {"type": "test"}
 
 

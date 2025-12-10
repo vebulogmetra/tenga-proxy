@@ -30,18 +30,18 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
 
     log_file_resolved = str(log_file.resolve())
     has_file_handler = any(
-        isinstance(h, logging.FileHandler) and 
-        hasattr(h, 'baseFilename') and 
+        isinstance(h, logging.FileHandler) and
+        hasattr(h, 'baseFilename') and
         str(Path(h.baseFilename).resolve()) == log_file_resolved
         for h in root_logger.handlers
     )
     has_console_handler = any(
-        isinstance(h, logging.StreamHandler) and 
-        hasattr(h, 'stream') and 
+        isinstance(h, logging.StreamHandler) and
+        hasattr(h, 'stream') and
         h.stream == sys.stdout
         for h in root_logger.handlers
     )
-    
+
     if not has_file_handler:
         root_logger.addHandler(file_handler)
     if not has_console_handler:

@@ -1,4 +1,3 @@
-from typing import List, Tuple
 
 from src.sys import proxy
 
@@ -40,9 +39,9 @@ def test_set_system_proxy_no_ports_returns_false(capsys):
 
 
 def test_set_system_proxy_gnome_http_and_socks(monkeypatch):
-    recorded: List[Tuple[str, List[str]]] = []
+    recorded: list[tuple[str, list[str]]] = []
 
-    def fake_exec(program: str, args: List[str]) -> bool:
+    def fake_exec(program: str, args: list[str]) -> bool:
         recorded.append((program, args))
         return True
 
@@ -63,9 +62,9 @@ def test_set_system_proxy_gnome_http_and_socks(monkeypatch):
 
 
 def test_set_system_proxy_kde_http_only(monkeypatch, tmp_path):
-    recorded: List[Tuple[str, List[str]]] = []
+    recorded: list[tuple[str, list[str]]] = []
 
-    def fake_exec(program: str, args: List[str]) -> bool:
+    def fake_exec(program: str, args: list[str]) -> bool:
         recorded.append((program, args))
         return True
 
@@ -82,9 +81,9 @@ def test_set_system_proxy_kde_http_only(monkeypatch, tmp_path):
 
 
 def test_clear_system_proxy_gnome(monkeypatch):
-    recorded: List[Tuple[str, List[str]]] = []
+    recorded: list[tuple[str, list[str]]] = []
 
-    def fake_exec(program: str, args: List[str]) -> bool:
+    def fake_exec(program: str, args: list[str]) -> bool:
         recorded.append((program, args))
         return True
 
@@ -99,9 +98,9 @@ def test_clear_system_proxy_gnome(monkeypatch):
 
 
 def test_clear_system_proxy_kde(monkeypatch, tmp_path):
-    recorded: List[Tuple[str, List[str]]] = []
+    recorded: list[tuple[str, list[str]]] = []
 
-    def fake_exec(program: str, args: List[str]) -> bool:
+    def fake_exec(program: str, args: list[str]) -> bool:
         recorded.append((program, args))
         return True
 

@@ -1,7 +1,6 @@
 import os
 import subprocess
 from pathlib import Path
-from typing import List, Tuple
 
 
 def _is_kde() -> bool:
@@ -18,7 +17,7 @@ def _get_config_path() -> Path:
     return Path.home() / '.config'
 
 
-def _execute_command(program: str, args: List[str]) -> bool:
+def _execute_command(program: str, args: list[str]) -> bool:
     """Execute command"""
     try:
         result = subprocess.run(
@@ -47,12 +46,12 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
     """
     has_http = 0 < http_port < 65536
     has_socks = 0 < socks_port < 65536
-    
+
     if not has_http and not has_socks:
         print("Nothing to set")
         return False
-    
-    actions: List[Tuple[str, List[str]]] = []
+
+    actions: list[tuple[str, list[str]]] = []
     is_kde = _is_kde()
     config_path = _get_config_path()
 
@@ -66,7 +65,7 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
             "--group", "Proxy Settings",
             "--key", "ProxyType", "1"
         ]))
-    
+
     # HTTP proxy
     if has_http:
         for protocol in ["http", "ftp", "https"]:
@@ -86,7 +85,7 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
                     "--key", f"{protocol}Proxy",
                     f"http://{address} {http_port}"
                 ]))
-    
+
     # SOCKS proxy
     if has_socks:
         if not is_kde:
@@ -105,7 +104,7 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
                 "--key", "socksProxy",
                 f"socks://{address} {socks_port}"
             ]))
-    
+
     # Notify KDE to reload configuration
     if is_kde:
         actions.append(("dbus-send", [
@@ -113,7 +112,7 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
             "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
             "string:''"
         ]))
-    
+
     # Execute all commands
     results = []
     for program, args in actions:
@@ -121,12 +120,12 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
         results.append(success)
         if not success:
             print(f"Failed: {program} {' '.join(args)}")
-    
+
     success_count = sum(results)
     if success_count != len(actions):
         print(f"Some commands failed: {success_count}/{len(actions)}")
         return False
-    
+
     return True
 
 
@@ -137,10 +136,10 @@ def clear_system_proxy() -> bool:
     Returns:
         True if successful
     """
-    actions: List[Tuple[str, List[str]]] = []
+    actions: list[tuple[str, list[str]]] = []
     is_kde = _is_kde()
     config_path = _get_config_path()
-    
+
     # Set proxy mode to none
     if not is_kde:
         # GNOME
@@ -152,7 +151,7 @@ def clear_system_proxy() -> bool:
             "--group", "Proxy Settings",
             "--key", "ProxyType", "0"
         ]))
-    
+
     # Notify KDE to reload configuration
     if is_kde:
         actions.append(("dbus-send", [
@@ -160,11 +159,11 @@ def clear_system_proxy() -> bool:
             "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
             "string:''"
         ]))
-    
+
     # Execute all commands
     results = []
     for program, args in actions:
         success = _execute_command(program, args)
         results.append(success)
-    
+
     return all(results)

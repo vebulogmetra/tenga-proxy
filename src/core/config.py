@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _is_frozen() -> bool:
@@ -64,7 +63,7 @@ SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
 
-def get_lock_file(config_dir: Optional[Path] = None) -> Path:
+def get_lock_file(config_dir: Path | None = None) -> Path:
     """Get lock file path.
     
     Args:
@@ -82,7 +81,7 @@ DEFAULT_CLASH_API_ADDR: str = "127.0.0.1:9090"
 DEFAULT_CLASH_API_SECRET: str = ""
 
 
-def find_singbox_binary() -> Optional[str]:
+def find_singbox_binary() -> str | None:
     """
     Find sing-box binary.
 

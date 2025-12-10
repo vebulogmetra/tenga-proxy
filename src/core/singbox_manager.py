@@ -5,9 +5,10 @@ import logging
 import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, IO
+from typing import IO, Any
 
 import requests
 
@@ -32,11 +33,11 @@ class TrafficStats:
 class Connection:
     """Connection information."""
     id: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     upload: int = 0
     download: int = 0
     start: str = ""
-    chains: List[str] = field(default_factory=list)
+    chains: list[str] = field(default_factory=list)
     rule: str = ""
     rule_payload: str = ""
 
@@ -53,7 +54,7 @@ class SingBoxManager:
     """
     def __init__(
         self,
-        binary_path: Optional[str] = None,
+        binary_path: str | None = None,
         clash_api_addr: str = DEFAULT_CLASH_API_ADDR,
         clash_api_secret: str = DEFAULT_CLASH_API_SECRET,
     ):
@@ -73,44 +74,44 @@ class SingBoxManager:
                     "sing-box not found. Install sing-box and ensure "
                     "it is available in PATH or in core/bin/ directory"
                 )
-        
+
         self._binary_path = binary_path
         self._clash_api_addr = clash_api_addr
         self._clash_api_secret = clash_api_secret
-        self._process: Optional[subprocess.Popen] = None
-        self._config_file: Optional[Path] = None
-        self._on_stop_callback: Optional[Callable[[], None]] = None
-        self._log_file: Optional[IO[bytes]] = None
-        
+        self._process: subprocess.Popen | None = None
+        self._config_file: Path | None = None
+        self._on_stop_callback: Callable[[], None] | None = None
+        self._log_file: IO[bytes] | None = None
+
     @property
     def binary_path(self) -> str:
         """Path to sing-box binary."""
         return self._binary_path
-    
+
     @property
     def clash_api_url(self) -> str:
         """Clash API URL."""
         return f"http://{self._clash_api_addr}"
-    
+
     @property
     def is_running(self) -> bool:
         """Check if process is running."""
         if self._process is None:
             return False
         return self._process.poll() is None
-    
-    def set_on_stop_callback(self, callback: Optional[Callable[[], None]]) -> None:
+
+    def set_on_stop_callback(self, callback: Callable[[], None] | None) -> None:
         """Set callback for process stop."""
         self._on_stop_callback = callback
-    
-    def _get_headers(self) -> Dict[str, str]:
+
+    def _get_headers(self) -> dict[str, str]:
         """Get headers for Clash API."""
         headers = {"Content-Type": "application/json"}
         if self._clash_api_secret:
             headers["Authorization"] = f"Bearer {self._clash_api_secret}"
         return headers
-    
-    def _inject_clash_api(self, config: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _inject_clash_api(self, config: dict[str, Any]) -> dict[str, Any]:
         """
         Add clash_api section to configuration.
         
@@ -130,10 +131,10 @@ class SingBoxManager:
             "external_controller": self._clash_api_addr,
             "secret": self._clash_api_secret,
         }
-        
+
         return config
-    
-    def start(self, config: Dict[str, Any]) -> tuple[bool, str]:
+
+    def start(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Start sing-box with configuration.
         
@@ -159,7 +160,7 @@ class SingBoxManager:
                 self._config_file = Path(f.name)
         except Exception as e:
             return False, f"Error writing configuration: {e}"
-        
+
         # Start process
         log_file_opened = False
         try:
@@ -197,15 +198,15 @@ class SingBoxManager:
 
                 self._cleanup()
                 return False, f"sing-box exited with error: {error_msg}"
-            
+
             # Check that Clash API is available
             if not self._wait_for_api(timeout=5):
                 self.stop()
                 return False, "Clash API не запустился"
-            
+
             logger.info("sing-box запущен, PID: %s", self._process.pid)
             return True, ""
-            
+
         except FileNotFoundError:
             self._cleanup()
             return False, f"Binary not found: {self._binary_path}"
@@ -218,7 +219,7 @@ class SingBoxManager:
                 self._log_file = None
             self._cleanup()
             return False, f"Startup error: {e}"
-    
+
     def _wait_for_api(self, timeout: float = 5.0) -> bool:
         """Wait for Clash API to become available."""
         deadline = time.time() + timeout
@@ -235,8 +236,8 @@ class SingBoxManager:
                 pass
             time.sleep(0.2)
         return False
-    
-    def reload_config(self, config: Dict[str, Any]) -> tuple[bool, str]:
+
+    def reload_config(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Reload sing-box configuration without stopping the process.
         
@@ -254,7 +255,7 @@ class SingBoxManager:
             logger.warning("Error stopping sing-box during reload: %s", stop_error)
 
         return self.start(config)
-    
+
     def stop(self) -> tuple[bool, str]:
         """
         Stop sing-box.
@@ -264,7 +265,7 @@ class SingBoxManager:
         """
         if self._process is None:
             return True, ""
-        
+
         try:
             self._process.terminate()
             try:
@@ -272,22 +273,22 @@ class SingBoxManager:
             except subprocess.TimeoutExpired:
                 self._process.kill()
                 self._process.wait(timeout=2)
-            
+
             logger.info("sing-box stopped")
-            
+
         except Exception as e:
             logger.warning("Error stopping sing-box: %s", e)
-        
+
         self._cleanup()
-        
+
         if self._on_stop_callback:
             try:
                 self._on_stop_callback()
             except Exception as e:
                 logger.warning("Error in on_stop callback: %s", e)
-        
+
         return True, ""
-    
+
     def _cleanup(self) -> None:
         """Clean up resources."""
         self._process = None
@@ -306,8 +307,8 @@ class SingBoxManager:
                 pass
             self._config_file = None
 
-    # Clash API methods   
-    def get_version(self) -> Optional[Dict[str, Any]]:
+    # Clash API methods
+    def get_version(self) -> dict[str, Any] | None:
         """Get sing-box version."""
         try:
             r = requests.get(
@@ -320,7 +321,7 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_version error: %s", e)
         return None
-    
+
     def get_traffic(self) -> TrafficStats:
         """
         Get current traffic statistics.
@@ -344,8 +345,8 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_traffic error: %s", e)
         return TrafficStats()
-    
-    def get_connections(self) -> List[Connection]:
+
+    def get_connections(self) -> list[Connection]:
         """Get list of active connections."""
         try:
             r = requests.get(
@@ -371,7 +372,7 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_connections error: %s", e)
         return []
-    
+
     def close_connection(self, connection_id: str) -> bool:
         """Close connection by ID."""
         try:
@@ -384,7 +385,7 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("close_connection error: %s", e)
         return False
-    
+
     def close_all_connections(self) -> bool:
         """Close all connections."""
         try:
@@ -397,8 +398,8 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("close_all_connections error: %s", e)
         return False
-    
-    def get_proxies(self) -> Dict[str, Any]:
+
+    def get_proxies(self) -> dict[str, Any]:
         """Get list of proxies (outbounds)."""
         try:
             r = requests.get(
@@ -411,7 +412,7 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_proxies error: %s", e)
         return {}
-    
+
     def test_delay(
         self,
         proxy_name: str,
@@ -441,8 +442,8 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("test_delay error: %s", e)
         return -1
-    
-    def get_logs(self, level: str = "info") -> Optional[requests.Response]:
+
+    def get_logs(self, level: str = "info") -> requests.Response | None:
         """
         Get log stream (for use in iterator).
         
@@ -469,8 +470,8 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_logs error: %s", e)
         return None
-    
-    def get_config(self) -> Dict[str, Any]:
+
+    def get_config(self) -> dict[str, Any]:
         """Get current configuration."""
         try:
             r = requests.get(
@@ -483,11 +484,11 @@ class SingBoxManager:
         except requests.RequestException as e:
             logger.debug("get_config error: %s", e)
         return {}
-    
-    def __enter__(self) -> "SingBoxManager":
+
+    def __enter__(self) -> SingBoxManager:
         """Context manager entry."""
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         """Context manager exit."""
         self.stop()

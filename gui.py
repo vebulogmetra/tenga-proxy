@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 import argparse
-import sys
-import os
-from pathlib import Path
 import logging
+import os
+import sys
+from pathlib import Path
 
 
 def setup_early_logging():
@@ -11,10 +11,10 @@ def setup_early_logging():
     if not log_dir:
         xdg = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
         log_dir = os.path.join(xdg, 'tenga-proxy')
-    
+
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, 'startup.log')
-    
+
     logging.basicConfig(
         filename=log_file,
         level=logging.DEBUG,
@@ -42,7 +42,7 @@ try:
     # Initialize GTK before importing any GTK modules
     import gi
     gi.require_version('Gtk', '3.0')
-    from gi.repository import Gtk, Gdk
+    from gi.repository import Gdk, Gtk
     logger.info("GTK imported successfully")
 
     if not Gtk.init_check()[0]:
@@ -52,16 +52,23 @@ try:
         print("Не удалось подключиться к дисплею.")
         print("Убедитесь, что запускаете приложение в графическом окружении.")
         sys.exit(1)
-    
+
     display = Gdk.Display.get_default()
     logger.info(f"Display: {display.get_name() if display else 'None'}")
-    
+
 except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
     raise
 
-from src import __version__ as APP_VERSION, __app_name__ as APP_NAME
-from src.core.config import init_config_files, find_singbox_binary, BUNDLE_DIR, CORE_DIR, get_lock_file
+from src import __app_name__ as APP_NAME
+from src import __version__ as APP_VERSION
+from src.core.config import (
+    BUNDLE_DIR,
+    CORE_DIR,
+    find_singbox_binary,
+    get_lock_file,
+    init_config_files,
+)
 from src.sys.single_instance import SingleInstance
 from src.ui.app import run_app
 
@@ -72,7 +79,7 @@ logger.info(f"sing-box path: {find_singbox_binary()}")
 init_config_files()
 
 
-def main() -> int:   
+def main() -> int:
     parser = argparse.ArgumentParser(
         description='Tenga Proxy',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -92,13 +99,13 @@ def main() -> int:
         action='version',
         version=f'{APP_NAME} {APP_VERSION}'
     )
-    
+
     args = parser.parse_args()
-    
+
     # Check for single instance
     lock_file = get_lock_file(args.config_dir)
     single_instance = SingleInstance(lock_file)
-    
+
     if single_instance.is_running():
         logger.warning("Another instance is already running")
         try:
@@ -126,7 +133,7 @@ def main() -> int:
     if not single_instance.acquire():
         logger.error("Failed to acquire lock")
         return 1
-    
+
     try:
         return run_app(config_dir=args.config_dir, lock=single_instance)
     except ImportError as e:

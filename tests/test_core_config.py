@@ -1,6 +1,7 @@
 import importlib
-import pytest
 import sys
+
+import pytest
 
 
 @pytest.fixture
@@ -23,7 +24,7 @@ def test_get_config_dir_uses_env_var(clean_env, monkeypatch, tmp_path):
 
     config = _reload_config_module()
 
-    assert config.CORE_DIR == custom_dir
+    assert custom_dir == config.CORE_DIR
     assert config.CORE_DIR.exists()
 
 
@@ -35,7 +36,7 @@ def test_get_config_dir_appimage_xdg(clean_env, monkeypatch, tmp_path):
     config = _reload_config_module()
 
     expected = xdg_config_home / "tenga-proxy"
-    assert config.CORE_DIR == expected
+    assert expected == config.CORE_DIR
     assert expected.exists()
 
 
@@ -53,7 +54,7 @@ def test_get_config_dir_development_mode(clean_env, monkeypatch):
 
     # PROJECT_ROOT/ core
     expected_core = config.Path(__file__).resolve().parent.parent / "core"
-    assert config.CORE_DIR == expected_core
+    assert expected_core == config.CORE_DIR
 
 
 def test_log_dir_created(clean_env, tmp_path, monkeypatch):

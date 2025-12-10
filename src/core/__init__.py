@@ -3,7 +3,7 @@ from src.core.singbox_manager import SingBoxManager
 
 __all__ = [
     'AppContext',
+    'SingBoxManager',
     'get_context',
     'init_context',
-    'SingBoxManager',
 ]

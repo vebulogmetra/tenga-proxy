@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict
 
 from src.db.profiles import (
     ProfileEntry,
@@ -14,7 +13,7 @@ def test_profile_entry_name_and_type():
         display_name: str = "Test Proxy"
         proxy_type: str = "dummy"
 
-        def to_dict(self) -> Dict[str, str]:
+        def to_dict(self) -> dict[str, str]:
             return {"k": "v"}
 
     bean = DummyBean()
@@ -134,9 +133,8 @@ def test_profile_manager_save_and_load(tmp_path):
     def fake_protocols():
         return {"dummy": DummyBean}
 
-    from src import db as _db  # noqa: F401
-
     import src.db.profiles as profiles_mod
+    from src import db as _db  # noqa: F401
 
     profiles_mod._get_protocol_classes = fake_protocols
 

@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import gi
+
 gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, Gdk, Pango
+from gi.repository import Gdk, Gtk
 
-from src import __version__ as APP_VERSION, __app_name__ as APP_NAME, __app_description__, __app_author__, __app_website__
+from src import __app_author__, __app_description__, __app_website__
+from src import __app_name__ as APP_NAME
+from src import __version__ as APP_VERSION
 from src.db.config import DnsProvider
 
 if TYPE_CHECKING:
@@ -19,8 +23,8 @@ logger = logging.getLogger("tenga.ui.settings")
 
 class SettingsDialog(Gtk.Dialog):
     """Application settings dialog."""
-    
-    def __init__(self, context: 'AppContext', parent: Optional[Gtk.Window] = None):
+
+    def __init__(self, context: AppContext, parent: Gtk.Window | None = None):
         super().__init__(
             title="Настройки",
             transient_for=parent,
@@ -30,22 +34,22 @@ class SettingsDialog(Gtk.Dialog):
         self.set_role("tenga-proxy")
         self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
         self.connect("realize", self._on_realize)
-        
+
         self.add_buttons(
             Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
             Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY,
         )
-        
+
         self.set_default_size(650, 550)
         self.set_modal(True)
         self.set_skip_taskbar_hint(True)
-        
+
         self._context = context
         self._core_dir = context.config_dir
-        
+
         self._setup_ui()
         self._load_settings()
-    
+
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""
         window = self.get_window()
@@ -55,12 +59,12 @@ class SettingsDialog(Gtk.Dialog):
                 self.set_skip_taskbar_hint(True)
             except Exception:
                 pass
-    
+
     def _setup_ui(self) -> None:
         """Setup UI."""
         content = self.get_content_area()
         content.set_spacing(0)
-        
+
         # Notebook with tabs
         notebook = Gtk.Notebook()
         content.pack_start(notebook, True, True, 0)
@@ -76,7 +80,7 @@ class SettingsDialog(Gtk.Dialog):
         # Tab: About
         about_page = self._create_about_page()
         notebook.append_page(about_page, Gtk.Label(label="О программе"))
-        
+
         content.show_all()
 
 
@@ -87,12 +91,12 @@ class SettingsDialog(Gtk.Dialog):
         box.set_margin_end(15)
         box.set_margin_top(15)
         box.set_margin_bottom(15)
-        
+
         # Proxy settings
         proxy_frame = Gtk.Frame()
         proxy_frame.set_label("Локальный прокси")
         box.pack_start(proxy_frame, False, False, 0)
-        
+
         proxy_grid = Gtk.Grid()
         proxy_grid.set_row_spacing(8)
         proxy_grid.set_column_spacing(10)
@@ -101,21 +105,21 @@ class SettingsDialog(Gtk.Dialog):
         proxy_grid.set_margin_top(10)
         proxy_grid.set_margin_bottom(10)
         proxy_frame.add(proxy_grid)
-        
+
         proxy_grid.attach(Gtk.Label(label="Адрес:", halign=Gtk.Align.END), 0, 0, 1, 1)
         self._address_entry = Gtk.Entry()
         self._address_entry.set_width_chars(15)
         proxy_grid.attach(self._address_entry, 1, 0, 1, 1)
-        
+
         proxy_grid.attach(Gtk.Label(label="Порт:", halign=Gtk.Align.END), 2, 0, 1, 1)
         self._port_spin = Gtk.SpinButton.new_with_range(1024, 65535, 1)
         proxy_grid.attach(self._port_spin, 3, 0, 1, 1)
-        
+
         # Logging
         log_frame = Gtk.Frame()
         log_frame.set_label("Логирование")
         box.pack_start(log_frame, False, False, 0)
-        
+
         log_grid = Gtk.Grid()
         log_grid.set_row_spacing(8)
         log_grid.set_column_spacing(10)
@@ -124,18 +128,18 @@ class SettingsDialog(Gtk.Dialog):
         log_grid.set_margin_top(10)
         log_grid.set_margin_bottom(10)
         log_frame.add(log_grid)
-        
+
         log_grid.attach(Gtk.Label(label="Уровень:", halign=Gtk.Align.END), 0, 0, 1, 1)
         self._log_combo = Gtk.ComboBoxText()
         for level in ["trace", "debug", "info", "warn", "error", "fatal", "panic"]:
             self._log_combo.append_text(level)
         log_grid.attach(self._log_combo, 1, 0, 1, 1)
-        
+
         # Empty space
         box.pack_start(Gtk.Box(), True, True, 0)
-        
+
         return box
-    
+
     def _create_monitoring_page(self) -> Gtk.Widget:
         """Create monitoring settings page."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
@@ -143,12 +147,12 @@ class SettingsDialog(Gtk.Dialog):
         box.set_margin_end(15)
         box.set_margin_top(15)
         box.set_margin_bottom(15)
-        
+
         # Monitoring settings
         monitoring_frame = Gtk.Frame()
         monitoring_frame.set_label("Мониторинг соединений")
         box.pack_start(monitoring_frame, False, False, 0)
-        
+
         monitoring_grid = Gtk.Grid()
         monitoring_grid.set_row_spacing(8)
         monitoring_grid.set_column_spacing(10)
@@ -157,23 +161,23 @@ class SettingsDialog(Gtk.Dialog):
         monitoring_grid.set_margin_top(10)
         monitoring_grid.set_margin_bottom(10)
         monitoring_frame.add(monitoring_grid)
-        
+
         self._monitoring_enable_check = Gtk.CheckButton(label="Включить мониторинг соединений")
         self._monitoring_enable_check.set_tooltip_text(
             "Автоматически проверять статус прокси и VPN соединений и отправлять уведомления при изменениях"
         )
         monitoring_grid.attach(self._monitoring_enable_check, 0, 0, 2, 1)
-        
+
         monitoring_grid.attach(Gtk.Label(label="Интервал проверки (сек):", halign=Gtk.Align.END), 0, 1, 1, 1)
         self._monitoring_interval_spin = Gtk.SpinButton.new_with_range(5, 60, 1)
         self._monitoring_interval_spin.set_tooltip_text("Интервал между проверками статуса соединений (5-60 секунд)")
         monitoring_grid.attach(self._monitoring_interval_spin, 1, 1, 1, 1)
-        
+
         # Empty space
         box.pack_start(Gtk.Box(), True, True, 0)
-        
+
         return box
-    
+
     def _create_dns_page(self) -> Gtk.Widget:
         """Create DNS settings page."""
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
@@ -181,35 +185,35 @@ class SettingsDialog(Gtk.Dialog):
         box.set_margin_end(15)
         box.set_margin_top(15)
         box.set_margin_bottom(15)
-        
+
         # DNS provider
         provider_frame = Gtk.Frame()
         provider_frame.set_label("DNS провайдер")
         box.pack_start(provider_frame, False, False, 0)
-        
+
         provider_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         provider_box.set_margin_start(10)
         provider_box.set_margin_end(10)
         provider_box.set_margin_top(10)
         provider_box.set_margin_bottom(10)
         provider_frame.add(provider_box)
-        
+
         self._dns_radios = {}
         first_radio = None
-        
+
         for provider in DnsProvider.ALL:
             if first_radio is None:
                 radio = Gtk.RadioButton.new_with_label(None, DnsProvider.LABELS[provider])
                 first_radio = radio
             else:
                 radio = Gtk.RadioButton.new_with_label_from_widget(first_radio, DnsProvider.LABELS[provider])
-            
+
             radio.connect("toggled", self._on_dns_provider_changed)
             self._dns_radios[provider] = radio
-            
+
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
             row.pack_start(radio, False, False, 0)
-            
+
             # Show URL for DoH providers
             url = DnsProvider.URLS.get(provider, "")
             if url and url != "local":
@@ -217,31 +221,31 @@ class SettingsDialog(Gtk.Dialog):
                 url_label.set_markup(f"<small><tt>{url}</tt></small>")
                 url_label.get_style_context().add_class("dim-label")
                 row.pack_start(url_label, False, False, 0)
-            
+
             provider_box.pack_start(row, False, False, 0)
-        
+
         # Custom DNS
         custom_frame = Gtk.Frame()
         custom_frame.set_label("Пользовательский DNS (вместо выбранного провайдера)")
         box.pack_start(custom_frame, False, False, 0)
-        
+
         custom_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         custom_box.set_margin_start(10)
         custom_box.set_margin_end(10)
         custom_box.set_margin_top(10)
         custom_box.set_margin_bottom(10)
         custom_frame.add(custom_box)
-        
+
         custom_hint = Gtk.Label()
         custom_hint.set_markup("<small>Оставьте пустым для использования выбранного провайдера</small>")
         custom_hint.set_halign(Gtk.Align.START)
         custom_hint.get_style_context().add_class("dim-label")
         custom_box.pack_start(custom_hint, False, False, 0)
-        
+
         self._dns_custom_entry = Gtk.Entry()
         self._dns_custom_entry.set_placeholder_text("https://dns.example.com/dns-query")
         custom_box.pack_start(self._dns_custom_entry, False, False, 0)
-        
+
         examples_label = Gtk.Label()
         examples_label.set_markup(
             "<small>Примеры:\n"
@@ -252,31 +256,31 @@ class SettingsDialog(Gtk.Dialog):
         examples_label.set_halign(Gtk.Align.START)
         examples_label.get_style_context().add_class("dim-label")
         custom_box.pack_start(examples_label, False, False, 0)
-        
+
         # Options
         options_frame = Gtk.Frame()
         options_frame.set_label("Опции")
         box.pack_start(options_frame, False, False, 0)
-        
+
         options_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         options_box.set_margin_start(10)
         options_box.set_margin_end(10)
         options_box.set_margin_top(10)
         options_box.set_margin_bottom(10)
         options_frame.add(options_box)
-        
+
         self._dns_use_proxy_check = Gtk.CheckButton(label="DNS запросы через прокси")
         self._dns_use_proxy_check.set_tooltip_text(
             "Отправлять DNS запросы через прокси-сервер.\n"
             "Рекомендуется для обхода DNS-блокировок."
         )
         options_box.pack_start(self._dns_use_proxy_check, False, False, 0)
-        
+
         # Empty space
         box.pack_start(Gtk.Box(), True, True, 0)
-        
+
         return box
-    
+
     def _create_about_page(self) -> Gtk.Widget:
         """Create about page."""
         scrolled = Gtk.ScrolledWindow()
@@ -344,39 +348,39 @@ class SettingsDialog(Gtk.Dialog):
 
         scrolled.add(box)
         return scrolled
-    
+
     def _on_dns_provider_changed(self, radio: Gtk.RadioButton) -> None:
         """DNS provider change handler."""
-        pass  # Do nothing for now
+        # Do nothing for now
 
-    
+
     def _load_settings(self) -> None:
         """Load current settings."""
         config = self._context.config
         dns = config.dns
-        
+
         # General settings
         self._address_entry.set_text(config.inbound_address)
         self._port_spin.set_value(config.inbound_socks_port)
-        
+
         # Log level
         log_levels = ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
         if config.log_level in log_levels:
             self._log_combo.set_active(log_levels.index(config.log_level))
         else:
             self._log_combo.set_active(2)  # info
-        
+
         # Monitoring settings
         monitoring = config.monitoring
         self._monitoring_enable_check.set_active(monitoring.enabled)
         self._monitoring_interval_spin.set_value(monitoring.check_interval_seconds)
-        
+
         # DNS settings
         if dns.provider in self._dns_radios:
             self._dns_radios[dns.provider].set_active(True)
         self._dns_custom_entry.set_text(dns.custom_url)
         self._dns_use_proxy_check.set_active(dns.use_proxy)
-    
+
     def save_settings(self) -> bool:
         """Save settings.
 
@@ -385,19 +389,19 @@ class SettingsDialog(Gtk.Dialog):
         """
         config = self._context.config
         dns = config.dns
-        
+
         # General settings
         config.inbound_address = self._address_entry.get_text().strip()
         config.inbound_socks_port = int(self._port_spin.get_value())
-        
+
         log_levels = ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
         config.log_level = log_levels[self._log_combo.get_active()]
-        
+
         # Monitoring settings
         monitoring = config.monitoring
         monitoring.enabled = self._monitoring_enable_check.get_active()
         monitoring.check_interval_seconds = int(self._monitoring_interval_spin.get_value())
-        
+
         # DNS settings
         for provider, radio in self._dns_radios.items():
             if radio.get_active():
@@ -405,16 +409,16 @@ class SettingsDialog(Gtk.Dialog):
                 break
         dns.custom_url = self._dns_custom_entry.get_text().strip()
         dns.use_proxy = self._dns_use_proxy_check.get_active()
-        
+
         # Save
         self._context.save_config()
         return True
 
 
 def show_settings_dialog(
-    context: 'AppContext',
-    parent: Optional[Gtk.Window] = None,
-    on_config_reload: Optional[Callable[[], None]] = None,
+    context: AppContext,
+    parent: Gtk.Window | None = None,
+    on_config_reload: Callable[[], None] | None = None,
 ) -> bool:
     """
     Show settings dialog.
@@ -442,8 +446,7 @@ def show_settings_dialog(
                         logger.exception("Error reloading configuration: %s", e)
                 break
             continue
-        else:
-            break
+        break
 
     dialog.destroy()
 
@@ -453,5 +456,5 @@ def show_settings_dialog(
                 parent._update_monitoring_tab_visibility()
         from gi.repository import GLib
         GLib.idle_add(update_ui)
-    
+
     return applied

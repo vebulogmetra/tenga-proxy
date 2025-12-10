@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import json
+from abc import ABC
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, Dict, Union, Optional, Type, TypeVar, List, get_type_hints, get_origin, get_args
-from abc import ABC
-
+from typing import (
+    Any,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
 
 T = TypeVar('T', bound='ConfigBase')
 
@@ -48,8 +54,8 @@ class ConfigBase(ABC):
     Base class for all configurations.
     Automatic serialization/deserialization to JSON.
     """
-    
-    def to_dict(self, exclude_defaults: bool = False, exclude_none: bool = True) -> Dict[str, Any]:
+
+    def to_dict(self, exclude_defaults: bool = False, exclude_none: bool = True) -> dict[str, Any]:
         """
         Convert to dictionary.
         
@@ -58,14 +64,14 @@ class ConfigBase(ABC):
             exclude_none: Exclude fields with None value
         """
         result = {}
-        
+
         for f in fields(self):
             value = getattr(self, f.name)
-            
+
             # Skip None
             if exclude_none and value is None:
                 continue
-            
+
             # Skip default values
             if exclude_defaults:
                 if f.default is not field and value == f.default:
@@ -79,21 +85,21 @@ class ConfigBase(ABC):
                 result[f.name] = value.to_dict(exclude_defaults, exclude_none)
             elif isinstance(value, list):
                 result[f.name] = [
-                    item.to_dict(exclude_defaults, exclude_none) 
+                    item.to_dict(exclude_defaults, exclude_none)
                     if isinstance(item, ConfigBase) else item
                     for item in value
                 ]
             else:
                 result[f.name] = value
-        
+
         return result
-    
-    def to_json(self, indent: Optional[int] = 2, ensure_ascii: bool = False) -> str:
+
+    def to_json(self, indent: int | None = 2, ensure_ascii: bool = False) -> str:
         """Convert to JSON string."""
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=ensure_ascii)
-    
+
     @classmethod
-    def from_dict(cls: Type[T], data: Dict[str, Any]) -> T:
+    def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         """
         Create instance from dictionary.
         
@@ -102,18 +108,18 @@ class ConfigBase(ABC):
         """
         if not data:
             return cls()
-        
+
         field_types = {}
         try:
             field_types = get_type_hints(cls)
         except:
             pass
-        
+
         kwargs = {}
         for f in fields(cls):
             if f.name not in data:
                 continue
-            
+
             value = data[f.name]
             field_type = field_types.get(f.name, f.type)
 
@@ -124,7 +130,7 @@ class ConfigBase(ABC):
                 field_type = _get_inner_type(field_type)
 
             origin = get_origin(field_type)
-            
+
             if origin is list:
                 inner_type = _get_inner_type(field_type)
                 if isinstance(inner_type, type) and issubclass(inner_type, ConfigBase):
@@ -135,32 +141,32 @@ class ConfigBase(ABC):
                 kwargs[f.name] = field_type.from_dict(value) if isinstance(value, dict) else value
             else:
                 kwargs[f.name] = value
-        
+
         return cls(**kwargs)
-    
+
     @classmethod
-    def from_json(cls: Type[T], json_str: str) -> T:
+    def from_json(cls: type[T], json_str: str) -> T:
         """Create instance from JSON string."""
         try:
             data = json.loads(json_str)
             return cls.from_dict(data)
         except json.JSONDecodeError:
             return cls()
-    
+
     @classmethod
-    def load(cls: Type[T], filepath: Path | str) -> T:
+    def load(cls: type[T], filepath: Path | str) -> T:
         """Load from JSON file."""
         path = Path(filepath)
         if not path.exists():
             return cls()
-        
+
         try:
             content = path.read_text(encoding='utf-8')
             return cls.from_json(content)
         except Exception as e:
             print(f"Error loading config from {filepath}: {e}")
             return cls()
-    
+
     def save(self, filepath: Path | str, indent: int = 2) -> bool:
         """Save to JSON file."""
         path = Path(filepath)
@@ -171,13 +177,13 @@ class ConfigBase(ABC):
         except Exception as e:
             print(f"Error saving config to {filepath}: {e}")
             return False
-    
+
     def update(self, **kwargs) -> None:
         """Update fields from kwargs."""
         for key, value in kwargs.items():
             if hasattr(self, key):
                 setattr(self, key, value)
-    
+
     def copy(self: T) -> T:
         """Create a copy."""
         return self.__class__.from_dict(self.to_dict())
@@ -188,7 +194,7 @@ class InboundAuth(ConfigBase):
     """Authentication for inbound connections."""
     username: str = ""
     password: str = ""
-    
+
     def is_required(self) -> bool:
         """Check if authentication is required."""
         return bool(self.username.strip() and self.password.strip())
@@ -197,16 +203,16 @@ class InboundAuth(ConfigBase):
 @dataclass
 class ExtraCores(ConfigBase):
     """Additional proxy cores."""
-    cores: Dict[str, str] = field(default_factory=dict)
-    
+    cores: dict[str, str] = field(default_factory=dict)
+
     def get(self, core_id: str) -> str:
         """Get core path by ID."""
         return self.cores.get(core_id, "")
-    
+
     def set(self, core_id: str, path: str) -> None:
         """Set core path."""
         self.cores[core_id] = path
-    
+
     def remove(self, core_id: str) -> None:
         """Remove core."""
         self.cores.pop(core_id, None)
@@ -218,16 +224,16 @@ class DnsProvider:
     GOOGLE = "google"
     CLOUDFLARE = "cloudflare"
     ADGUARD = "adguard"
-    
+
     ALL = [SYSTEM, GOOGLE, CLOUDFLARE, ADGUARD]
-    
+
     LABELS = {
         SYSTEM: "Системный DNS",
         GOOGLE: "Google DNS (DoH)",
         CLOUDFLARE: "Cloudflare DNS (DoH)",
         ADGUARD: "AdGuard DNS (DoH)",
     }
-    
+
     # URLs for DoH
     URLS = {
         SYSTEM: "local",
@@ -244,7 +250,7 @@ class DnsSettings(ConfigBase):
     custom_url: str = ""
     # DNS via proxy
     use_proxy: bool = True
-    
+
     def get_dns_url(self) -> str:
         """Get DNS server URL."""
         if self.custom_url:
@@ -257,15 +263,15 @@ class RoutingMode:
     PROXY_ALL = "proxy_all"
     BYPASS_LOCAL = "bypass_local" # Local networks direct, rest via proxy
     CUSTOM = "custom" # Manual rules
-    
+
     ALL = [PROXY_ALL, BYPASS_LOCAL, CUSTOM]
-    
+
     LABELS = {
         PROXY_ALL: "Весь трафик через прокси",
         BYPASS_LOCAL: "Локальные сети напрямую",
         CUSTOM: "Пользовательские списки",
     }
-    
+
     DESCRIPTIONS = {
         PROXY_ALL: "Весь интернет-трафик идёт через прокси-сервер",
         BYPASS_LOCAL: "Локальные сети (127.0.0.0/8, 192.168.0.0/16, etc.) напрямую, остальное через прокси",
@@ -277,13 +283,13 @@ class RoutingMode:
 class RoutingSettings(ConfigBase):
     """Traffic routing settings."""
     mode: str = RoutingMode.BYPASS_LOCAL
-    
+
     def load_list_file(self, filepath: Path) -> list[str]:
         """Load list from file."""
         result = []
         if not filepath.exists():
             return result
-        
+
         try:
             content = filepath.read_text(encoding="utf-8")
             for line in content.split("\n"):
@@ -292,9 +298,9 @@ class RoutingSettings(ConfigBase):
                     result.append(line)
         except Exception:
             pass
-        
+
         return result
-    
+
     def parse_entries(self, entries: list[str]) -> tuple[list[str], list[str]]:
         """
         Split entries into domains and IP/CIDR.
@@ -304,7 +310,7 @@ class RoutingSettings(ConfigBase):
         """
         domains = []
         ips = []
-        
+
         for entry in entries:
             entry = entry.strip().rstrip(",").strip()
             if not entry:
@@ -319,7 +325,7 @@ class RoutingSettings(ConfigBase):
                     domains.extend(part_domains)
                     ips.extend(part_ips)
                 continue
-            
+
             if "/" in entry:
                 parts = entry.split("/")
                 if len(parts) == 2 and parts[1].isdigit():
@@ -330,7 +336,7 @@ class RoutingSettings(ConfigBase):
                 ips.append(entry + "/32")
                 continue
             domains.append(entry)
-        
+
         return domains, ips
 
 
@@ -342,10 +348,10 @@ class VpnSettings(ConfigBase):
     interface_name: str = ""
     direct_interface: str = ""
     auto_connect: bool = False
-    over_vpn_networks: List[str] = field(default_factory=list)
-    over_vpn_domains: List[str] = field(default_factory=list)
-    direct_networks: List[str] = field(default_factory=list)
-    direct_domains: List[str] = field(default_factory=list)
+    over_vpn_networks: list[str] = field(default_factory=list)
+    over_vpn_domains: list[str] = field(default_factory=list)
+    direct_networks: list[str] = field(default_factory=list)
+    direct_domains: list[str] = field(default_factory=list)
 
 @dataclass
 class MonitoringSettings(ConfigBase):

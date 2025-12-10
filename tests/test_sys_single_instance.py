@@ -1,5 +1,7 @@
 import os
+
 import pytest
+
 from src.sys.single_instance import SingleInstance
 
 
@@ -73,9 +75,8 @@ def test_context_manager_raises_if_other_instance(monkeypatch, tmp_path):
     monkeypatch.setattr(os, "kill", fake_kill)
 
     inst = SingleInstance(lock)
-    with pytest.raises(RuntimeError):
-        with inst:
-            pass
+    with pytest.raises(RuntimeError), inst:
+        pass
 
 
 def test_is_running_empty_pid(tmp_path):
