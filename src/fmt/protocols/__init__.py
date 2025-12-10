@@ -4,14 +4,13 @@ from src.fmt.protocols.trojan_vless import TrojanBean, TrojanVLESSBean, VLESSBea
 from src.fmt.protocols.vmess import VMessBean
 
 __all__ = [
-    'HttpBean',
-    'ShadowSocksBean',  # Alias for compatibility
-    'ShadowsocksBean',
-    'SocksBean',
-    'SocksHttpBean',
-    'TrojanBean',
-    'TrojanVLESSBean',
-    'VLESSBean',
-    'VMessBean',
+    "HttpBean",
+    "ShadowSocksBean",  # Alias for compatibility
+    "ShadowsocksBean",
+    "SocksBean",
+    "SocksHttpBean",
+    "TrojanBean",
+    "TrojanVLESSBean",
+    "VLESSBean",
+    "VMessBean",
 ]
-

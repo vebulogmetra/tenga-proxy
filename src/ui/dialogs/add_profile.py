@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, Gtk
 
@@ -29,8 +29,10 @@ class AddProfileDialog(Gtk.Dialog):
         self.connect("realize", self._on_realize)
 
         self.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_ADD, Gtk.ResponseType.OK,
+            Gtk.STOCK_CANCEL,
+            Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_ADD,
+            Gtk.ResponseType.OK,
         )
 
         self.set_default_size(500, 200)
@@ -66,9 +68,7 @@ class AddProfileDialog(Gtk.Dialog):
 
         # Instructions
         info_label = Gtk.Label()
-        info_label.set_markup(
-            "<b>Вставьте share link</b>\n"
-        )
+        info_label.set_markup("<b>Вставьте share link</b>\n")
         info_label.set_halign(Gtk.Align.START)
         content.pack_start(info_label, False, False, 0)
         # Link field
@@ -171,7 +171,7 @@ class AddProfileDialog(Gtk.Dialog):
 def show_add_profile_dialog(parent: Gtk.Window | None = None) -> ProxyBean | None:
     """
     Show add profile dialog.
-    
+
     Returns:
         ProxyBean if profile added, None if cancelled
     """

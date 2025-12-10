@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, Gtk
 
@@ -36,8 +36,10 @@ class SettingsDialog(Gtk.Dialog):
         self.connect("realize", self._on_realize)
 
         self.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY,
+            Gtk.STOCK_CANCEL,
+            Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_APPLY,
+            Gtk.ResponseType.APPLY,
         )
 
         self.set_default_size(650, 550)
@@ -82,7 +84,6 @@ class SettingsDialog(Gtk.Dialog):
         notebook.append_page(about_page, Gtk.Label(label="О программе"))
 
         content.show_all()
-
 
     def _create_general_page(self) -> Gtk.Widget:
         """Create general settings page."""
@@ -168,9 +169,13 @@ class SettingsDialog(Gtk.Dialog):
         )
         monitoring_grid.attach(self._monitoring_enable_check, 0, 0, 2, 1)
 
-        monitoring_grid.attach(Gtk.Label(label="Интервал проверки (сек):", halign=Gtk.Align.END), 0, 1, 1, 1)
+        monitoring_grid.attach(
+            Gtk.Label(label="Интервал проверки (сек):", halign=Gtk.Align.END), 0, 1, 1, 1
+        )
         self._monitoring_interval_spin = Gtk.SpinButton.new_with_range(5, 60, 1)
-        self._monitoring_interval_spin.set_tooltip_text("Интервал между проверками статуса соединений (5-60 секунд)")
+        self._monitoring_interval_spin.set_tooltip_text(
+            "Интервал между проверками статуса соединений (5-60 секунд)"
+        )
         monitoring_grid.attach(self._monitoring_interval_spin, 1, 1, 1, 1)
 
         # Empty space
@@ -206,7 +211,9 @@ class SettingsDialog(Gtk.Dialog):
                 radio = Gtk.RadioButton.new_with_label(None, DnsProvider.LABELS[provider])
                 first_radio = radio
             else:
-                radio = Gtk.RadioButton.new_with_label_from_widget(first_radio, DnsProvider.LABELS[provider])
+                radio = Gtk.RadioButton.new_with_label_from_widget(
+                    first_radio, DnsProvider.LABELS[provider]
+                )
 
             radio.connect("toggled", self._on_dns_provider_changed)
             self._dns_radios[provider] = radio
@@ -237,7 +244,9 @@ class SettingsDialog(Gtk.Dialog):
         custom_frame.add(custom_box)
 
         custom_hint = Gtk.Label()
-        custom_hint.set_markup("<small>Оставьте пустым для использования выбранного провайдера</small>")
+        custom_hint.set_markup(
+            "<small>Оставьте пустым для использования выбранного провайдера</small>"
+        )
         custom_hint.set_halign(Gtk.Align.START)
         custom_hint.get_style_context().add_class("dim-label")
         custom_box.pack_start(custom_hint, False, False, 0)
@@ -271,8 +280,7 @@ class SettingsDialog(Gtk.Dialog):
 
         self._dns_use_proxy_check = Gtk.CheckButton(label="DNS запросы через прокси")
         self._dns_use_proxy_check.set_tooltip_text(
-            "Отправлять DNS запросы через прокси-сервер.\n"
-            "Рекомендуется для обхода DNS-блокировок."
+            "Отправлять DNS запросы через прокси-сервер.\nРекомендуется для обхода DNS-блокировок."
         )
         options_box.pack_start(self._dns_use_proxy_check, False, False, 0)
 
@@ -353,7 +361,6 @@ class SettingsDialog(Gtk.Dialog):
         """DNS provider change handler."""
         # Do nothing for now
 
-
     def _load_settings(self) -> None:
         """Load current settings."""
         config = self._context.config
@@ -422,12 +429,12 @@ def show_settings_dialog(
 ) -> bool:
     """
     Show settings dialog.
-    
+
     Args:
         context: Application context
         parent: Parent window
         on_config_reload: Optional callback to reload configuration after saving
-        
+
     Returns:
         True if settings were applied
     """
@@ -451,10 +458,13 @@ def show_settings_dialog(
     dialog.destroy()
 
     if applied and parent:
+
         def update_ui():
-            if hasattr(parent, '_update_monitoring_tab_visibility'):
+            if hasattr(parent, "_update_monitoring_tab_visibility"):
                 parent._update_monitoring_tab_visibility()
+
         from gi.repository import GLib
+
         GLib.idle_add(update_ui)
 
     return applied

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
@@ -146,9 +146,7 @@ class MainWindow(Gtk.Window):
         style_provider = Gtk.CssProvider()
         style_provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            style_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
 
     def _setup_ui(self) -> None:
@@ -183,8 +181,7 @@ class MainWindow(Gtk.Window):
         # Tab 3: Monitoring (only if monitoring is enabled)
         self._monitoring_page = self._create_monitoring_page()
         self._monitoring_page_index = self._monitoring_notebook.append_page(
-            self._monitoring_page,
-            Gtk.Label(label="Мониторинг")
+            self._monitoring_page, Gtk.Label(label="Мониторинг")
         )
         self._update_monitoring_tab_visibility()
 
@@ -800,13 +797,15 @@ class MainWindow(Gtk.Window):
             if profile.id == current_id:
                 name = f"✓ {name}"
 
-            self._profile_store.append([
-                profile.id,
-                name,
-                profile.proxy_type.upper(),
-                profile.bean.display_address,
-                "preferences-system-symbolic",
-            ])
+            self._profile_store.append(
+                [
+                    profile.id,
+                    name,
+                    profile.proxy_type.upper(),
+                    profile.bean.display_address,
+                    "preferences-system-symbolic",
+                ]
+            )
 
     def _on_state_changed(self, state: ProxyState) -> None:
         """State change handler."""
@@ -839,14 +838,10 @@ class MainWindow(Gtk.Window):
                     pixels = pixbuf.get_pixels()
 
                     new_pixbuf = GdkPixbuf.Pixbuf.new(
-                        GdkPixbuf.Colorspace.RGB,
-                        has_alpha,
-                        8,
-                        width,
-                        height
+                        GdkPixbuf.Colorspace.RGB, has_alpha, 8, width, height
                     )
-                    pixels_array = array.array('B', pixels)
-                    new_pixels_array = array.array('B', [0] * (height * new_pixbuf.get_rowstride()))
+                    pixels_array = array.array("B", pixels)
+                    new_pixels_array = array.array("B", [0] * (height * new_pixbuf.get_rowstride()))
 
                     for y in range(height):
                         for x in range(width):
@@ -854,14 +849,30 @@ class MainWindow(Gtk.Window):
                             new_idx = y * new_pixbuf.get_rowstride() + x * n_channels
 
                             if has_alpha and n_channels == 4:
-                                alpha = pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
-                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                alpha = (
+                                    pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
+                                )
+                                gray = int(
+                                    (
+                                        pixels_array[idx]
+                                        + pixels_array[idx + 1]
+                                        + pixels_array[idx + 2]
+                                    )
+                                    / 3
+                                )
                                 new_pixels_array[new_idx] = int(gray * r / 255)
                                 new_pixels_array[new_idx + 1] = int(gray * g / 255)
                                 new_pixels_array[new_idx + 2] = int(gray * b / 255)
                                 new_pixels_array[new_idx + 3] = alpha
                             elif n_channels == 3:
-                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                gray = int(
+                                    (
+                                        pixels_array[idx]
+                                        + pixels_array[idx + 1]
+                                        + pixels_array[idx + 2]
+                                    )
+                                    / 3
+                                )
                                 new_pixels_array[new_idx] = int(gray * r / 255)
                                 new_pixels_array[new_idx + 1] = int(gray * g / 255)
                                 new_pixels_array[new_idx + 2] = int(gray * b / 255)
@@ -873,7 +884,7 @@ class MainWindow(Gtk.Window):
                         8,
                         width,
                         height,
-                        new_pixbuf.get_rowstride()
+                        new_pixbuf.get_rowstride(),
                     )
                     self._header_icon.set_from_pixbuf(new_pixbuf)
         except Exception:
@@ -916,7 +927,9 @@ class MainWindow(Gtk.Window):
             return model[treeiter][0]
         return None
 
-    def _on_row_activated(self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn) -> None:
+    def _on_row_activated(
+        self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn
+    ) -> None:
         """Double click on profile."""
         model = tree_view.get_model()
         treeiter = model.get_iter(path)
@@ -925,7 +938,9 @@ class MainWindow(Gtk.Window):
         if self._on_connect:
             self._on_connect(profile_id)
 
-    def _on_profile_list_button_press(self, tree_view: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+    def _on_profile_list_button_press(
+        self, tree_view: Gtk.TreeView, event: Gdk.EventButton
+    ) -> bool:
         """Handle button press on profile list."""
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
             return False
@@ -947,16 +962,20 @@ class MainWindow(Gtk.Window):
                 # Callback to reload config if this profile is currently active
                 def on_settings_applied(edited_profile_id: int) -> None:
                     """Reload configuration if edited profile is currently active."""
-                    if (self._context.proxy_state.is_running and
-                        self._context.proxy_state.started_profile_id == edited_profile_id and
-                        self._on_config_reload):
+                    if (
+                        self._context.proxy_state.is_running
+                        and self._context.proxy_state.started_profile_id == edited_profile_id
+                        and self._on_config_reload
+                    ):
                         try:
                             self._on_config_reload()
                         except Exception:
                             # Silently ignore errors - they will be logged by _reload_config
                             pass
 
-                show_profile_vpn_settings_dialog(profile, self, on_settings_applied=on_settings_applied)
+                show_profile_vpn_settings_dialog(
+                    profile, self, on_settings_applied=on_settings_applied
+                )
                 self._context.profiles.save()
                 return True
 
@@ -1093,6 +1112,7 @@ class MainWindow(Gtk.Window):
     def _on_settings_clicked(self, button: Gtk.Button) -> None:
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
+
         show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
 
     def _on_realize(self, widget: Gtk.Widget) -> None:
@@ -1146,7 +1166,6 @@ class MainWindow(Gtk.Window):
         if self._context.proxy_state.is_running:
             self._start_stats_timer()
 
-
     def set_on_connect(self, callback: Callable[[int], None]) -> None:
         """Set callback for connection."""
         self._on_connect = callback
@@ -1185,9 +1204,7 @@ class MainWindow(Gtk.Window):
                 # Tab doesn't exist, add it after Connection tab (index 2)
                 # Profiles=0, Connection=1, Monitoring=2
                 self._monitoring_page_index = self._monitoring_notebook.insert_page(
-                    self._monitoring_page,
-                    Gtk.Label(label="Мониторинг"),
-                    2
+                    self._monitoring_page, Gtk.Label(label="Мониторинг"), 2
                 )
                 self._monitoring_notebook.show_all()
         else:
@@ -1240,6 +1257,7 @@ class MainWindow(Gtk.Window):
         if self._monitoring_last_check:
             if last_check_time > 0:
                 import datetime
+
                 check_time = datetime.datetime.fromtimestamp(last_check_time)
                 time_str = check_time.strftime("%H:%M:%S")
                 self._monitoring_last_check.set_text(time_str)

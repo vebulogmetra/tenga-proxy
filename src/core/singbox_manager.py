@@ -25,6 +25,7 @@ logger = logging.getLogger("tenga.singbox_manager")
 @dataclass
 class TrafficStats:
     """Traffic statistics."""
+
     upload: int = 0
     download: int = 0
 
@@ -32,6 +33,7 @@ class TrafficStats:
 @dataclass
 class Connection:
     """Connection information."""
+
     id: str
     metadata: dict[str, Any] = field(default_factory=dict)
     upload: int = 0
@@ -45,13 +47,14 @@ class Connection:
 class SingBoxManager:
     """
     Management of sing-box via subprocess + Clash API.
-    
+
     Provides:
     - Start/stop sing-box as subprocess
     - Monitoring via built-in Clash API
     - Traffic statistics retrieval
     - Connection management
     """
+
     def __init__(
         self,
         binary_path: str | None = None,
@@ -60,7 +63,7 @@ class SingBoxManager:
     ):
         """
         Initialize manager.
-        
+
         Args:
             binary_path: Path to sing-box binary. If None, automatic search will be performed
                         (first core/bin/sing-box, then system)
@@ -114,10 +117,10 @@ class SingBoxManager:
     def _inject_clash_api(self, config: dict[str, Any]) -> dict[str, Any]:
         """
         Add clash_api section to configuration.
-        
+
         Args:
             config: Original sing-box configuration
-            
+
         Returns:
             Configuration with added clash_api
         """
@@ -137,10 +140,10 @@ class SingBoxManager:
     def start(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Start sing-box with configuration.
-        
+
         Args:
             config: sing-box configuration (dict)
-            
+
         Returns:
             (success, error_message)
         """
@@ -240,10 +243,10 @@ class SingBoxManager:
     def reload_config(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Reload sing-box configuration without stopping the process.
-        
+
         Args:
             config: New sing-box configuration
-            
+
         Returns:
             (success, error_message)
         """
@@ -259,7 +262,7 @@ class SingBoxManager:
     def stop(self) -> tuple[bool, str]:
         """
         Stop sing-box.
-        
+
         Returns:
             (success, error_message)
         """
@@ -325,7 +328,7 @@ class SingBoxManager:
     def get_traffic(self) -> TrafficStats:
         """
         Get current traffic statistics.
-        
+
         Note: For real-time statistics use get_traffic_stream()
         """
         # Clash API returns current traffic via /traffic WebSocket
@@ -358,16 +361,18 @@ class SingBoxManager:
                 data = r.json()
                 connections = []
                 for conn in data.get("connections", []):
-                    connections.append(Connection(
-                        id=conn.get("id", ""),
-                        metadata=conn.get("metadata", {}),
-                        upload=conn.get("upload", 0),
-                        download=conn.get("download", 0),
-                        start=conn.get("start", ""),
-                        chains=conn.get("chains", []),
-                        rule=conn.get("rule", ""),
-                        rule_payload=conn.get("rulePayload", ""),
-                    ))
+                    connections.append(
+                        Connection(
+                            id=conn.get("id", ""),
+                            metadata=conn.get("metadata", {}),
+                            upload=conn.get("upload", 0),
+                            download=conn.get("download", 0),
+                            start=conn.get("start", ""),
+                            chains=conn.get("chains", []),
+                            rule=conn.get("rule", ""),
+                            rule_payload=conn.get("rulePayload", ""),
+                        )
+                    )
                 return connections
         except requests.RequestException as e:
             logger.debug("get_connections error: %s", e)
@@ -421,12 +426,12 @@ class SingBoxManager:
     ) -> int:
         """
         Test proxy latency.
-        
+
         Args:
             proxy_name: Proxy name (outbound tag)
             url: URL for testing
             timeout: Timeout in milliseconds
-            
+
         Returns:
             Latency in ms or -1 on error
         """
@@ -446,13 +451,13 @@ class SingBoxManager:
     def get_logs(self, level: str = "info") -> requests.Response | None:
         """
         Get log stream (for use in iterator).
-        
+
         Args:
             level: Log level (debug, info, warning, error)
-            
+
         Returns:
             Response object for streaming or None
-            
+
         Usage:
             response = manager.get_logs()
             if response:

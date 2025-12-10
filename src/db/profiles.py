@@ -21,6 +21,7 @@ def _get_protocol_classes() -> dict[str, type[ProxyBean]]:
         VLESSBean,
         VMessBean,
     )
+
     return {
         "vless": VLESSBean,
         "trojan": TrojanBean,
@@ -258,14 +259,14 @@ class ProfileManager:
         try:
             meta_file = self._profiles_dir / "meta.json"
             if meta_file.exists():
-                meta = json.loads(meta_file.read_text(encoding='utf-8'))
+                meta = json.loads(meta_file.read_text(encoding="utf-8"))
                 self._next_profile_id = meta.get("next_profile_id", 1)
                 self._next_group_id = meta.get("next_group_id", 1)
                 self._current_group_id = meta.get("current_group_id", 0)
 
             groups_file = self._profiles_dir / "groups.json"
             if groups_file.exists():
-                groups_data = json.loads(groups_file.read_text(encoding='utf-8'))
+                groups_data = json.loads(groups_file.read_text(encoding="utf-8"))
                 for gdata in groups_data:
                     group = ProfileGroup.from_dict(gdata)
                     self._groups[group.id] = group
@@ -275,7 +276,7 @@ class ProfileManager:
 
             profiles_file = self._profiles_dir / "profiles.json"
             if profiles_file.exists():
-                profiles_data = json.loads(profiles_file.read_text(encoding='utf-8'))
+                profiles_data = json.loads(profiles_file.read_text(encoding="utf-8"))
                 for pdata in profiles_data:
                     entry = ProfileEntry.from_dict(pdata)
                     if entry:
@@ -297,15 +298,15 @@ class ProfileManager:
                 "current_group_id": self._current_group_id,
             }
             meta_file = self._profiles_dir / "meta.json"
-            meta_file.write_text(json.dumps(meta, indent=2), encoding='utf-8')
+            meta_file.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
             groups_data = [g.to_dict() for g in self._groups.values()]
             groups_file = self._profiles_dir / "groups.json"
-            groups_file.write_text(json.dumps(groups_data, indent=2), encoding='utf-8')
+            groups_file.write_text(json.dumps(groups_data, indent=2), encoding="utf-8")
 
             profiles_data = [p.to_dict() for p in self._profiles.values()]
             profiles_file = self._profiles_dir / "profiles.json"
-            profiles_file.write_text(json.dumps(profiles_data, indent=2), encoding='utf-8')
+            profiles_file.write_text(json.dumps(profiles_data, indent=2), encoding="utf-8")
 
             return True
         except Exception as e:

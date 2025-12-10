@@ -29,7 +29,7 @@ class SubscriptionUpdater:
         if self._config:
             user_agent = self._config.get_user_agent()
             if user_agent:
-                headers['User-Agent'] = user_agent
+                headers["User-Agent"] = user_agent
 
         verify = True
         if self._config and self._config.sub_insecure:
@@ -52,12 +52,12 @@ class SubscriptionUpdater:
     ) -> list[ProxyBean]:
         """
         Update subscription.
-        
+
         Args:
             url: Subscription URL
             group_id: Group ID for adding profiles
             clear_existing: Clear existing profiles in group
-            
+
         Returns:
             List of added profiles
         """
@@ -90,14 +90,14 @@ def update_subscription(
 ) -> list[ProxyBean]:
     """
     Update subscription (helper function).
-    
+
     Args:
         url: Subscription URL
         config: Configuration (for User-Agent etc.)
         profiles: Profile manager
         group_id: Group ID
         clear_existing: Clear existing profiles
-        
+
     Returns:
         List of added profiles
     """

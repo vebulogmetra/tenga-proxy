@@ -13,30 +13,30 @@ def decode_base64(data: str, url_safe: bool = True) -> str | None:
         # Add padding
         padding = 4 - len(data) % 4
         if padding != 4:
-            data += '=' * padding
+            data += "=" * padding
 
         if url_safe:
             decoded = base64.urlsafe_b64decode(data)
         else:
             decoded = base64.b64decode(data)
 
-        return decoded.decode('utf-8', errors='ignore')
+        return decoded.decode("utf-8", errors="ignore")
     except Exception:
         return None
 
 
 def encode_base64(data: str, url_safe: bool = True) -> str:
-    encoded = data.encode('utf-8')
+    encoded = data.encode("utf-8")
     if url_safe:
         result = base64.urlsafe_b64encode(encoded)
     else:
         result = base64.b64encode(encoded)
-    return result.decode('utf-8').rstrip('=')
+    return result.decode("utf-8").rstrip("=")
 
 
 def parse_url_fragment(url: str) -> tuple[str, str]:
-    if '#' in url:
-        parts = url.split('#', 1)
+    if "#" in url:
+        parts = url.split("#", 1)
         return parts[0], unquote(parts[1])
     return url, ""
 
@@ -57,6 +57,7 @@ def get_query_param(params: dict[str, list[str]], key: str, default: str = "") -
 
 class LinkParser:
     """Base class for parsing share links."""
+
     SCHEMES: list[str] = []
 
     @classmethod
@@ -183,13 +184,13 @@ def parse_subscription_content(content: str) -> list[ProxyBean]:
     if decoded:
         content = decoded
 
-    if 'proxies:' in content:
+    if "proxies:" in content:
         # TODO: Parse Clash YAML
         pass
 
-    for line in content.split('\n'):
+    for line in content.split("\n"):
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith("#"):
             continue
 
         bean = parse_link(line)

@@ -50,29 +50,29 @@ class ShadowsocksBean(ProxyBean):
 
     def _try_parse_base64_format(self, link_body: str) -> bool:
         """Parse base64 format: ss://base64#name."""
-        if '@' in link_body and ':' in link_body[:20]:
+        if "@" in link_body and ":" in link_body[:20]:
             return False
 
         try:
             encoded = link_body
-            if '#' in encoded:
-                parts = encoded.split('#', 1)
+            if "#" in encoded:
+                parts = encoded.split("#", 1)
                 encoded = parts[0]
                 self.name = unquote(parts[1]) if len(parts) > 1 else ""
 
             padding = 4 - len(encoded) % 4
             if padding != 4:
-                encoded += '=' * padding
+                encoded += "=" * padding
 
-            decoded = base64.urlsafe_b64decode(encoded).decode('utf-8', errors='ignore')
+            decoded = base64.urlsafe_b64decode(encoded).decode("utf-8", errors="ignore")
 
             # Format: method:password@server:port
-            if '@' in decoded:
-                method_pass, server_port = decoded.rsplit('@', 1)
-                if ':' in method_pass:
-                    self.method, self.password = method_pass.split(':', 1)
-                if ':' in server_port:
-                    self.server_address, port_str = server_port.rsplit(':', 1)
+            if "@" in decoded:
+                method_pass, server_port = decoded.rsplit("@", 1)
+                if ":" in method_pass:
+                    self.method, self.password = method_pass.split(":", 1)
+                if ":" in server_port:
+                    self.server_address, port_str = server_port.rsplit(":", 1)
                     self.server_port = int(port_str)
                 return bool(self.server_address and self.password)
 
@@ -92,8 +92,8 @@ class ShadowsocksBean(ProxyBean):
 
             # Username may contain method:password or be base64
             if url.username:
-                if ':' in url.username:
-                    parts = url.username.split(':', 1)
+                if ":" in url.username:
+                    parts = url.username.split(":", 1)
                     self.method = parts[0]
 
                     # For 2022 methods
@@ -106,8 +106,10 @@ class ShadowsocksBean(ProxyBean):
                             password_encoded = parts[1]
                             padding = 4 - len(password_encoded) % 4
                             if padding != 4:
-                                password_encoded += '=' * padding
-                            self.password = base64.urlsafe_b64decode(password_encoded).decode('utf-8')
+                                password_encoded += "=" * padding
+                            self.password = base64.urlsafe_b64decode(password_encoded).decode(
+                                "utf-8"
+                            )
                         except:
                             self.password = parts[1]
                 else:
@@ -118,8 +120,10 @@ class ShadowsocksBean(ProxyBean):
                             password_encoded = url.password
                             padding = 4 - len(password_encoded) % 4
                             if padding != 4:
-                                password_encoded += '=' * padding
-                            self.password = base64.urlsafe_b64decode(password_encoded).decode('utf-8')
+                                password_encoded += "=" * padding
+                            self.password = base64.urlsafe_b64decode(password_encoded).decode(
+                                "utf-8"
+                            )
                         except:
                             self.password = url.password
 
@@ -129,8 +133,8 @@ class ShadowsocksBean(ProxyBean):
             # Plugin from query
             if url.query:
                 params = parse_qs(url.query)
-                if 'plugin' in params:
-                    self.plugin = params['plugin'][0]
+                if "plugin" in params:
+                    self.plugin = params["plugin"][0]
 
             return bool(self.server_address)
         except:
@@ -144,9 +148,11 @@ class ShadowsocksBean(ProxyBean):
         else:
             # Standard format with base64
             method_password = f"{self.method}:{self.password}"
-            userinfo = base64.urlsafe_b64encode(
-                method_password.encode('utf-8')
-            ).decode('utf-8').rstrip('=')
+            userinfo = (
+                base64.urlsafe_b64encode(method_password.encode("utf-8"))
+                .decode("utf-8")
+                .rstrip("=")
+            )
 
         url = f"ss://{userinfo}@{self.server_address}:{self.server_port}"
 
@@ -173,10 +179,7 @@ class ShadowsocksBean(ProxyBean):
 
         # UDP over TCP
         if self.uot_version > 0:
-            outbound["udp_over_tcp"] = {
-                "enabled": True,
-                "version": self.uot_version
-            }
+            outbound["udp_over_tcp"] = {"enabled": True, "version": self.uot_version}
         else:
             outbound["udp_over_tcp"] = False
 
@@ -191,5 +194,6 @@ class ShadowsocksBean(ProxyBean):
         self.stream.apply_to_outbound(outbound, skip_cert)
 
         return outbound
+
 
 ShadowSocksBean = ShadowsocksBean

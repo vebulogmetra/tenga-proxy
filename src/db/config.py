@@ -13,7 +13,7 @@ from typing import (
     get_type_hints,
 )
 
-T = TypeVar('T', bound='ConfigBase')
+T = TypeVar("T", bound="ConfigBase")
 
 
 def _is_optional(field_type: Any) -> bool:
@@ -23,6 +23,7 @@ def _is_optional(field_type: Any) -> bool:
         return True
     try:
         from typing import Union
+
         if origin is Union:
             args = get_args(field_type)
             return type(None) in args
@@ -58,7 +59,7 @@ class ConfigBase(ABC):
     def to_dict(self, exclude_defaults: bool = False, exclude_none: bool = True) -> dict[str, Any]:
         """
         Convert to dictionary.
-        
+
         Args:
             exclude_defaults: Exclude fields with default values
             exclude_none: Exclude fields with None value
@@ -86,7 +87,8 @@ class ConfigBase(ABC):
             elif isinstance(value, list):
                 result[f.name] = [
                     item.to_dict(exclude_defaults, exclude_none)
-                    if isinstance(item, ConfigBase) else item
+                    if isinstance(item, ConfigBase)
+                    else item
                     for item in value
                 ]
             else:
@@ -102,7 +104,7 @@ class ConfigBase(ABC):
     def from_dict(cls: type[T], data: dict[str, Any]) -> T:
         """
         Create instance from dictionary.
-        
+
         Args:
             data: Dictionary with data
         """
@@ -161,7 +163,7 @@ class ConfigBase(ABC):
             return cls()
 
         try:
-            content = path.read_text(encoding='utf-8')
+            content = path.read_text(encoding="utf-8")
             return cls.from_json(content)
         except Exception as e:
             print(f"Error loading config from {filepath}: {e}")
@@ -172,7 +174,7 @@ class ConfigBase(ABC):
         path = Path(filepath)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(self.to_json(indent=indent), encoding='utf-8')
+            path.write_text(self.to_json(indent=indent), encoding="utf-8")
             return True
         except Exception as e:
             print(f"Error saving config to {filepath}: {e}")
@@ -192,6 +194,7 @@ class ConfigBase(ABC):
 @dataclass
 class InboundAuth(ConfigBase):
     """Authentication for inbound connections."""
+
     username: str = ""
     password: str = ""
 
@@ -203,6 +206,7 @@ class InboundAuth(ConfigBase):
 @dataclass
 class ExtraCores(ConfigBase):
     """Additional proxy cores."""
+
     cores: dict[str, str] = field(default_factory=dict)
 
     def get(self, core_id: str) -> str:
@@ -220,6 +224,7 @@ class ExtraCores(ConfigBase):
 
 class DnsProvider:
     """Predefined DNS providers."""
+
     SYSTEM = "system"
     GOOGLE = "google"
     CLOUDFLARE = "cloudflare"
@@ -246,6 +251,7 @@ class DnsProvider:
 @dataclass
 class DnsSettings(ConfigBase):
     """DNS settings."""
+
     provider: str = DnsProvider.GOOGLE
     custom_url: str = ""
     # DNS via proxy
@@ -260,9 +266,10 @@ class DnsSettings(ConfigBase):
 
 class RoutingMode:
     """Routing modes."""
+
     PROXY_ALL = "proxy_all"
-    BYPASS_LOCAL = "bypass_local" # Local networks direct, rest via proxy
-    CUSTOM = "custom" # Manual rules
+    BYPASS_LOCAL = "bypass_local"  # Local networks direct, rest via proxy
+    CUSTOM = "custom"  # Manual rules
 
     ALL = [PROXY_ALL, BYPASS_LOCAL, CUSTOM]
 
@@ -282,6 +289,7 @@ class RoutingMode:
 @dataclass
 class RoutingSettings(ConfigBase):
     """Traffic routing settings."""
+
     mode: str = RoutingMode.BYPASS_LOCAL
 
     def load_list_file(self, filepath: Path) -> list[str]:
@@ -304,7 +312,7 @@ class RoutingSettings(ConfigBase):
     def parse_entries(self, entries: list[str]) -> tuple[list[str], list[str]]:
         """
         Split entries into domains and IP/CIDR.
-        
+
         Returns:
             (domains, ips)
         """
@@ -343,6 +351,7 @@ class RoutingSettings(ConfigBase):
 @dataclass
 class VpnSettings(ConfigBase):
     """VPN integration settings."""
+
     enabled: bool = False
     connection_name: str = "my-vpn"
     interface_name: str = ""
@@ -353,9 +362,11 @@ class VpnSettings(ConfigBase):
     direct_networks: list[str] = field(default_factory=list)
     direct_domains: list[str] = field(default_factory=list)
 
+
 @dataclass
 class MonitoringSettings(ConfigBase):
     """Connection monitoring settings."""
+
     enabled: bool = True
     check_interval_seconds: int = 10
     test_url: str = "https://www.google.com/generate_204"

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, Gtk, Pango
 
@@ -39,8 +39,10 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         self.connect("realize", self._on_realize)
 
         self.add_buttons(
-            Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_APPLY, Gtk.ResponseType.APPLY,
+            Gtk.STOCK_CANCEL,
+            Gtk.ResponseType.CANCEL,
+            Gtk.STOCK_APPLY,
+            Gtk.ResponseType.APPLY,
         )
 
         self.set_default_size(650, 600)
@@ -110,7 +112,9 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         connection_grid.set_margin_bottom(10)
         connection_frame.add(connection_grid)
 
-        connection_grid.attach(Gtk.Label(label="Имя подключения:", halign=Gtk.Align.END), 0, 0, 1, 1)
+        connection_grid.attach(
+            Gtk.Label(label="Имя подключения:", halign=Gtk.Align.END), 0, 0, 1, 1
+        )
         self._vpn_connection_entry = Gtk.Entry()
         self._vpn_connection_entry.set_placeholder_text("aiso")
         self._vpn_connection_entry.set_tooltip_text("Имя VPN подключения в NetworkManager")
@@ -134,7 +138,9 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
 
         connection_grid.attach(Gtk.Label(label="Интерфейс VPN:", halign=Gtk.Align.END), 0, 1, 1, 1)
         self._vpn_interface_combo = Gtk.ComboBoxText()
-        self._vpn_interface_combo.set_tooltip_text("Выберите интерфейс VPN. 'Автоопределение' - автоматический выбор.")
+        self._vpn_interface_combo.set_tooltip_text(
+            "Выберите интерфейс VPN. 'Автоопределение' - автоматический выбор."
+        )
         self._vpn_interface_combo.append_text("Автоопределение")
         self._vpn_interface_combo.set_active(0)
         try:
@@ -145,9 +151,13 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
             pass
         connection_grid.attach(self._vpn_interface_combo, 1, 1, 1, 1)
 
-        connection_grid.attach(Gtk.Label(label="Интерфейс Direct:", halign=Gtk.Align.END), 0, 2, 1, 1)
+        connection_grid.attach(
+            Gtk.Label(label="Интерфейс Direct:", halign=Gtk.Align.END), 0, 2, 1, 1
+        )
         self._direct_interface_combo = Gtk.ComboBoxText()
-        self._direct_interface_combo.set_tooltip_text("Выберите интерфейс для прямого трафика (обход VPN). 'Автоопределение' - автоматический выбор.")
+        self._direct_interface_combo.set_tooltip_text(
+            "Выберите интерфейс для прямого трафика (обход VPN). 'Автоопределение' - автоматический выбор."
+        )
         self._direct_interface_combo.append_text("Автоопределение")
         self._direct_interface_combo.set_active(0)
         try:
@@ -278,9 +288,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
                     "<span color='green'>●</span> <b>Подключено</b> (интерфейс не определён)"
                 )
         else:
-            self._vpn_status_label.set_markup(
-                "<span color='red'>●</span> <b>Не подключено</b>"
-            )
+            self._vpn_status_label.set_markup("<span color='red'>●</span> <b>Не подключено</b>")
 
     def _load_settings(self) -> None:
         """Load VPN settings from profile."""
@@ -351,13 +359,21 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         vpn.connection_name = self._vpn_connection_entry.get_text().strip() or "aiso"
 
         vpn_interface_text = self._vpn_interface_combo.get_active_text()
-        if vpn_interface_text and vpn_interface_text.strip() and vpn_interface_text.strip() != "Автоопределение":
+        if (
+            vpn_interface_text
+            and vpn_interface_text.strip()
+            and vpn_interface_text.strip() != "Автоопределение"
+        ):
             vpn.interface_name = vpn_interface_text.strip()
         else:
             vpn.interface_name = ""
 
         direct_interface_text = self._direct_interface_combo.get_active_text()
-        if direct_interface_text and direct_interface_text.strip() and direct_interface_text.strip() != "Автоопределение":
+        if (
+            direct_interface_text
+            and direct_interface_text.strip()
+            and direct_interface_text.strip() != "Автоопределение"
+        ):
             vpn.direct_interface = direct_interface_text.strip()
         else:
             vpn.direct_interface = ""
@@ -383,7 +399,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
                 dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
                 dialog.set_skip_taskbar_hint(True)
                 dialog.format_secondary_text(
-                    f"Подключение с именем \"{vpn.connection_name}\" "
+                    f'Подключение с именем "{vpn.connection_name}" '
                     "не найдено в NetworkManager.\n\n"
                     "Проверьте имя или создайте VPN-подключение в настройках сети."
                 )
@@ -415,13 +431,13 @@ def show_profile_vpn_settings_dialog(
 ) -> bool:
     """
     Show VPN settings dialog for a profile.
-    
+
     Args:
         profile: Profile entry to configure
         parent: Parent window
         on_settings_applied: Optional callback called after settings are applied.
                             Receives profile_id as argument.
-        
+
     Returns:
         True if settings were applied
     """

@@ -79,7 +79,9 @@ def test_connection_monitor_start_enabled(tmp_path, monkeypatch):
     mock_gi_repository = MagicMock()
     mock_gi_repository.GLib = mock_glib
 
-    with patch.dict(sys.modules, {'gi.repository': mock_gi_repository, 'gi.repository.GLib': mock_glib}):
+    with patch.dict(
+        sys.modules, {"gi.repository": mock_gi_repository, "gi.repository.GLib": mock_glib}
+    ):
         monitor = ConnectionMonitor(context)
         monitor.start()
 
@@ -102,7 +104,9 @@ def test_connection_monitor_stop(tmp_path, monkeypatch):
     mock_gi_repository = MagicMock()
     mock_gi_repository.GLib = mock_glib
 
-    with patch.dict(sys.modules, {'gi.repository': mock_gi_repository, 'gi.repository.GLib': mock_glib}):
+    with patch.dict(
+        sys.modules, {"gi.repository": mock_gi_repository, "gi.repository.GLib": mock_glib}
+    ):
         monitor.stop()
 
         assert monitor._timer_id is None
@@ -204,7 +208,7 @@ def test_connection_monitor_check_vpn_active(tmp_path):
 
     monitor = ConnectionMonitor(context)
 
-    with patch('src.sys.vpn.is_vpn_active') as mock_is_active:
+    with patch("src.sys.vpn.is_vpn_active") as mock_is_active:
         mock_is_active.return_value = True
         ok, error = monitor._check_vpn_status()
 
@@ -220,7 +224,7 @@ def test_connection_monitor_check_vpn_inactive(tmp_path):
 
     monitor = ConnectionMonitor(context)
 
-    with patch('src.sys.vpn.is_vpn_active') as mock_is_active:
+    with patch("src.sys.vpn.is_vpn_active") as mock_is_active:
         mock_is_active.return_value = False
         ok, error = monitor._check_vpn_status()
 
@@ -236,7 +240,7 @@ def test_connection_monitor_check_vpn_exception(tmp_path):
 
     monitor = ConnectionMonitor(context)
 
-    with patch('src.sys.vpn.is_vpn_active') as mock_is_active:
+    with patch("src.sys.vpn.is_vpn_active") as mock_is_active:
         mock_is_active.side_effect = Exception("nmcli error")
         ok, error = monitor._check_vpn_status()
 

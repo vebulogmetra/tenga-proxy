@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 @dataclass
 class ProxyState:
     """Proxy state."""
+
     is_running: bool = False
     started_profile_id: int = -1
     upload_bytes: int = 0
@@ -95,6 +96,7 @@ class AppContext:
         """Application settings (lazy loading)."""
         if self._config is None:
             from src.db.data_store import DataStore
+
             config_file = self._config_dir / "settings.json"
             self._config = DataStore.load(config_file)
         return self._config
@@ -104,6 +106,7 @@ class AppContext:
         """Profile manager (lazy loading)."""
         if self._profiles is None:
             from src.db.profiles import ProfileManager
+
             profiles_dir = self._config_dir / "profiles"
             self._profiles = ProfileManager(profiles_dir)
             self._profiles.load()
@@ -113,12 +116,13 @@ class AppContext:
     def singbox_manager(self) -> SingBoxManager:
         """
         Sing-box manager (lazy loading).
-        
+
         Created on first access.
         SingBoxManager will automatically find sing-box in core/bin/ or in system PATH.
         """
         if self._singbox_manager is None:
             from src.core.singbox_manager import SingBoxManager
+
             self._singbox_manager = SingBoxManager(binary_path=None)
         return self._singbox_manager
 

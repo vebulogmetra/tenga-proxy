@@ -9,6 +9,7 @@ from src.db.config import ConfigBase
 @dataclass
 class StreamSettings(ConfigBase):
     """Transport settings (TLS, WebSocket, gRPC, etc.)."""
+
     # Network/Transport
     network: str = "tcp"  # tcp, ws, http, grpc, httpupgrade, quic
     path: str = ""
@@ -23,8 +24,8 @@ class StreamSettings(ConfigBase):
     utls_fingerprint: str = ""
     # Reality
     reality_public_key: str = ""  # reality_pbk
-    reality_short_id: str = ""    # reality_sid
-    reality_spider_x: str = ""    # reality_spx
+    reality_short_id: str = ""  # reality_sid
+    reality_spider_x: str = ""  # reality_spx
     # WebSocket Early Data
     ws_early_data_length: int = 0
     ws_early_data_name: str = "Sec-WebSocket-Protocol"
@@ -114,7 +115,7 @@ class StreamSettings(ConfigBase):
             tls["reality"] = {
                 "enabled": True,
                 "public_key": self.reality_public_key,
-                "short_id": self.reality_short_id.split(",")[0] if self.reality_short_id else ""
+                "short_id": self.reality_short_id.split(",")[0] if self.reality_short_id else "",
             }
             # Reality require uTLS
             if not self.utls_fingerprint:
@@ -122,10 +123,7 @@ class StreamSettings(ConfigBase):
 
         # uTLS fingerprint
         if self.utls_fingerprint:
-            tls["utls"] = {
-                "enabled": True,
-                "fingerprint": self.utls_fingerprint
-            }
+            tls["utls"] = {"enabled": True, "fingerprint": self.utls_fingerprint}
 
         return tls
 
@@ -168,5 +166,6 @@ class StreamSettings(ConfigBase):
     @reality_spx.setter
     def reality_spx(self, value: str) -> None:
         self.reality_spider_x = value
+
 
 V2RayStreamSettings = StreamSettings

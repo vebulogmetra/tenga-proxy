@@ -51,10 +51,10 @@ def list_vpn_connections() -> list[str]:
 def is_vpn_active(connection_name: str) -> bool:
     """
     Check if VPN connection is active in NetworkManager.
-    
+
     Args:
         connection_name: Name of the VPN connection in NetworkManager
-        
+
     Returns:
         True if VPN is active
     """
@@ -86,10 +86,10 @@ def is_vpn_active(connection_name: str) -> bool:
 def get_vpn_interface(connection_name: str) -> str | None:
     """
     Get VPN interface name for active connection.
-    
+
     Args:
         connection_name: Name of the VPN connection in NetworkManager
-        
+
     Returns:
         Interface name
     """
@@ -111,7 +111,7 @@ def get_vpn_interface(connection_name: str) -> str | None:
             if device and device != "--":
                 return device
 
-        #check active connection device
+        # check active connection device
         result = subprocess.run(
             ["nmcli", "-t", "-f", "DEVICE", "connection", "show", "--active", connection_name],
             capture_output=True,
@@ -158,10 +158,10 @@ def get_vpn_interface(connection_name: str) -> str | None:
 def get_vpn_interface_ip(interface_name: str) -> str | None:
     """
     Get IP address of VPN interface.
-    
+
     Args:
         interface_name: Name of the VPN interface
-        
+
     Returns:
         IP address or None if not found
     """
@@ -247,10 +247,10 @@ def connect_vpn(connection_name: str) -> bool:
 def get_vpn_dns_servers(connection_name: str) -> list[str]:
     """
     Get DNS servers configured for VPN connection in NetworkManager.
-    
+
     Args:
         connection_name: VPN connection name
-        
+
     Returns:
         List of DNS server IP addresses
     """
@@ -260,7 +260,16 @@ def get_vpn_dns_servers(connection_name: str) -> list[str]:
     try:
         if is_vpn_active(connection_name):
             result = subprocess.run(
-                ["nmcli", "-t", "-f", "ipv4.dns", "connection", "show", "--active", connection_name],
+                [
+                    "nmcli",
+                    "-t",
+                    "-f",
+                    "ipv4.dns",
+                    "connection",
+                    "show",
+                    "--active",
+                    connection_name,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -279,7 +288,11 @@ def get_vpn_dns_servers(connection_name: str) -> list[str]:
                         if dns:
                             dns_servers.append(dns)
                     if dns_servers:
-                        logger.info("Found DNS servers from active connection %s: %s", connection_name, dns_servers)
+                        logger.info(
+                            "Found DNS servers from active connection %s: %s",
+                            connection_name,
+                            dns_servers,
+                        )
                         return dns_servers
 
         result = subprocess.run(
@@ -291,7 +304,9 @@ def get_vpn_dns_servers(connection_name: str) -> list[str]:
         )
 
         if result.returncode != 0:
-            logger.debug("Failed to get DNS servers for connection %s: %s", connection_name, result.stderr)
+            logger.debug(
+                "Failed to get DNS servers for connection %s: %s", connection_name, result.stderr
+            )
             return []
 
         dns_line = result.stdout.strip()
@@ -325,7 +340,7 @@ def get_vpn_dns_servers(connection_name: str) -> list[str]:
 def list_network_interfaces() -> list[str]:
     """
     Get list of all available network interfaces.
-    
+
     Returns:
         List of interface names
     """
@@ -364,10 +379,10 @@ def list_network_interfaces() -> list[str]:
 def get_default_interface(vpn_interface: str | None = None) -> str | None:
     """
     Get default network interface.
-    
+
     Args:
         vpn_interface: VPN interface name to exclude
-        
+
     Returns:
         Default interface name or None
     """

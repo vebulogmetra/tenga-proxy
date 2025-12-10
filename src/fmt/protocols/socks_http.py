@@ -11,6 +11,7 @@ from src.fmt.stream import StreamSettings
 
 class SocksType:
     """SOCKS protocol types."""
+
     SOCKS4 = 0
     SOCKS4A = 1
     SOCKS5 = 2
@@ -68,24 +69,24 @@ class SocksBean(ProxyBean):
                 try:
                     padding = 4 - len(self.username) % 4
                     if padding != 4:
-                        username_padded = self.username + '=' * padding
+                        username_padded = self.username + "=" * padding
                     else:
                         username_padded = self.username
-                    decoded = base64.urlsafe_b64decode(username_padded).decode('utf-8')
-                    if ':' in decoded:
-                        self.username, self.password = decoded.split(':', 1)
+                    decoded = base64.urlsafe_b64decode(username_padded).decode("utf-8")
+                    if ":" in decoded:
+                        self.username, self.password = decoded.split(":", 1)
                 except:
                     pass
 
             query = parse_qs(url.query)
 
             # Security
-            if 'security' in query:
-                self.stream.security = query['security'][0]
+            if "security" in query:
+                self.stream.security = query["security"][0]
 
             # SNI
-            if 'sni' in query:
-                self.stream.sni = query['sni'][0]
+            if "sni" in query:
+                self.stream.sni = query["sni"][0]
 
             return True
         except Exception as e:
@@ -177,11 +178,11 @@ class HttpBean(ProxyBean):
             query = parse_qs(url.query)
 
             # Security
-            if 'security' in query:
-                self.stream.security = query['security'][0]
+            if "security" in query:
+                self.stream.security = query["security"][0]
             # SNI
-            if 'sni' in query:
-                self.stream.sni = query['sni'][0]
+            if "sni" in query:
+                self.stream.sni = query["sni"][0]
 
             return True
         except Exception as e:
@@ -226,6 +227,7 @@ class HttpBean(ProxyBean):
         self.stream.apply_to_outbound(outbound, skip_cert)
 
         return outbound
+
 
 class SocksHttpBean:
     """Factory class."""

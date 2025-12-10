@@ -15,6 +15,7 @@ logger = logging.getLogger("tenga.core.monitor")
 @dataclass
 class ConnectionStatus:
     """Connection status information."""
+
     proxy_ok: bool = False
     vpn_ok: bool = False
     last_check_time: float = 0.0
@@ -25,7 +26,7 @@ class ConnectionStatus:
 class ConnectionMonitor:
     """
     Monitor proxy and VPN connection status.
-    
+
     Periodically checks:
     - Proxy: Clash API availability + test HTTP request through proxy
     - VPN: NetworkManager connection status (if VPN integration enabled)
@@ -34,7 +35,7 @@ class ConnectionMonitor:
     def __init__(self, context: AppContext):
         """
         Initialize monitor.
-        
+
         Args:
             context: Application context
         """
@@ -44,7 +45,9 @@ class ConnectionMonitor:
         self._previous_status = ConnectionStatus()
         self._on_status_changed: Callable[[ConnectionStatus, ConnectionStatus], None] | None = None
 
-    def set_on_status_changed(self, callback: Callable[[ConnectionStatus, ConnectionStatus], None] | None) -> None:
+    def set_on_status_changed(
+        self, callback: Callable[[ConnectionStatus, ConnectionStatus], None] | None
+    ) -> None:
         """Set callback for status changes."""
         self._on_status_changed = callback
 
@@ -58,14 +61,17 @@ class ConnectionMonitor:
             logger.info("Monitoring is disabled in settings, not starting")
             return
 
-        logger.info("Starting connection monitoring (interval: %d seconds)",
-                   self._context.config.monitoring.check_interval_seconds)
+        logger.info(
+            "Starting connection monitoring (interval: %d seconds)",
+            self._context.config.monitoring.check_interval_seconds,
+        )
         # Do initial check
         self._check_connections()
 
         # Schedule periodic checks
         interval_ms = self._context.config.monitoring.check_interval_seconds * 1000
         from gi.repository import GLib
+
         self._timer_id = GLib.timeout_add(interval_ms, self._check_connections)
         logger.info("Monitoring timer started (ID: %s)", self._timer_id)
 
@@ -76,6 +82,7 @@ class ConnectionMonitor:
 
         logger.info("Stopping connection monitoring")
         from gi.repository import GLib
+
         GLib.source_remove(self._timer_id)
         self._timer_id = None
 
@@ -86,7 +93,7 @@ class ConnectionMonitor:
     def _check_connections(self) -> bool:
         """
         Check proxy and VPN connections.
-        
+
         Returns:
             True to continue timer, False to stop
         """
@@ -109,7 +116,9 @@ class ConnectionMonitor:
             vpn_error=self._status.vpn_error,
         )
         proxy_ok, proxy_error = self._check_proxy_status()
-        logger.debug("Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error")
+        logger.debug(
+            "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
+        )
 
         vpn_ok = True
         vpn_error = ""
@@ -133,7 +142,7 @@ class ConnectionMonitor:
     def _check_proxy_status(self) -> tuple[bool, str]:
         """
         Check proxy connection status.
-        
+
         Returns:
             (is_ok, error_message)
         """
@@ -152,7 +161,9 @@ class ConnectionMonitor:
             if not version_info:
                 logger.warning("Proxy check: Clash API not responding")
                 return False, "Clash API не отвечает"
-            logger.debug("Proxy check: Clash API OK, version: %s", version_info.get("version", "unknown"))
+            logger.debug(
+                "Proxy check: Clash API OK, version: %s", version_info.get("version", "unknown")
+            )
         except Exception as e:
             logger.warning("Proxy check: Clash API check failed: %s", e)
             return False, f"Ошибка Clash API: {e}"
@@ -160,11 +171,10 @@ class ConnectionMonitor:
         logger.info("Proxy check: SUCCESS (Clash API responding)")
         return True, ""
 
-
     def _check_vpn_status(self) -> tuple[bool, str]:
         """
         Check VPN connection status.
-        
+
         Returns:
             (is_ok, error_message)
         """
@@ -185,8 +195,8 @@ class ConnectionMonitor:
     def _status_changed(self) -> bool:
         """Check if status changed since last check."""
         return (
-            self._status.proxy_ok != self._previous_status.proxy_ok or
-            self._status.vpn_ok != self._previous_status.vpn_ok
+            self._status.proxy_ok != self._previous_status.proxy_ok
+            or self._status.vpn_ok != self._previous_status.vpn_ok
         )
 
     def _notify_status_changed(self) -> None:

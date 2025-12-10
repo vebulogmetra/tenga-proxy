@@ -17,6 +17,7 @@ from src.db.config import (
 @dataclass
 class DataStore(ConfigBase):
     """Main application settings storage."""
+
     # Inbound settings
     inbound_address: str = "127.0.0.1"
     inbound_socks_port: int = 2080
@@ -106,7 +107,7 @@ class DataStore(ConfigBase):
         result = super().to_dict(exclude_defaults, exclude_none)
         # Remove private runtime fields
         for key in list(result.keys()):
-            if key.startswith('_'):
+            if key.startswith("_"):
                 del result[key]
         return result
 
@@ -131,6 +132,7 @@ class DataStore(ConfigBase):
     def started_id(self) -> int:
         """Started profile id."""
         return self._started_id
+
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "tenga"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "settings.json"

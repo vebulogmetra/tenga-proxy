@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 import gi
 
-gi.require_version('Gtk', '3.0')
+gi.require_version("Gtk", "3.0")
 
 try:
-    gi.require_version('AppIndicator3', '0.1')
+    gi.require_version("AppIndicator3", "0.1")
     from gi.repository import AppIndicator3
 except ValueError:
-    gi.require_version('AyatanaAppIndicator3', '0.1')
+    gi.require_version("AyatanaAppIndicator3", "0.1")
     from gi.repository import AyatanaAppIndicator3 as AppIndicator3
 
 from gi.repository import GLib, Gtk
@@ -54,9 +54,7 @@ class TrayIcon:
     def _setup_indicator(self) -> None:
         """Setup indicator."""
         self._indicator = AppIndicator3.Indicator.new(
-            self.APP_ID,
-            self.ICON_DISCONNECTED,
-            AppIndicator3.IndicatorCategory.APPLICATION_STATUS
+            self.APP_ID, self.ICON_DISCONNECTED, AppIndicator3.IndicatorCategory.APPLICATION_STATUS
         )
         self._indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
         self._indicator.set_title("Tenga Proxy")
@@ -232,7 +230,7 @@ class TrayIcon:
     def show_notification(self, title: str, message: str) -> None:
         """Show notification."""
         try:
-            gi.require_version('Notify', '0.7')
+            gi.require_version("Notify", "0.7")
             from gi.repository import Notify
 
             if not Notify.is_initted():

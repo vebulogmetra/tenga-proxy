@@ -14,7 +14,7 @@ class SingleInstance:
     def __init__(self, lock_file: Path):
         """
         Initialize single instance lock.
-        
+
         Args:
             lock_file: Path to lock file
         """
@@ -25,7 +25,7 @@ class SingleInstance:
     def is_running(self) -> bool:
         """
         Check if another instance is already running.
-        
+
         Returns:
             True if another instance is running, False otherwise
         """
@@ -60,7 +60,7 @@ class SingleInstance:
     def acquire(self) -> bool:
         """
         Acquire lock.
-        
+
         Returns:
             True if lock was acquired, False if another instance is running
         """
@@ -69,10 +69,7 @@ class SingleInstance:
 
         try:
             self._lock_file.parent.mkdir(parents=True, exist_ok=True)
-            self._lock_fd = os.open(
-                str(self._lock_file),
-                os.O_CREAT | os.O_WRONLY | os.O_TRUNC
-            )
+            self._lock_fd = os.open(str(self._lock_file), os.O_CREAT | os.O_WRONLY | os.O_TRUNC)
 
             try:
                 fcntl.flock(self._lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)

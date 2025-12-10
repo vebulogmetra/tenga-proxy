@@ -28,7 +28,9 @@ def get_process_memory() -> int:
     return process.memory_info().rss
 
 
-def simulate_application_usage(context, iterations: int = 100, interval: float = 0.1) -> list[tuple[float, int, int]]:
+def simulate_application_usage(
+    context, iterations: int = 100, interval: float = 0.1
+) -> list[tuple[float, int, int]]:
     """Simulate application usage and track memory."""
     print(f"\nSimulating {iterations} iterations with {interval}s interval...")
 
@@ -47,13 +49,15 @@ def simulate_application_usage(context, iterations: int = 100, interval: float =
         if i % 5 == 0:
             process_mem = get_process_memory()
             snapshot = tracemalloc.take_snapshot()
-            tracked_mem = sum(stat.size for stat in snapshot.statistics('lineno'))
+            tracked_mem = sum(stat.size for stat in snapshot.statistics("lineno"))
             measurements.append((time.time(), process_mem, tracked_mem))
 
             if i % 20 == 0:
-                print(f"  Iteration {i}/{iterations}: "
-                      f"Process={format_bytes(process_mem)}, "
-                      f"Tracked={format_bytes(tracked_mem)}")
+                print(
+                    f"  Iteration {i}/{iterations}: "
+                    f"Process={format_bytes(process_mem)}, "
+                    f"Tracked={format_bytes(tracked_mem)}"
+                )
 
         time.sleep(interval)
 
@@ -67,9 +71,9 @@ def analyze_leak(measurements: list[tuple[float, int, int]]) -> None:
         print("Not enough measurements")
         return
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("MEMORY LEAK ANALYSIS")
-    print("="*80)
+    print("=" * 80)
 
     initial_process = measurements[0][1]
     final_process = measurements[-1][1]
@@ -82,14 +86,16 @@ def analyze_leak(measurements: list[tuple[float, int, int]]) -> None:
     print("\nProcess Memory (RSS):")
     print(f"  Initial: {format_bytes(initial_process)}")
     print(f"  Final: {format_bytes(final_process)}")
-    print(f"  Growth: {format_bytes(process_growth)} "
-          f"({process_growth / initial_process * 100:+.2f}%)")
+    print(
+        f"  Growth: {format_bytes(process_growth)} ({process_growth / initial_process * 100:+.2f}%)"
+    )
 
     print("\nTracked Memory (tracemalloc):")
     print(f"  Initial: {format_bytes(initial_tracked)}")
     print(f"  Final: {format_bytes(final_tracked)}")
-    print(f"  Growth: {format_bytes(tracked_growth)} "
-          f"({tracked_growth / initial_tracked * 100:+.2f}%)")
+    print(
+        f"  Growth: {format_bytes(tracked_growth)} ({tracked_growth / initial_tracked * 100:+.2f}%)"
+    )
 
     time_span = measurements[-1][0] - measurements[0][0]
     process_rate = process_growth / time_span if time_span > 0 else 0
@@ -102,7 +108,7 @@ def analyze_leak(measurements: list[tuple[float, int, int]]) -> None:
     leak_threshold = 10 * 1024 * 1024  # 10 MB
     rate_threshold = 100 * 1024  # 100 KB/s
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     if process_growth > leak_threshold or process_rate > rate_threshold:
         print("WARNING: Potential memory leak detected!")
         print(f"   Process memory grew by {format_bytes(process_growth)}")
@@ -115,20 +121,21 @@ def analyze_leak(measurements: list[tuple[float, int, int]]) -> None:
     else:
         print("No significant memory leak detected")
         print(f"   Memory growth: {format_bytes(process_growth)} (acceptable)")
-    print("="*80)
+    print("=" * 80)
 
 
 def test_listener_leak(context, iterations: int = 50) -> None:
     """Test for listener leaks by creating and destroying windows."""
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TESTING LISTENER LEAKS")
-    print("="*80)
+    print("=" * 80)
 
     tracemalloc.start()
     initial_snapshot = tracemalloc.take_snapshot()
     initial_mem = get_process_memory()
 
     for i in range(iterations):
+
         def listener(state):
             pass
 
@@ -145,8 +152,8 @@ def test_listener_leak(context, iterations: int = 50) -> None:
 
     tracemalloc.stop()
 
-    initial_tracked = sum(stat.size for stat in initial_snapshot.statistics('lineno'))
-    final_tracked = sum(stat.size for stat in final_snapshot.statistics('lineno'))
+    initial_tracked = sum(stat.size for stat in initial_snapshot.statistics("lineno"))
+    final_tracked = sum(stat.size for stat in final_snapshot.statistics("lineno"))
 
     print(f"Initial memory: {format_bytes(initial_mem)}")
     print(f"Final memory: {format_bytes(final_mem)}")
@@ -161,9 +168,9 @@ def test_listener_leak(context, iterations: int = 50) -> None:
 
 def main():
     """Main test function."""
-    print("="*80)
+    print("=" * 80)
     print("TENGA PROXY MEMORY LEAK TEST")
-    print("="*80)
+    print("=" * 80)
 
     print("\nInitializing application...")
     from src.core.context import init_context
@@ -177,9 +184,9 @@ def main():
 
     analyze_leak(measurements)
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TEST COMPLETE")
-    print("="*80)
+    print("=" * 80)
 
 
 if __name__ == "__main__":
@@ -191,5 +198,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n\nError during test: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

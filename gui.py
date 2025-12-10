@@ -7,20 +7,19 @@ from pathlib import Path
 
 
 def setup_early_logging():
-    log_dir = os.environ.get('TENGA_CONFIG_DIR')
+    log_dir = os.environ.get("TENGA_CONFIG_DIR")
     if not log_dir:
-        xdg = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
-        log_dir = os.path.join(xdg, 'tenga-proxy')
+        xdg = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+        log_dir = os.path.join(xdg, "tenga-proxy")
 
     os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, 'startup.log')
+    log_file = os.path.join(log_dir, "startup.log")
 
     logging.basicConfig(
-        filename=log_file,
-        level=logging.DEBUG,
-        format='%(asctime)s [%(levelname)s] %(message)s'
+        filename=log_file, level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s"
     )
-    return logging.getLogger('startup')
+    return logging.getLogger("startup")
+
 
 logger = setup_early_logging()
 logger.info("=== Tenga Proxy starting ===")
@@ -29,20 +28,22 @@ logger.info(f"DISPLAY: {os.environ.get('DISPLAY')}")
 logger.info(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY')}")
 logger.info(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE')}")
 
-if 'GI_TYPELIB_PATH' not in os.environ:
+if "GI_TYPELIB_PATH" not in os.environ:
     typelib_paths = [
-        '/usr/lib/girepository-1.0',
-        '/usr/lib/x86_64-linux-gnu/girepository-1.0',
+        "/usr/lib/girepository-1.0",
+        "/usr/lib/x86_64-linux-gnu/girepository-1.0",
     ]
     existing_paths = [p for p in typelib_paths if os.path.exists(p)]
     if existing_paths:
-        os.environ['GI_TYPELIB_PATH'] = ':'.join(existing_paths)
+        os.environ["GI_TYPELIB_PATH"] = ":".join(existing_paths)
 
 try:
     # Initialize GTK before importing any GTK modules
     import gi
-    gi.require_version('Gtk', '3.0')
+
+    gi.require_version("Gtk", "3.0")
     from gi.repository import Gdk, Gtk
+
     logger.info("GTK imported successfully")
 
     if not Gtk.init_check()[0]:
@@ -81,24 +82,14 @@ init_config_files()
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description='Tenga Proxy',
+        description="Tenga Proxy",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        '-c', '--config-dir',
-        type=Path,
-        help='Директория конфигурации (по умолчанию core/)'
+        "-c", "--config-dir", type=Path, help="Директория конфигурации (по умолчанию core/)"
     )
-    parser.add_argument(
-        '--no-tray',
-        action='store_true',
-        help='Не показывать иконку в трее'
-    )
-    parser.add_argument(
-        '--version',
-        action='version',
-        version=f'{APP_NAME} {APP_VERSION}'
-    )
+    parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
 
     args = parser.parse_args()
 
@@ -113,10 +104,11 @@ def main() -> int:
                 flags=0,
                 message_type=Gtk.MessageType.INFO,
                 buttons=Gtk.ButtonsType.OK,
-                text="Приложение уже запущено"
+                text="Приложение уже запущено",
             )
             dialog.set_wmclass("tenga-proxy", "tenga-proxy")
             from gi.repository import Gdk
+
             dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
             dialog.set_skip_taskbar_hint(True)
             dialog.format_secondary_text(
@@ -145,6 +137,7 @@ def main() -> int:
     except Exception as e:
         print(f"Ошибка: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
     finally:

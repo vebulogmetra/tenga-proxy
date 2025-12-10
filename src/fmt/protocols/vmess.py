@@ -41,8 +41,8 @@ class VMessBean(ProxyBean):
             encoded = link[8:]
             name_from_fragment = ""
 
-            if '#' in encoded:
-                encoded, name_part = encoded.split('#', 1)
+            if "#" in encoded:
+                encoded, name_part = encoded.split("#", 1)
                 name_from_fragment = unquote(name_part)
             # Try V2RayN format (base64 JSON)
             if self._try_parse_v2rayn_format(encoded, name_from_fragment):
@@ -59,9 +59,9 @@ class VMessBean(ProxyBean):
         try:
             padding = 4 - len(encoded) % 4
             if padding != 4:
-                encoded += '=' * padding
+                encoded += "=" * padding
 
-            decoded = base64.urlsafe_b64decode(encoded).decode('utf-8')
+            decoded = base64.urlsafe_b64decode(encoded).decode("utf-8")
             obj = json.loads(decoded)
 
             self.uuid = obj.get("id", "")
@@ -112,33 +112,33 @@ class VMessBean(ProxyBean):
             query = parse_qs(url.query)
 
             # Encryption
-            if 'encryption' in query:
-                self.security = query['encryption'][0]
+            if "encryption" in query:
+                self.security = query["encryption"][0]
             # Security/TLS
-            security = query.get('security', ['tls'])[0]
+            security = query.get("security", ["tls"])[0]
             if security == "reality":
                 security = "tls"
             self.stream.security = security
             # Network type
-            net_type = query.get('type', ['tcp'])[0]
+            net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
             self.stream.network = net_type
             # SNI
-            if 'sni' in query:
-                self.stream.sni = query['sni'][0]
+            if "sni" in query:
+                self.stream.sni = query["sni"][0]
             # Allow insecure
-            if 'allowInsecure' in query:
+            if "allowInsecure" in query:
                 self.stream.allow_insecure = True
             # uTLS fingerprint
-            self.stream.utls_fingerprint = query.get('fp', [''])[0]
+            self.stream.utls_fingerprint = query.get("fp", [""])[0]
             # Reality
-            if 'pbk' in query:
-                self.stream.reality_public_key = query['pbk'][0]
-            if 'sid' in query:
-                self.stream.reality_short_id = query['sid'][0]
-            if 'spx' in query:
-                self.stream.reality_spider_x = query['spx'][0]
+            if "pbk" in query:
+                self.stream.reality_public_key = query["pbk"][0]
+            if "sid" in query:
+                self.stream.reality_short_id = query["sid"][0]
+            if "spx" in query:
+                self.stream.reality_spider_x = query["spx"][0]
             # Transport settings
             self._parse_transport_settings(query)
 
@@ -149,20 +149,20 @@ class VMessBean(ProxyBean):
     def _parse_transport_settings(self, query: dict[str, list]) -> None:
         """Parse transport settings."""
         if self.stream.network in ("ws", "http", "httpupgrade"):
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0]
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0]
         elif self.stream.network == "grpc":
-            if 'serviceName' in query:
-                self.stream.path = query['serviceName'][0]
+            if "serviceName" in query:
+                self.stream.path = query["serviceName"][0]
         elif self.stream.network == "tcp":
-            if query.get('headerType', [''])[0] == "http":
+            if query.get("headerType", [""])[0] == "http":
                 self.stream.header_type = "http"
-                if 'host' in query:
-                    self.stream.host = query['host'][0]
-                if 'path' in query:
-                    self.stream.path = query['path'][0]
+                if "host" in query:
+                    self.stream.host = query["host"][0]
+                if "path" in query:
+                    self.stream.path = query["path"][0]
 
     def to_share_link(self, use_old_format: bool = False) -> str:
         """Create VMess share link."""
@@ -185,10 +185,10 @@ class VMessBean(ProxyBean):
             "type": self.stream.header_type,
             "scy": self.security,
             "tls": self.stream.security if self.stream.security == "tls" else "",
-            "sni": self.stream.sni
+            "sni": self.stream.sni,
         }
-        json_str = json.dumps(obj, separators=(',', ':'))
-        encoded = base64.urlsafe_b64encode(json_str.encode('utf-8')).decode('utf-8').rstrip('=')
+        json_str = json.dumps(obj, separators=(",", ":"))
+        encoded = base64.urlsafe_b64encode(json_str.encode("utf-8")).decode("utf-8").rstrip("=")
         return f"vmess://{encoded}"
 
     def _to_url_link(self) -> str:

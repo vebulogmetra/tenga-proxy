@@ -86,9 +86,10 @@ def test_subscription_updater_update_with_profiles(monkeypatch, tmp_path):
     mock_response.text = "vmess://test"
     mock_response.raise_for_status = Mock()
 
-    with patch("src.sub.updater.requests.get") as mock_get, patch(
-        "src.sub.updater.parse_subscription_content"
-    ) as mock_parse:
+    with (
+        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.parse_subscription_content") as mock_parse,
+    ):
         mock_get.return_value = mock_response
         mock_bean = MockBean()
         mock_parse.return_value = [mock_bean]
@@ -107,9 +108,10 @@ def test_subscription_updater_update_without_profiles(monkeypatch):
     mock_response.text = "content"
     mock_response.raise_for_status = Mock()
 
-    with patch("src.sub.updater.requests.get") as mock_get, patch(
-        "src.sub.updater.parse_subscription_content"
-    ) as mock_parse:
+    with (
+        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.parse_subscription_content") as mock_parse,
+    ):
         mock_get.return_value = mock_response
         mock_bean = MockBean()
         mock_parse.return_value = [mock_bean]
@@ -125,9 +127,10 @@ def test_update_subscription_helper(monkeypatch):
     mock_response.text = "content"
     mock_response.raise_for_status = Mock()
 
-    with patch("src.sub.updater.requests.get") as mock_get, patch(
-        "src.sub.updater.parse_subscription_content"
-    ) as mock_parse:
+    with (
+        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.parse_subscription_content") as mock_parse,
+    ):
         mock_get.return_value = mock_response
         mock_bean = MockBean()
         mock_parse.return_value = [mock_bean]

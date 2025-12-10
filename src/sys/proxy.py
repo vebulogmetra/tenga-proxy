@@ -11,21 +11,16 @@ def _is_kde() -> bool:
 
 def _get_config_path() -> Path:
     """Get configuration path"""
-    config_home = os.environ.get('XDG_CONFIG_HOME')
+    config_home = os.environ.get("XDG_CONFIG_HOME")
     if config_home:
         return Path(config_home)
-    return Path.home() / '.config'
+    return Path.home() / ".config"
 
 
 def _execute_command(program: str, args: list[str]) -> bool:
     """Execute command"""
     try:
-        result = subprocess.run(
-            [program] + args,
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
+        result = subprocess.run([program] + args, capture_output=True, text=True, timeout=5)
         return result.returncode == 0
     except Exception as e:
         print(f"Error executing {program}: {e}")
@@ -35,12 +30,12 @@ def _execute_command(program: str, args: list[str]) -> bool:
 def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "127.0.0.1") -> bool:
     """
     Set system proxy
-    
+
     Args:
         http_port: HTTP proxy port (0 = don't use)
         socks_port: SOCKS proxy port (0 = don't use)
         address: Proxy server address
-        
+
     Returns:
         True if successful
     """
@@ -60,58 +55,90 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
         actions.append(("gsettings", ["set", "org.gnome.system.proxy", "mode", "manual"]))
     else:
         # KDE
-        actions.append(("kwriteconfig5", [
-            "--file", str(config_path / "kioslaverc"),
-            "--group", "Proxy Settings",
-            "--key", "ProxyType", "1"
-        ]))
+        actions.append(
+            (
+                "kwriteconfig5",
+                [
+                    "--file",
+                    str(config_path / "kioslaverc"),
+                    "--group",
+                    "Proxy Settings",
+                    "--key",
+                    "ProxyType",
+                    "1",
+                ],
+            )
+        )
 
     # HTTP proxy
     if has_http:
         for protocol in ["http", "ftp", "https"]:
             if not is_kde:
                 # GNOME
-                actions.append(("gsettings", [
-                    "set", f"org.gnome.system.proxy.{protocol}", "host", address
-                ]))
-                actions.append(("gsettings", [
-                    "set", f"org.gnome.system.proxy.{protocol}", "port", str(http_port)
-                ]))
+                actions.append(
+                    ("gsettings", ["set", f"org.gnome.system.proxy.{protocol}", "host", address])
+                )
+                actions.append(
+                    (
+                        "gsettings",
+                        ["set", f"org.gnome.system.proxy.{protocol}", "port", str(http_port)],
+                    )
+                )
             else:
                 # KDE
-                actions.append(("kwriteconfig5", [
-                    "--file", str(config_path / "kioslaverc"),
-                    "--group", "Proxy Settings",
-                    "--key", f"{protocol}Proxy",
-                    f"http://{address} {http_port}"
-                ]))
+                actions.append(
+                    (
+                        "kwriteconfig5",
+                        [
+                            "--file",
+                            str(config_path / "kioslaverc"),
+                            "--group",
+                            "Proxy Settings",
+                            "--key",
+                            f"{protocol}Proxy",
+                            f"http://{address} {http_port}",
+                        ],
+                    )
+                )
 
     # SOCKS proxy
     if has_socks:
         if not is_kde:
             # GNOME
-            actions.append(("gsettings", [
-                "set", "org.gnome.system.proxy.socks", "host", address
-            ]))
-            actions.append(("gsettings", [
-                "set", "org.gnome.system.proxy.socks", "port", str(socks_port)
-            ]))
+            actions.append(("gsettings", ["set", "org.gnome.system.proxy.socks", "host", address]))
+            actions.append(
+                ("gsettings", ["set", "org.gnome.system.proxy.socks", "port", str(socks_port)])
+            )
         else:
             # KDE
-            actions.append(("kwriteconfig5", [
-                "--file", str(config_path / "kioslaverc"),
-                "--group", "Proxy Settings",
-                "--key", "socksProxy",
-                f"socks://{address} {socks_port}"
-            ]))
+            actions.append(
+                (
+                    "kwriteconfig5",
+                    [
+                        "--file",
+                        str(config_path / "kioslaverc"),
+                        "--group",
+                        "Proxy Settings",
+                        "--key",
+                        "socksProxy",
+                        f"socks://{address} {socks_port}",
+                    ],
+                )
+            )
 
     # Notify KDE to reload configuration
     if is_kde:
-        actions.append(("dbus-send", [
-            "--type=signal", "/KIO/Scheduler",
-            "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
-            "string:''"
-        ]))
+        actions.append(
+            (
+                "dbus-send",
+                [
+                    "--type=signal",
+                    "/KIO/Scheduler",
+                    "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
+                    "string:''",
+                ],
+            )
+        )
 
     # Execute all commands
     results = []
@@ -132,7 +159,7 @@ def set_system_proxy(http_port: int = 0, socks_port: int = 0, address: str = "12
 def clear_system_proxy() -> bool:
     """
     Clear system proxy
-    
+
     Returns:
         True if successful
     """
@@ -146,19 +173,34 @@ def clear_system_proxy() -> bool:
         actions.append(("gsettings", ["set", "org.gnome.system.proxy", "mode", "none"]))
     else:
         # KDE
-        actions.append(("kwriteconfig5", [
-            "--file", str(config_path / "kioslaverc"),
-            "--group", "Proxy Settings",
-            "--key", "ProxyType", "0"
-        ]))
+        actions.append(
+            (
+                "kwriteconfig5",
+                [
+                    "--file",
+                    str(config_path / "kioslaverc"),
+                    "--group",
+                    "Proxy Settings",
+                    "--key",
+                    "ProxyType",
+                    "0",
+                ],
+            )
+        )
 
     # Notify KDE to reload configuration
     if is_kde:
-        actions.append(("dbus-send", [
-            "--type=signal", "/KIO/Scheduler",
-            "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
-            "string:''"
-        ]))
+        actions.append(
+            (
+                "dbus-send",
+                [
+                    "--type=signal",
+                    "/KIO/Scheduler",
+                    "org.kde.KIO.Scheduler.reparseSlaveConfiguration",
+                    "string:''",
+                ],
+            )
+        )
 
     # Execute all commands
     results = []

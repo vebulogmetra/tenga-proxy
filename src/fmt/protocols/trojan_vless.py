@@ -47,42 +47,42 @@ class VLESSBean(ProxyBean):
 
             query = parse_qs(url.query)
             # Network type
-            net_type = query.get('type', ['tcp'])[0]
+            net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
             self.stream.network = net_type
 
             # Security
-            security = query.get('security', [''])[0]
+            security = query.get("security", [""])[0]
             if security == "reality":
                 security = "tls"
             elif security == "none":
                 security = ""
             self.stream.security = security
             # SNI
-            sni = query.get('sni', [''])[0] or query.get('peer', [''])[0]
+            sni = query.get("sni", [""])[0] or query.get("peer", [""])[0]
             if sni:
                 self.stream.sni = sni
             # ALPN
-            if 'alpn' in query:
-                self.stream.alpn = query['alpn'][0]
+            if "alpn" in query:
+                self.stream.alpn = query["alpn"][0]
             # Allow insecure
-            if 'allowInsecure' in query:
+            if "allowInsecure" in query:
                 self.stream.allow_insecure = True
             # Reality
-            if 'pbk' in query:
-                self.stream.reality_public_key = query['pbk'][0]
-            if 'sid' in query:
-                self.stream.reality_short_id = query['sid'][0]
-            if 'spx' in query:
-                self.stream.reality_spider_x = query['spx'][0]
+            if "pbk" in query:
+                self.stream.reality_public_key = query["pbk"][0]
+            if "sid" in query:
+                self.stream.reality_short_id = query["sid"][0]
+            if "spx" in query:
+                self.stream.reality_spider_x = query["spx"][0]
             # uTLS fingerprint
-            self.stream.utls_fingerprint = query.get('fp', [''])[0]
+            self.stream.utls_fingerprint = query.get("fp", [""])[0]
             # Transport settings
             self._parse_transport_settings(query)
             # Flow
-            if 'flow' in query:
-                self.flow = query['flow'][0]
+            if "flow" in query:
+                self.flow = query["flow"][0]
 
             return bool(self.uuid and self.server_address)
 
@@ -93,30 +93,30 @@ class VLESSBean(ProxyBean):
     def _parse_transport_settings(self, query: dict[str, list]) -> None:
         """Parse transport settings from query parameters."""
         if self.stream.network == "ws":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0]
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0]
         elif self.stream.network == "http":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0].replace("|", ",")
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0].replace("|", ",")
         elif self.stream.network == "httpupgrade":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0]
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0]
         elif self.stream.network == "grpc":
-            if 'serviceName' in query:
-                self.stream.path = query['serviceName'][0]
+            if "serviceName" in query:
+                self.stream.path = query["serviceName"][0]
         elif self.stream.network == "tcp":
-            if query.get('headerType', [''])[0] == "http":
+            if query.get("headerType", [""])[0] == "http":
                 self.stream.header_type = "http"
-                if 'host' in query:
-                    self.stream.host = query['host'][0]
-                if 'path' in query:
-                    self.stream.path = query['path'][0]
+                if "host" in query:
+                    self.stream.host = query["host"][0]
+                if "path" in query:
+                    self.stream.path = query["path"][0]
 
     def to_share_link(self) -> str:
         """Create VLESS share link."""
@@ -236,36 +236,36 @@ class TrojanBean(ProxyBean):
 
             query = parse_qs(url.query)
             # Network type
-            net_type = query.get('type', ['tcp'])[0]
+            net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
             self.stream.network = net_type
             # Security - Trojan uses TLS by default
-            security = query.get('security', ['tls'])[0]
+            security = query.get("security", ["tls"])[0]
             if security == "reality":
                 security = "tls"
             elif security == "none":
                 security = ""
             self.stream.security = security
             # SNI
-            sni = query.get('sni', [''])[0] or query.get('peer', [''])[0]
+            sni = query.get("sni", [""])[0] or query.get("peer", [""])[0]
             if sni:
                 self.stream.sni = sni
             # ALPN
-            if 'alpn' in query:
-                self.stream.alpn = query['alpn'][0]
+            if "alpn" in query:
+                self.stream.alpn = query["alpn"][0]
             # Allow insecure
-            if 'allowInsecure' in query:
+            if "allowInsecure" in query:
                 self.stream.allow_insecure = True
             # Reality
-            if 'pbk' in query:
-                self.stream.reality_public_key = query['pbk'][0]
-            if 'sid' in query:
-                self.stream.reality_short_id = query['sid'][0]
-            if 'spx' in query:
-                self.stream.reality_spider_x = query['spx'][0]
+            if "pbk" in query:
+                self.stream.reality_public_key = query["pbk"][0]
+            if "sid" in query:
+                self.stream.reality_short_id = query["sid"][0]
+            if "spx" in query:
+                self.stream.reality_spider_x = query["spx"][0]
             # uTLS fingerprint
-            self.stream.utls_fingerprint = query.get('fp', [''])[0]
+            self.stream.utls_fingerprint = query.get("fp", [""])[0]
             # Transport settings - reuse VLESS logic
             self._parse_transport_settings(query)
 
@@ -278,30 +278,30 @@ class TrojanBean(ProxyBean):
     def _parse_transport_settings(self, query: dict[str, list]) -> None:
         """Parse transport settings."""
         if self.stream.network == "ws":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0]
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0]
         elif self.stream.network == "http":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0].replace("|", ",")
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0].replace("|", ",")
         elif self.stream.network == "httpupgrade":
-            if 'path' in query:
-                self.stream.path = query['path'][0]
-            if 'host' in query:
-                self.stream.host = query['host'][0]
+            if "path" in query:
+                self.stream.path = query["path"][0]
+            if "host" in query:
+                self.stream.host = query["host"][0]
         elif self.stream.network == "grpc":
-            if 'serviceName' in query:
-                self.stream.path = query['serviceName'][0]
+            if "serviceName" in query:
+                self.stream.path = query["serviceName"][0]
         elif self.stream.network == "tcp":
-            if query.get('headerType', [''])[0] == "http":
+            if query.get("headerType", [""])[0] == "http":
                 self.stream.header_type = "http"
-                if 'host' in query:
-                    self.stream.host = query['host'][0]
-                if 'path' in query:
-                    self.stream.path = query['path'][0]
+                if "host" in query:
+                    self.stream.host = query["host"][0]
+                if "path" in query:
+                    self.stream.path = query["path"][0]
 
     def to_share_link(self) -> str:
         """Create Trojan share link."""
@@ -372,6 +372,7 @@ class TrojanBean(ProxyBean):
         self.stream.apply_to_outbound(outbound, skip_cert)
 
         return outbound
+
 
 class TrojanVLESSBean:
     """Factory class for compatibility."""

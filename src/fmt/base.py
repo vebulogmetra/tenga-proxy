@@ -33,6 +33,7 @@ class ProxyBean(ConfigBase, ABC):
     Base class for all proxy profile types.
     Replaces AbstractBean.
     """
+
     name: str = ""
     server_address: str = "127.0.0.1"
     server_port: int = 1080
@@ -94,13 +95,13 @@ class ProxyBean(ConfigBase, ABC):
     def to_tenga_share_link(self) -> str:
         """Create Tenga share link."""
         data = self.to_dict()
-        json_str = json.dumps(data, separators=(',', ':'))
-        encoded = base64.urlsafe_b64encode(json_str.encode('utf-8')).decode('utf-8').rstrip('=')
+        json_str = json.dumps(data, separators=(",", ":"))
+        encoded = base64.urlsafe_b64encode(json_str.encode("utf-8")).decode("utf-8").rstrip("=")
         return f"tenga://{self.proxy_type}#{encoded}"
 
     def get_stream(self) -> StreamSettings | None:
         """Get transport settings (if any)."""
-        return getattr(self, 'stream', None)
+        return getattr(self, "stream", None)
 
     def needs_external_core(self, is_first_profile: bool = True) -> int:
         """
@@ -118,4 +119,4 @@ class ProxyBeanWithStream(ProxyBean, ABC):
 
     def get_stream(self) -> StreamSettings | None:
         """Get transport settings."""
-        return getattr(self, 'stream', None)
+        return getattr(self, "stream", None)
