@@ -371,6 +371,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         self._bypass_local_check.set_tooltip_text(
             "Автоматически добавлять локальные сети (127.0.0.0/8, 192.168.0.0/16, etc.) в список"
         )
+        self._bypass_local_check.set_can_focus(False)
         self._bypass_local_check.connect("toggled", self._on_bypass_local_changed)
         direct_box.pack_start(self._bypass_local_check, False, False, 0)
         
