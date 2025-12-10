@@ -46,7 +46,9 @@ def test_build_transport_websocket_with_early_data_in_path():
 
 
 def test_build_transport_websocket_with_early_data_property():
-    stream = StreamSettings(network="ws", ws_early_data_length=4096, ws_early_data_name="Custom-Header")
+    stream = StreamSettings(
+        network="ws", ws_early_data_length=4096, ws_early_data_name="Custom-Header"
+    )
     transport = stream.build_transport()
     assert transport is not None
     assert transport["max_early_data"] == 4096
@@ -119,7 +121,9 @@ def test_build_tls_with_alpn():
 
 
 def test_build_tls_reality():
-    stream = StreamSettings(security="reality", reality_public_key="pbk", reality_short_id="sid1,sid2")
+    stream = StreamSettings(
+        security="reality", reality_public_key="pbk", reality_short_id="sid1,sid2"
+    )
     tls = stream.build_tls()
     assert tls is not None
     assert "reality" in tls
@@ -153,7 +157,9 @@ def test_build_tls_skip_cert():
 
 
 def test_apply_to_outbound():
-    stream = StreamSettings(network="ws", path="/ws", security="tls", sni="example.com", packet_encoding="xudp")
+    stream = StreamSettings(
+        network="ws", path="/ws", security="tls", sni="example.com", packet_encoding="xudp"
+    )
     outbound = {"type": "vmess"}
     stream.apply_to_outbound(outbound)
     assert "transport" in outbound

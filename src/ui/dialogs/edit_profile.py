@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import gi
 
 gi.require_version("Gtk", "3.0")
 
-from gi.repository import Gtk, Gdk  # noqa: E402
+from gi.repository import Gdk, Gtk
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class EditProfileDialog(Gtk.Dialog):
     """Dialog for editing basic profile parameters."""
 
-    def __init__(self, profile: "ProfileEntry", parent: Optional[Gtk.Window] = None):
+    def __init__(self, profile: ProfileEntry, parent: Gtk.Window | None = None):
         super().__init__(
             title="Редактировать профиль",
             transient_for=parent,
@@ -41,12 +41,12 @@ class EditProfileDialog(Gtk.Dialog):
         self.set_skip_taskbar_hint(True)
         self.set_skip_taskbar_hint(True)
 
-        self._name_entry: Optional[Gtk.Entry] = None
-        self._address_entry: Optional[Gtk.Entry] = None
-        self._port_entry: Optional[Gtk.SpinButton] = None
+        self._name_entry: Gtk.Entry | None = None
+        self._address_entry: Gtk.Entry | None = None
+        self._port_entry: Gtk.SpinButton | None = None
 
         self._setup_ui()
-    
+
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""
         window = self.get_window()
@@ -133,8 +133,8 @@ class EditProfileDialog(Gtk.Dialog):
 
 
 def show_edit_profile_dialog(
-    profile: "ProfileEntry",
-    parent: Optional[Gtk.Window] = None,
+    profile: ProfileEntry,
+    parent: Gtk.Window | None = None,
 ) -> bool:
     """
     Show edit profile dialog.

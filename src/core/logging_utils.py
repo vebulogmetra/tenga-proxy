@@ -12,7 +12,7 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
     Basic logging setup for the application.
 
     All loggers will write to the specified file and to stdout.
-    
+
     This function works even if basicConfig was already called earlier.
     It will add handlers to the root logger without replacing existing ones.
     """
@@ -30,18 +30,16 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
 
     log_file_resolved = str(log_file.resolve())
     has_file_handler = any(
-        isinstance(h, logging.FileHandler) and 
-        hasattr(h, 'baseFilename') and 
-        str(Path(h.baseFilename).resolve()) == log_file_resolved
+        isinstance(h, logging.FileHandler)
+        and hasattr(h, "baseFilename")
+        and str(Path(h.baseFilename).resolve()) == log_file_resolved
         for h in root_logger.handlers
     )
     has_console_handler = any(
-        isinstance(h, logging.StreamHandler) and 
-        hasattr(h, 'stream') and 
-        h.stream == sys.stdout
+        isinstance(h, logging.StreamHandler) and hasattr(h, "stream") and h.stream == sys.stdout
         for h in root_logger.handlers
     )
-    
+
     if not has_file_handler:
         root_logger.addHandler(file_handler)
     if not has_console_handler:

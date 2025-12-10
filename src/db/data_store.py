@@ -2,22 +2,22 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
 
 from src.db.config import (
     ConfigBase,
-    InboundAuth,
-    ExtraCores,
     DnsSettings,
+    ExtraCores,
+    InboundAuth,
+    MonitoringSettings,
     RoutingSettings,
     VpnSettings,
-    MonitoringSettings,
 )
 
 
 @dataclass
 class DataStore(ConfigBase):
     """Main application settings storage."""
+
     # Inbound settings
     inbound_address: str = "127.0.0.1"
     inbound_socks_port: int = 2080
@@ -25,7 +25,7 @@ class DataStore(ConfigBase):
     custom_inbound: str = '{"inbounds": []}'
     # Logging
     log_level: str = "info"
-    log_ignore: List[str] = field(default_factory=list)
+    log_ignore: list[str] = field(default_factory=list)
     max_log_line: int = 200
     # Testing
     test_latency_url: str = "http://cp.cloudflare.com/"
@@ -53,7 +53,7 @@ class DataStore(ConfigBase):
     skip_cert: bool = False
     utls_fingerprint: str = ""
     # Remember state
-    remember_spmode: List[str] = field(default_factory=list)
+    remember_spmode: list[str] = field(default_factory=list)
     remember_id: int = -1919
     remember_enable: bool = False
     current_group: int = 0
@@ -101,37 +101,38 @@ class DataStore(ConfigBase):
     _core_port: int = field(default=19810, repr=False)
     _started_id: int = field(default=-1919, repr=False)
     _core_running: bool = field(default=False, repr=False)
-    
+
     def to_dict(self, exclude_defaults: bool = False, exclude_none: bool = True) -> dict:
         """Override to exclude runtime fields."""
         result = super().to_dict(exclude_defaults, exclude_none)
         # Remove private runtime fields
         for key in list(result.keys()):
-            if key.startswith('_'):
+            if key.startswith("_"):
                 del result[key]
         return result
-    
+
     def get_user_agent(self, use_default: bool = False) -> str:
         """Get User-Agent."""
         if use_default or not self.user_agent:
             return "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
         return self.user_agent
-    
+
     def update_started_id(self, profile_id: int) -> None:
         """Update started profile ID."""
         self._started_id = profile_id
         if self.remember_enable:
             self.remember_id = profile_id
-    
+
     @property
     def is_running(self) -> bool:
         """Check if proxy is running."""
         return self._core_running
-    
+
     @property
     def started_id(self) -> int:
         """Started profile id."""
         return self._started_id
+
 
 DEFAULT_CONFIG_DIR = Path.home() / ".config" / "tenga"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "settings.json"
@@ -142,13 +143,13 @@ def get_default_config_path() -> Path:
     return DEFAULT_CONFIG_FILE
 
 
-def load_data_store(config_path: Optional[Path] = None) -> DataStore:
+def load_data_store(config_path: Path | None = None) -> DataStore:
     """Load DataStore from file."""
     path = config_path or DEFAULT_CONFIG_FILE
     return DataStore.load(path)
 
 
-def save_data_store(store: DataStore, config_path: Optional[Path] = None) -> bool:
+def save_data_store(store: DataStore, config_path: Path | None = None) -> bool:
     """Save DataStore to file."""
     path = config_path or DEFAULT_CONFIG_FILE
     return store.save(path)

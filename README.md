@@ -216,6 +216,25 @@ python cli.py setup-dev
 python cli.py bump-version 1.6.0
 ```
 
+#### Проверка кода и форматирование
+
+```bash
+# Проверить код линтером
+python cli.py lint
+
+# Исправить автоматически исправимые проблемы
+python cli.py lint --fix
+
+# Отформатировать код
+python cli.py format
+
+# Проверить форматирование без изменений
+python cli.py format --check
+
+# Запустить все проверки (линтинг + форматирование)
+python cli.py lint-all
+```
+
 #### Справка
 
 ```bash
@@ -226,6 +245,7 @@ python cli.py --help
 python cli.py run --help
 python cli.py parse --help
 python cli.py build --help
+python cli.py lint --help
 ```
 
 ### GUI
