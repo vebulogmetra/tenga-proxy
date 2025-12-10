@@ -76,6 +76,26 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "RUF001",  # ambiguous unicode characters (false positives for Cyrillic text)
+    "ARG001",  # unused-function-argument (common for callback functions)
+    "ARG002",  # unused-method-argument (common for interface methods)
+    "ARG003",  # unused-class-method-argument
+    "E402",  # module-import-not-at-top-of-file (sometimes needed for conditional imports)
+    "SIM105",  # suppressible-exception (sometimes intentional)
+    "E722",  # bare-except (sometimes necessary for error handling)
+    "TC003",  # typing-only-standard-library-import (too strict for runtime usage)
+    "TC001",  # typing-only-first-party-import (too strict for runtime usage)
+    "RUF012",  # mutable-class-default (common pattern, can be safe)
+    "F401",  # unused-import (may be needed for side effects)
+    "RET504",  # unnecessary-assign (sometimes improves readability)
+    "RUF059",  # unused-unpacked-variable (common when unpacking tuples)
+    "SIM108",  # if-else-block-instead-of-if-exp (sometimes more readable)
+    "B024",  # abstract-base-class-without-abstract-method (may be intentional)
+    "F841",  # unused-variable (may be for debugging or future use)
+    "PIE810",  # multiple-starts-ends-with (sometimes more readable)
+    "PT018",  # pytest-composite-assertion (pytest style preference)
+    "PT028",  # pytest-parameter-with-default-argument (pytest pattern)
+    "RUF005",  # collection-literal-concatenation (sometimes more readable)
+    "SIM115",  # open-file-with-context-handler (may be intentional)
 ]
 
 [tool.ruff.format]

@@ -134,7 +134,7 @@ def test_profile_manager_save_and_load(tmp_path):
         return {"dummy": DummyBean}
 
     import src.db.profiles as profiles_mod
-    from src import db as _db  # noqa: F401
+    from src import db as _db
 
     profiles_mod._get_protocol_classes = fake_protocols
 
