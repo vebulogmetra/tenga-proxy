@@ -305,7 +305,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
             mode_box.pack_start(row, False, False, 0)
 
         lists_frame = Gtk.Frame()
-        lists_frame.set_label("Списки роутинга (для режима 'Пользовательские списки')")
+        lists_frame.set_label("Списки роутинга")
         box.pack_start(lists_frame, True, True, 0)
 
         lists_notebook = Gtk.Notebook()

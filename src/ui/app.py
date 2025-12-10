@@ -646,12 +646,11 @@ class TengaApp:
                     }
                 )
 
-            # Local DNS server
+            # Local DNS server (no detour needed for local type)
             dns_servers.append(
                 {
                     "tag": "local-dns",
                     "type": "local",
-                    "detour": "direct",
                 }
             )
 

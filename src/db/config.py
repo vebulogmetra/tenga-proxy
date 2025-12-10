@@ -278,8 +278,8 @@ class RoutingMode:
     }
 
     DESCRIPTIONS = {
-        PROXY_ALL: "Весь интернет-трафик идёт через прокси-сервер",
-        CUSTOM: "Использовать файлы proxy_list.txt, direct_list.txt и vpn_list.txt",
+        PROXY_ALL: "Весь трафик идёт через прокси",
+        CUSTOM: "Настраиваемые списки",
     }
 
 
