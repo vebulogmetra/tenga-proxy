@@ -382,7 +382,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def cmd_setup(_args: argparse.Namespace) -> int:
-    """Собрать и установить AppImage (аналог setup.sh)."""
+    """Собрать и установить AppImage (аналог core/scripts/setup.sh)."""
     project_root = Path(__file__).parent
 
     if not (project_root / "core" / "bin" / "sing-box").exists():
