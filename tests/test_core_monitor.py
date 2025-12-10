@@ -310,6 +310,9 @@ def test_connection_monitor_check_connections_enabled(tmp_path):
     callback = Mock()
     monitor.set_on_status_changed(callback)
     
+    # Устанавливаем _timer_id, чтобы _check_connections() не вернул False сразу
+    monitor._timer_id = 123
+    
     result = monitor._check_connections()
     
     assert result is True

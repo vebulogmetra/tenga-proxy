@@ -6,6 +6,8 @@ import subprocess
 import signal
 from pathlib import Path
 import logging
+import re
+from src import __version__
 
 from src.fmt import parse_link, parse_subscription_content
 from src.core import init_context
@@ -265,6 +267,224 @@ def cmd_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bump_version(args: argparse.Namespace) -> int:
+    """Обновить версию в проекте."""
+    project_root = Path(__file__).parent
+    init_file = project_root / "src" / "__init__.py"
+    build_script = project_root / "core" / "scripts" / "build_appimage.sh"
+    pyproject_file = project_root / "pyproject.toml"
+    
+    if not init_file.exists():
+        print(f"[ERROR] Файл {init_file} не найден")
+        return 1
+    
+    if not build_script.exists():
+        print(f"[ERROR] Файл {build_script} не найден")
+        return 1
+    
+    current_version = __version__
+    print("==========================================")
+    print("      Tenga Proxy - Bump Version          ")
+    print("==========================================")
+    print()
+    print(f"Текущая версия: {current_version}")
+    print()
+    
+    if args.version:
+        new_version = args.version
+    else:
+        new_version = input("Введите новую версию (например, 1.3.0): ").strip()
+    
+    if not new_version:
+        print("[ERROR] Версия не введена")
+        return 1
+    
+    # Validate version format
+    if not re.match(r'^\d+\.\d+\.\d+$', new_version):
+        print("[ERROR] Неверный формат версии. Используйте формат X.Y.Z (например, 1.3.0)")
+        return 1
+    
+    if current_version == new_version:
+        if not args.force:
+            response = input("Новая версия совпадает с текущей. Продолжить? (y/N): ").strip()
+            if response.lower() != 'y':
+                print("[INFO] Отменено")
+                return 0
+    
+    print()
+    print(f"[INFO] Обновление версии с {current_version} на {new_version}...")
+    
+    # Update src/__init__.py
+    content = init_file.read_text(encoding='utf-8')
+    content = re.sub(
+        r'__version__ = ".*"',
+        f'__version__ = "{new_version}"',
+        content
+    )
+    init_file.write_text(content, encoding='utf-8')
+    print(f"[OK] Версия обновлена в {init_file}")
+    
+    # Update build_appimage.sh
+    content = build_script.read_text(encoding='utf-8')
+    content = re.sub(
+        r'APP_VERSION=".*"',
+        f'APP_VERSION="{new_version}"',
+        content
+    )
+    build_script.write_text(content, encoding='utf-8')
+    print(f"[OK] Версия обновлена в {build_script}")
+    
+    # Update pyproject.toml
+    if pyproject_file.exists():
+        content = pyproject_file.read_text(encoding='utf-8')
+        content = re.sub(
+            r'version = ".*"',
+            f'version = "{new_version}"',
+            content
+        )
+        pyproject_file.write_text(content, encoding='utf-8')
+        print(f"[OK] Версия обновлена в {pyproject_file}")
+    
+    print()
+    print("[OK] Версия успешно обновлена!")
+    print()
+    
+    if args.build:
+        print("[INFO] Запуск сборки AppImage...")
+        print()
+        build_args = argparse.Namespace()
+        return cmd_build(build_args)
+    
+    return 0
+
+
+def cmd_build(args: argparse.Namespace) -> int:
+    """Собрать AppImage."""
+    project_root = Path(__file__).parent
+    build_script = project_root / "core" / "scripts" / "build_appimage.sh"
+    
+    if not build_script.exists():
+        print(f"[ERROR] Скрипт сборки не найден: {build_script}")
+        return 1
+    
+    if not (project_root / "core" / "bin" / "sing-box").exists():
+        print("[ERROR] sing-box не найден в core/bin/")
+        print()
+        print("Для разработки запустите:")
+        print("  python cli.py setup-dev")
+        return 1
+    
+    print("==========================================")
+    print("      Tenga Proxy - AppImage Build        ")
+    print("==========================================")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ["bash", str(build_script)],
+            cwd=project_root,
+            check=False
+        )
+        return result.returncode
+    except FileNotFoundError:
+        print("[ERROR] bash не найден")
+        return 1
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    """Установить AppImage в систему."""
+    project_root = Path(__file__).parent
+    install_script = project_root / "core" / "scripts" / "install_appimage.sh"
+    
+    if not install_script.exists():
+        print(f"[ERROR] Скрипт установки не найден: {install_script}")
+        return 1
+    
+    action = "uninstall" if args.uninstall else "install"
+    
+    print("==========================================")
+    print("      Tenga Proxy - Install AppImage     ")
+    print("==========================================")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ["bash", str(install_script), action],
+            cwd=project_root,
+            check=False
+        )
+        return result.returncode
+    except FileNotFoundError:
+        print("[ERROR] bash не найден")
+        return 1
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Собрать и установить AppImage (аналог setup.sh)."""
+    project_root = Path(__file__).parent
+    
+    if not (project_root / "core" / "bin" / "sing-box").exists():
+        print("[ERROR] sing-box не найден в core/bin/")
+        print()
+        print("Для разработки запустите:")
+        print("  python cli.py setup-dev")
+        return 1
+    
+    print("==========================================")
+    print("          Tenga Proxy - Setup             ")
+    print("==========================================")
+    print()
+    
+    # Step 1: Build
+    print("[INFO] Шаг 1/2: Сборка AppImage...")
+    build_args = argparse.Namespace()
+    if cmd_build(build_args) != 0:
+        print("[ERROR] Ошибка при сборке AppImage")
+        return 1
+    
+    print()
+    # Step 2: Install
+    print("[INFO] Шаг 2/2: Установка в систему...")
+    install_args = argparse.Namespace(uninstall=False)
+    if cmd_install(install_args) != 0:
+        print("[ERROR] Ошибка при установке")
+        return 1
+    
+    print()
+    print("==========================================")
+    print("          Установка завершена!            ")
+    print("==========================================")
+    print()
+    
+    return 0
+
+
+def cmd_setup_dev(args: argparse.Namespace) -> int:
+    """Установить окружение для разработки."""
+    project_root = Path(__file__).parent
+    install_dev_script = project_root / "core" / "scripts" / "install_dev.sh"
+    
+    if not install_dev_script.exists():
+        print(f"[ERROR] Скрипт установки не найден: {install_dev_script}")
+        return 1
+    
+    print("==========================================")
+    print("   Tenga Proxy - Dev Environment Setup   ")
+    print("==========================================")
+    print()
+    
+    try:
+        result = subprocess.run(
+            ["bash", str(install_dev_script)],
+            cwd=project_root,
+            check=False
+        )
+        return result.returncode
+    except FileNotFoundError:
+        print("[ERROR] bash не найден")
+        return 1
+
+
 def find_core_binary() -> str | None:
     """
     Find proxy binary for CLI (sing-box).
@@ -491,7 +711,11 @@ def main() -> int:
                '  %(prog)s add "vless://..."\n'
                '  %(prog)s ls\n'
                '  %(prog)s run 1\n'
-               '  %(prog)s ver',
+               '  %(prog)s ver\n'
+               '  %(prog)s setup\n'
+               '  %(prog)s build\n'
+               '  %(prog)s install\n'
+               '  %(prog)s bump-version 1.6.0',
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Команды')
@@ -534,6 +758,21 @@ def main() -> int:
     run_parser.add_argument('-p', '--port', type=int, default=2080, help='Порт прокси')
     run_parser.add_argument('--no-system-proxy', action='store_true', help='Не настраивать системный прокси')
     
+    # Build and installation commands
+    setup_parser = subparsers.add_parser('setup', help='Собрать и установить AppImage в систему')
+    
+    build_parser = subparsers.add_parser('build', help='Собрать AppImage')
+    
+    install_parser = subparsers.add_parser('install', help='Установить AppImage в систему')
+    install_parser.add_argument('--uninstall', action='store_true', help='Удалить AppImage из системы')
+    
+    bump_version_parser = subparsers.add_parser('bump-version', help='Обновить версию проекта')
+    bump_version_parser.add_argument('version', nargs='?', help='Новая версия (например, 1.3.0)')
+    bump_version_parser.add_argument('--force', action='store_true', help='Принудительно обновить, даже если версия совпадает')
+    bump_version_parser.add_argument('--build', action='store_true', help='Запустить сборку AppImage после обновления версии')
+    
+    setup_dev_parser = subparsers.add_parser('setup-dev', help='Установить окружение для разработки')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -549,6 +788,11 @@ def main() -> int:
         'rm': cmd_remove,
         'ver': cmd_version,
         'run': cmd_run,
+        'setup': cmd_setup,
+        'build': cmd_build,
+        'install': cmd_install,
+        'bump-version': cmd_bump_version,
+        'setup-dev': cmd_setup_dev,
     }
     
     handler = commands.get(args.command)

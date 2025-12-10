@@ -29,7 +29,7 @@
 Для сборки и установки/обновления AppImage в систему:
 
 ```bash
-./setup.sh
+python cli.py setup
 ```
 
 - Соберёт AppImage
@@ -43,15 +43,13 @@
 Для разработки и запуска из исходников:
 
 ```bash
-core/scripts/install_dev.sh
+python cli.py setup-dev
 ```
 
 - Системные зависимости
 - Python venv
 - Python зависимости из `requirements.txt`
 - Бинарник sing-box
-
-Этот скрипт нужен только для разработки. Для обычного использования достаточно `./setup.sh`.
 
 #### Установка sing-box
 
@@ -74,13 +72,13 @@ chmod +x core/bin/sing-box
 
 ### Требования для сборки
 
-- Системные зависимости (устанавливаются через `core/scripts/install_dev.sh`)
+- Системные зависимости (устанавливаются через `python cli.py setup-dev`)
 - Бинарник `sing-box` в `core/bin/sing-box`
 
 ### Сборка
 
 ```bash
-core/scripts/build_appimage.sh
+python cli.py build
 ```
 
 Результат будет в `dist/tenga-proxy-x.AppImage`.
@@ -88,7 +86,7 @@ core/scripts/build_appimage.sh
 ### Установка AppImage в систему
 
 ```bash
-core/scripts/install_appimage.sh
+python cli.py install
 ```
 
 После установки "Tenga Proxy" будет доступен в меню приложений.
@@ -96,7 +94,23 @@ core/scripts/install_appimage.sh
 ### Удаление AppImage
 
 ```bash
-core/scripts/install_appimage.sh uninstall
+python cli.py install --uninstall
+```
+
+### Обновление версии
+
+```bash
+# Интерактивный режим
+python cli.py bump-version
+
+# С указанием версии
+python cli.py bump-version 1.6.0
+
+# С автоматической сборкой после обновления
+python cli.py bump-version 1.6.0 --build
+
+# Принудительное обновление (даже если версия совпадает)
+python cli.py bump-version 1.6.0 --force
 ```
 
 ## Использование
@@ -180,6 +194,28 @@ python cli.py run /path/to/link.txt
 python cli.py ver
 ```
 
+#### Сборка и установка
+
+```bash
+# Собрать и установить AppImage
+python cli.py setup
+
+# Только собрать AppImage
+python cli.py build
+
+# Установить AppImage в систему
+python cli.py install
+
+# Удалить AppImage из системы
+python cli.py install --uninstall
+
+# Установить окружение для разработки
+python cli.py setup-dev
+
+# Обновить версию проекта
+python cli.py bump-version 1.6.0
+```
+
 #### Справка
 
 ```bash
@@ -189,6 +225,7 @@ python cli.py --help
 # Показать справку по конкретной команде
 python cli.py run --help
 python cli.py parse --help
+python cli.py build --help
 ```
 
 ### GUI

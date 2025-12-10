@@ -4,7 +4,7 @@ from src.db.config import MonitoringSettings
 def test_monitoring_settings_defaults():
     settings = MonitoringSettings()
     
-    assert settings.enabled is False
+    assert settings.enabled is True
     assert settings.check_interval_seconds == 10
     assert settings.test_url == "https://www.google.com/generate_204"
 
@@ -87,7 +87,7 @@ def test_monitoring_settings_in_data_store(tmp_path):
     
     store = DataStore()
     
-    assert store.monitoring.enabled is False
+    assert store.monitoring.enabled is True
     assert store.monitoring.check_interval_seconds == 10
     
     store.monitoring.enabled = True

@@ -32,3 +32,6 @@ core/proxy_list.txt
 build/
 dist/
 .coverage
+
+*.egg-info/
+.egg-info/
