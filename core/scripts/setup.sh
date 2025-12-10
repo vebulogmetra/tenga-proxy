@@ -1,13 +1,10 @@
 #!/bin/bash
-#
-# Setup script for Tenga Proxy
-# Builds AppImage and installs it to system
-#
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$PROJECT_ROOT"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -26,7 +23,7 @@ main() {
     echo "=========================================="
     echo
 
-    if [ ! -f "$SCRIPT_DIR/core/bin/sing-box" ]; then
+    if [ ! -f "$PROJECT_ROOT/core/bin/sing-box" ]; then
         error "sing-box не найден в core/bin/"
         echo
         echo "Для разработки запустите:"
@@ -35,14 +32,14 @@ main() {
     fi
 
     info "Шаг 1/2: Сборка AppImage..."
-    if ! "$SCRIPT_DIR/core/scripts/build_appimage.sh"; then
+    if ! "$PROJECT_ROOT/core/scripts/build_appimage.sh"; then
         error "Ошибка при сборке AppImage"
         exit 1
     fi
     
     echo
     info "Шаг 2/2: Установка в систему..."
-    if ! "$SCRIPT_DIR/core/scripts/install_appimage.sh"; then
+    if ! "$PROJECT_ROOT/core/scripts/install_appimage.sh"; then
         error "Ошибка при установке"
         exit 1
     fi

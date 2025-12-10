@@ -1,20 +1,19 @@
 from __future__ import annotations
 
 import os
-import sys
 import subprocess
+import sys
 from pathlib import Path
-from typing import Optional
 
 
 def _is_frozen() -> bool:
     """Check if running as a frozen executable (PyInstaller)."""
-    return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
+    return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
 def _is_appimage() -> bool:
     """Check if running from AppImage."""
-    return 'TENGA_CONFIG_DIR' in os.environ or os.environ.get('APPIMAGE') is not None
+    return "TENGA_CONFIG_DIR" in os.environ or os.environ.get("APPIMAGE") is not None
 
 
 def _get_bundle_dir() -> Path:
@@ -26,19 +25,19 @@ def _get_bundle_dir() -> Path:
 
 def _get_config_dir() -> Path:
     """Get configuration directory.
-    
+
     When running from AppImage/frozen: ~/.config/tenga-proxy
     When running from source: ./core
     Environment variable TENGA_CONFIG_DIR takes priority.
     """
-    env_dir = os.environ.get('TENGA_CONFIG_DIR')
+    env_dir = os.environ.get("TENGA_CONFIG_DIR")
     if env_dir:
         return Path(env_dir)
 
     # Frozen or AppImage: use XDG config dir
     if _is_frozen() or _is_appimage():
-        xdg_config = os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config'))
-        return Path(xdg_config) / 'tenga-proxy'
+        xdg_config = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
+        return Path(xdg_config) / "tenga-proxy"
 
     # Development: use ./core
     return Path(__file__).resolve().parent.parent.parent / "core"
@@ -50,8 +49,11 @@ def _get_log_dir() -> Path:
         return _get_config_dir() / "logs"
     return Path(__file__).resolve().parent.parent.parent / "logs"
 
+
 BUNDLE_DIR: Path = _get_bundle_dir()
-PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent.parent if not _is_frozen() else BUNDLE_DIR
+PROJECT_ROOT: Path = (
+    Path(__file__).resolve().parent.parent.parent if not _is_frozen() else BUNDLE_DIR
+)
 CORE_DIR: Path = _get_config_dir()
 CORE_BIN_DIR: Path = BUNDLE_DIR / "core" / "bin" if _is_frozen() else CORE_DIR / "bin"
 SINGBOX_BINARY_NAME: str = "sing-box"
@@ -64,12 +66,13 @@ SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
 
-def get_lock_file(config_dir: Optional[Path] = None) -> Path:
+
+def get_lock_file(config_dir: Path | None = None) -> Path:
     """Get lock file path.
-    
+
     Args:
         config_dir: Optional configuration directory. If None, uses default CORE_DIR.
-    
+
     Returns:
         Path to lock file
     """
@@ -77,18 +80,19 @@ def get_lock_file(config_dir: Optional[Path] = None) -> Path:
         return config_dir / "tenga-proxy.lock"
     return CORE_DIR / "tenga-proxy.lock"
 
+
 # Clash API
 DEFAULT_CLASH_API_ADDR: str = "127.0.0.1:9090"
 DEFAULT_CLASH_API_SECRET: str = ""
 
 
-def find_singbox_binary() -> Optional[str]:
+def find_singbox_binary() -> str | None:
     """
     Find sing-box binary.
 
     Search priority:
     1. Bundled sing-box (in PyInstaller bundle)
-    2. sing-box in core/bin/ directory  
+    2. sing-box in core/bin/ directory
     3. sing-box in user config dir
     4. sing-box in system PATH
 
@@ -140,7 +144,7 @@ def find_singbox_binary() -> Optional[str]:
 
 def init_config_files() -> None:
     """Initialize default config files if they don't exist.
-    
+
     Copies default files from bundle to user config directory on first run.
     """
     if not _is_frozen():

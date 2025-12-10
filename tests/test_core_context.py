@@ -1,4 +1,5 @@
 from pathlib import Path
+
 from src.core.context import (
     AppContext,
     ProxyState,
@@ -47,7 +48,6 @@ def test_app_context_uses_custom_config_dir(tmp_path):
 
 
 def test_app_context_lazy_load_config(monkeypatch, tmp_path):
-    from src import db as src_db  # type: ignore
     from src.db import data_store as real_data_store
 
     saved_paths = []

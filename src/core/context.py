@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, List, Optional
+from typing import TYPE_CHECKING
 
 from src.core.config import CORE_DIR, find_singbox_binary
 
 if TYPE_CHECKING:
-    from src.core.singbox_manager import SingBoxManager
     from src.core.monitor import ConnectionMonitor
+    from src.core.singbox_manager import SingBoxManager
     from src.db.data_store import DataStore
     from src.db.profiles import ProfileManager
 
@@ -16,25 +17,26 @@ if TYPE_CHECKING:
 @dataclass
 class ProxyState:
     """Proxy state."""
+
     is_running: bool = False
     started_profile_id: int = -1
     upload_bytes: int = 0
     download_bytes: int = 0
     vpn_auto_connected: bool = False
-    
+
     # Listeners
-    _state_listeners: List[Callable[['ProxyState'], None]] = field(default_factory=list)
-    
-    def add_listener(self, callback: Callable[['ProxyState'], None]) -> None:
+    _state_listeners: list[Callable[[ProxyState], None]] = field(default_factory=list)
+
+    def add_listener(self, callback: Callable[[ProxyState], None]) -> None:
         """Add a state change listener."""
         if callback not in self._state_listeners:
             self._state_listeners.append(callback)
-    
-    def remove_listener(self, callback: Callable[['ProxyState'], None]) -> None:
+
+    def remove_listener(self, callback: Callable[[ProxyState], None]) -> None:
         """Remove a listener."""
         if callback in self._state_listeners:
             self._state_listeners.remove(callback)
-    
+
     def notify_listeners(self) -> None:
         """Notify listeners of state change."""
         for listener in self._state_listeners:
@@ -42,13 +44,13 @@ class ProxyState:
                 listener(self)
             except Exception as e:
                 print(f"Error in state listener: {e}")
-    
+
     def set_running(self, profile_id: int) -> None:
         """Set state to running."""
         self.is_running = True
         self.started_profile_id = profile_id
         self.notify_listeners()
-    
+
     def set_stopped(self) -> None:
         """Set state to stopped."""
         self.is_running = False
@@ -63,103 +65,106 @@ class AppContext:
     Central application context.
     Contains all main dependencies and state.
     """
-    
+
     def __init__(
         self,
-        config_dir: Optional[Path] = None,
-        config: Optional['DataStore'] = None,
+        config_dir: Path | None = None,
+        config: DataStore | None = None,
     ):
         self._config_dir = config_dir or self._get_default_config_dir()
-        self._config: Optional['DataStore'] = config
-        self._profiles: Optional['ProfileManager'] = None
-        self._singbox_manager: Optional['SingBoxManager'] = None
+        self._config: DataStore | None = config
+        self._profiles: ProfileManager | None = None
+        self._singbox_manager: SingBoxManager | None = None
         self._proxy_state = ProxyState()
-        self._monitor: Optional['ConnectionMonitor'] = None
-        
+        self._monitor: ConnectionMonitor | None = None
+
         # Ensure config dir exists
         self._config_dir.mkdir(parents=True, exist_ok=True)
-    
+
     @staticmethod
     def _get_default_config_dir() -> Path:
         """Get default configuration directory."""
         return CORE_DIR
-    
+
     @property
     def config_dir(self) -> Path:
         """Configuration directory."""
         return self._config_dir
-    
+
     @property
-    def config(self) -> 'DataStore':
+    def config(self) -> DataStore:
         """Application settings (lazy loading)."""
         if self._config is None:
             from src.db.data_store import DataStore
+
             config_file = self._config_dir / "settings.json"
             self._config = DataStore.load(config_file)
         return self._config
-    
+
     @property
-    def profiles(self) -> 'ProfileManager':
+    def profiles(self) -> ProfileManager:
         """Profile manager (lazy loading)."""
         if self._profiles is None:
             from src.db.profiles import ProfileManager
+
             profiles_dir = self._config_dir / "profiles"
             self._profiles = ProfileManager(profiles_dir)
             self._profiles.load()
         return self._profiles
-    
+
     @property
-    def singbox_manager(self) -> 'SingBoxManager':
+    def singbox_manager(self) -> SingBoxManager:
         """
         Sing-box manager (lazy loading).
-        
+
         Created on first access.
         SingBoxManager will automatically find sing-box in core/bin/ or in system PATH.
         """
         if self._singbox_manager is None:
             from src.core.singbox_manager import SingBoxManager
+
             self._singbox_manager = SingBoxManager(binary_path=None)
         return self._singbox_manager
-    
+
     @property
     def proxy_state(self) -> ProxyState:
         """Proxy state."""
         return self._proxy_state
-    
+
     @property
-    def monitor(self) -> Optional['ConnectionMonitor']:
+    def monitor(self) -> ConnectionMonitor | None:
         """Connection monitor."""
         return self._monitor
-    
-    def set_monitor(self, monitor: Optional['ConnectionMonitor']) -> None:
+
+    def set_monitor(self, monitor: ConnectionMonitor | None) -> None:
         """Set connection monitor."""
         self._monitor = monitor
-    
-    def find_singbox_binary(self) -> Optional[str]:
+
+    def find_singbox_binary(self) -> str | None:
         """Find sing-box binary."""
         return find_singbox_binary()
-    
+
     def save_config(self) -> bool:
         """Save configuration."""
         if self._config is None:
             return False
         config_file = self._config_dir / "settings.json"
         return self._config.save(config_file)
-    
+
     def save_profiles(self) -> bool:
         """Save profiles."""
         if self._profiles is None:
             return False
         return self._profiles.save()
-    
+
     def save_all(self) -> bool:
         """Save everything."""
         config_ok = self.save_config()
         profiles_ok = self.save_profiles()
         return config_ok and profiles_ok
-    
 
-_context: Optional[AppContext] = None
+
+_context: AppContext | None = None
 
 
 def get_context() -> AppContext:
@@ -174,8 +179,8 @@ def get_context() -> AppContext:
 
 
 def init_context(
-    config_dir: Optional[Path] = None,
-    config: Optional['DataStore'] = None,
+    config_dir: Path | None = None,
+    config: DataStore | None = None,
 ) -> AppContext:
     """
     Initialize global context.

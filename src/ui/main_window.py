@@ -2,80 +2,81 @@ from __future__ import annotations
 
 import array
 import threading
-from typing import TYPE_CHECKING, Callable, Optional
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 import gi
-gi.require_version('Gtk', '3.0')
 
-from gi.repository import Gtk, Gdk, GLib, Pango, GdkPixbuf
+gi.require_version("Gtk", "3.0")
+
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
+
 from src.ui.dialogs import show_edit_profile_dialog, show_profile_vpn_settings_dialog
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
-    from src.db.profiles import ProfileEntry
 
 
 def format_bytes(bytes_count: int) -> str:
     """Format bytes to human-readable string."""
     if bytes_count < 1024:
         return f"{bytes_count} B"
-    elif bytes_count < 1024 * 1024:
+    if bytes_count < 1024 * 1024:
         return f"{bytes_count / 1024:.1f} KB"
-    elif bytes_count < 1024 * 1024 * 1024:
+    if bytes_count < 1024 * 1024 * 1024:
         return f"{bytes_count / (1024 * 1024):.1f} MB"
-    else:
-        return f"{bytes_count / (1024 * 1024 * 1024):.2f} GB"
+    return f"{bytes_count / (1024 * 1024 * 1024):.2f} GB"
 
 
 class MainWindow(Gtk.Window):
     """Main application window."""
-    
-    def __init__(self, context: 'AppContext'):
+
+    def __init__(self, context: AppContext):
         super().__init__(title="Tenga Proxy")
-        
+
         self._context = context
-        
+
         # Callbacks
-        self._on_connect: Optional[Callable[[int], None]] = None
-        self._on_disconnect: Optional[Callable[[], None]] = None
-        self._on_config_reload: Optional[Callable[[], None]] = None
+        self._on_connect: Callable[[int], None] | None = None
+        self._on_disconnect: Callable[[], None] | None = None
+        self._on_config_reload: Callable[[], None] | None = None
         # UI elements
-        self._profile_list: Optional[Gtk.TreeView] = None
-        self._profile_store: Optional[Gtk.ListStore] = None
-        self._connect_button: Optional[Gtk.Button] = None
-        self._status_label: Optional[Gtk.Label] = None
-        self._header_icon: Optional[Gtk.Image] = None
+        self._profile_list: Gtk.TreeView | None = None
+        self._profile_store: Gtk.ListStore | None = None
+        self._connect_button: Gtk.Button | None = None
+        self._status_label: Gtk.Label | None = None
+        self._header_icon: Gtk.Image | None = None
         # Stats UI elements
-        self._stats_frame: Optional[Gtk.Frame] = None
-        self._upload_label: Optional[Gtk.Label] = None
-        self._download_label: Optional[Gtk.Label] = None
-        self._connections_label: Optional[Gtk.Label] = None
-        self._version_label: Optional[Gtk.Label] = None
-        self._delay_label: Optional[Gtk.Label] = None
+        self._stats_frame: Gtk.Frame | None = None
+        self._upload_label: Gtk.Label | None = None
+        self._download_label: Gtk.Label | None = None
+        self._connections_label: Gtk.Label | None = None
+        self._version_label: Gtk.Label | None = None
+        self._delay_label: Gtk.Label | None = None
         # Stats update timer
-        self._stats_timer_id: Optional[int] = None
+        self._stats_timer_id: int | None = None
         # Monitoring UI elements
-        self._monitoring_proxy_status: Optional[Gtk.Label] = None
-        self._monitoring_vpn_status: Optional[Gtk.Label] = None
-        self._monitoring_last_check: Optional[Gtk.Label] = None
-        self._monitoring_notebook: Optional[Gtk.Notebook] = None
-        self._monitoring_page: Optional[Gtk.Widget] = None
+        self._monitoring_proxy_status: Gtk.Label | None = None
+        self._monitoring_vpn_status: Gtk.Label | None = None
+        self._monitoring_last_check: Gtk.Label | None = None
+        self._monitoring_notebook: Gtk.Notebook | None = None
+        self._monitoring_page: Gtk.Widget | None = None
         self._monitoring_page_index: int = -1
         # Window state tracking
         self._saved_width: int = 400
         self._saved_height: int = 500
         self._is_maximized: bool = False
-        
+
         self._setup_window()
         self._setup_ui()
-        
+
         # Subscribe to state changes
         self._context.proxy_state.add_listener(self._on_state_changed)
         # Initial update
         self._refresh_profiles()
         self._update_ui(self._context.proxy_state)
         self._update_monitoring_tab_visibility()
-    
+
     def _setup_window(self) -> None:
         """Setup window."""
         self.set_default_size(400, 500)
@@ -94,7 +95,7 @@ class MainWindow(Gtk.Window):
         self.set_wmclass("tenga-proxy", "tenga-proxy")
         self.set_role("tenga-proxy")
         self.connect("realize", self._on_realize)
-        
+
         # On close - hide
         self.connect("delete-event", self._on_delete)
         self.connect("destroy", self._on_destroy)
@@ -141,15 +142,13 @@ class MainWindow(Gtk.Window):
             color: #F44336;
         }
         """
-        
+
         style_provider = Gtk.CssProvider()
         style_provider.load_from_data(css)
         Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(),
-            style_provider,
-            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+            Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
-    
+
     def _setup_ui(self) -> None:
         """Setup UI."""
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -182,30 +181,29 @@ class MainWindow(Gtk.Window):
         # Tab 3: Monitoring (only if monitoring is enabled)
         self._monitoring_page = self._create_monitoring_page()
         self._monitoring_page_index = self._monitoring_notebook.append_page(
-            self._monitoring_page, 
-            Gtk.Label(label="Мониторинг")
+            self._monitoring_page, Gtk.Label(label="Мониторинг")
         )
         self._update_monitoring_tab_visibility()
-        
+
         # Connection buttons (outside notebook)
         button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         button_box.set_halign(Gtk.Align.CENTER)
         main_box.pack_start(button_box, False, False, 10)
-        
+
         self._connect_button = Gtk.Button(label="⏻ Подключить")
         self._connect_button.get_style_context().add_class("connect-button")
         self._connect_button.connect("clicked", self._on_connect_clicked)
         button_box.pack_start(self._connect_button, False, False, 0)
-        
+
         refresh_button = Gtk.Button(label="🔄 Обновить")
         refresh_button.connect("clicked", self._on_refresh_clicked)
         button_box.pack_start(refresh_button, False, False, 0)
-        
+
         settings_button = Gtk.Button(label="⚙️ Настройки")
         settings_button.set_tooltip_text("Настройки приложения")
         settings_button.connect("clicked", self._on_settings_clicked)
         button_box.pack_start(settings_button, False, False, 0)
-    
+
     def _create_profiles_page(self) -> Gtk.Widget:
         """Create profiles page."""
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
@@ -213,7 +211,7 @@ class MainWindow(Gtk.Window):
         page_box.set_margin_end(5)
         page_box.set_margin_top(5)
         page_box.set_margin_bottom(5)
-        
+
         # Profile list
         profiles_label = Gtk.Label()
         profiles_label.set_markup("<b>Профили</b>")
@@ -231,20 +229,20 @@ class MainWindow(Gtk.Window):
         # Columns
         renderer = Gtk.CellRendererText()
         renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
-        
+
         col_name = Gtk.TreeViewColumn("Имя", renderer, text=1)
         col_name.set_expand(True)
         col_name.set_min_width(150)
         self._profile_list.append_column(col_name)
-        
+
         col_type = Gtk.TreeViewColumn("Тип", renderer, text=2)
         col_type.set_min_width(70)
         self._profile_list.append_column(col_type)
-        
+
         col_addr = Gtk.TreeViewColumn("Сервер", renderer, text=3)
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
-        
+
         # Settings icon column
         icon_renderer = Gtk.CellRendererPixbuf()
         col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=4)
@@ -254,13 +252,13 @@ class MainWindow(Gtk.Window):
 
         self._profile_list.connect("row-activated", self._on_row_activated)
         self._profile_list.connect("button-press-event", self._on_profile_list_button_press)
-        
+
         scrolled.add(self._profile_list)
         # Profile management buttons
         profile_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         profile_button_box.set_halign(Gtk.Align.CENTER)
         page_box.pack_start(profile_button_box, False, False, 0)
-        
+
         add_button = Gtk.Button(label="➕ Добавить")
         add_button.set_tooltip_text("Добавить профиль по share link")
         add_button.connect("clicked", self._on_add_clicked)
@@ -275,9 +273,9 @@ class MainWindow(Gtk.Window):
         delete_button.set_tooltip_text("Удалить выбранный профиль")
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
-        
+
         return page_box
-    
+
     def _create_monitoring_page(self) -> Gtk.Widget:
         """Create monitoring page."""
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
@@ -285,78 +283,78 @@ class MainWindow(Gtk.Window):
         page_box.set_margin_end(15)
         page_box.set_margin_top(15)
         page_box.set_margin_bottom(15)
-        
+
         # Title
         title_label = Gtk.Label()
         title_label.set_markup("<b>Мониторинг соединений</b>")
         title_label.set_halign(Gtk.Align.START)
         page_box.pack_start(title_label, False, False, 0)
-        
+
         # Proxy status frame
         proxy_frame = Gtk.Frame()
         proxy_frame.set_label("Статус прокси")
         proxy_frame.set_margin_top(10)
         page_box.pack_start(proxy_frame, False, False, 0)
-        
+
         proxy_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         proxy_box.set_margin_start(10)
         proxy_box.set_margin_end(10)
         proxy_box.set_margin_top(10)
         proxy_box.set_margin_bottom(10)
         proxy_frame.add(proxy_box)
-        
+
         proxy_status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         proxy_status_label = Gtk.Label(label="Статус:")
         proxy_status_label.set_halign(Gtk.Align.START)
         proxy_status_box.pack_start(proxy_status_label, False, False, 0)
-        
+
         self._monitoring_proxy_status = Gtk.Label(label="—")
         self._monitoring_proxy_status.set_halign(Gtk.Align.START)
         self._monitoring_proxy_status.get_style_context().add_class("status-disconnected")
         proxy_status_box.pack_start(self._monitoring_proxy_status, False, False, 0)
         proxy_box.pack_start(proxy_status_box, False, False, 0)
-        
+
         # VPN status frame
         vpn_frame = Gtk.Frame()
         vpn_frame.set_label("Статус VPN")
         vpn_frame.set_margin_top(10)
         page_box.pack_start(vpn_frame, False, False, 0)
-        
+
         vpn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         vpn_box.set_margin_start(10)
         vpn_box.set_margin_end(10)
         vpn_box.set_margin_top(10)
         vpn_box.set_margin_bottom(10)
         vpn_frame.add(vpn_box)
-        
+
         vpn_status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         vpn_status_label = Gtk.Label(label="Статус:")
         vpn_status_label.set_halign(Gtk.Align.START)
         vpn_status_box.pack_start(vpn_status_label, False, False, 0)
-        
+
         self._monitoring_vpn_status = Gtk.Label(label="—")
         self._monitoring_vpn_status.set_halign(Gtk.Align.START)
         self._monitoring_vpn_status.get_style_context().add_class("status-disconnected")
         vpn_status_box.pack_start(self._monitoring_vpn_status, False, False, 0)
         vpn_box.pack_start(vpn_status_box, False, False, 0)
-        
+
         # Last check time
         last_check_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         last_check_label = Gtk.Label(label="Последняя проверка:")
         last_check_label.set_halign(Gtk.Align.START)
         last_check_box.pack_start(last_check_label, False, False, 0)
-        
+
         self._monitoring_last_check = Gtk.Label(label="—")
         self._monitoring_last_check.set_halign(Gtk.Align.START)
         last_check_box.pack_start(self._monitoring_last_check, False, False, 0)
         page_box.pack_start(last_check_box, False, False, 10)
-        
+
         # Refresh button
         refresh_monitoring_btn = Gtk.Button(label="🔄 Обновить сейчас")
         refresh_monitoring_btn.set_tooltip_text("Выполнить проверку соединений сейчас")
         refresh_monitoring_btn.connect("clicked", self._on_refresh_monitoring_clicked)
         page_box.pack_start(refresh_monitoring_btn, False, False, 0)
-        
+
         # Info label
         info_label = Gtk.Label()
         info_label.set_markup(
@@ -367,16 +365,16 @@ class MainWindow(Gtk.Window):
         info_label.set_halign(Gtk.Align.START)
         info_label.set_margin_top(10)
         page_box.pack_start(info_label, False, False, 0)
-        
+
         return page_box
-    
+
     def _on_refresh_monitoring_clicked(self, button: Gtk.Button) -> None:
         """Refresh monitoring status manually."""
         # Trigger manual check if monitor is available
         monitor = self._context.monitor
         if monitor:
             monitor.check_now()
-    
+
     def _create_connection_page(self) -> Gtk.Widget:
         """Create connection information page."""
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
@@ -384,19 +382,19 @@ class MainWindow(Gtk.Window):
         page_box.set_margin_end(15)
         page_box.set_margin_top(15)
         page_box.set_margin_bottom(15)
-        
+
         # Title
         title_label = Gtk.Label()
         title_label.set_markup("<b>Информация о подключении</b>")
         title_label.set_halign(Gtk.Align.START)
         page_box.pack_start(title_label, False, False, 0)
-        
+
         # Stats frame
         self._stats_frame = Gtk.Frame()
         self._stats_frame.get_style_context().add_class("stats-frame")
         self._stats_frame.set_label("Статистика")
         page_box.pack_start(self._stats_frame, False, False, 0)
-        
+
         stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         stats_box.set_margin_top(8)
         stats_box.set_margin_bottom(8)
@@ -408,13 +406,13 @@ class MainWindow(Gtk.Window):
         stats_grid.set_column_spacing(15)
         stats_grid.set_row_spacing(5)
         stats_box.pack_start(stats_grid, False, False, 0)
-        
+
         # Version
         version_title = Gtk.Label(label="Версия sing-box:")
         version_title.set_halign(Gtk.Align.START)
         version_title.get_style_context().add_class("stats-label")
         stats_grid.attach(version_title, 0, 0, 1, 1)
-        
+
         self._version_label = Gtk.Label(label="—")
         self._version_label.set_halign(Gtk.Align.START)
         self._version_label.get_style_context().add_class("stats-value")
@@ -424,7 +422,7 @@ class MainWindow(Gtk.Window):
         upload_title.set_halign(Gtk.Align.START)
         upload_title.get_style_context().add_class("stats-label")
         stats_grid.attach(upload_title, 0, 1, 1, 1)
-        
+
         self._upload_label = Gtk.Label(label="0 B")
         self._upload_label.set_halign(Gtk.Align.START)
         self._upload_label.get_style_context().add_class("stats-upload")
@@ -434,7 +432,7 @@ class MainWindow(Gtk.Window):
         download_title.set_halign(Gtk.Align.START)
         download_title.get_style_context().add_class("stats-label")
         stats_grid.attach(download_title, 0, 2, 1, 1)
-        
+
         self._download_label = Gtk.Label(label="0 B")
         self._download_label.set_halign(Gtk.Align.START)
         self._download_label.get_style_context().add_class("stats-download")
@@ -444,7 +442,7 @@ class MainWindow(Gtk.Window):
         conn_title.set_halign(Gtk.Align.START)
         conn_title.get_style_context().add_class("stats-label")
         stats_grid.attach(conn_title, 0, 3, 1, 1)
-        
+
         self._connections_label = Gtk.Label(label="0")
         self._connections_label.set_halign(Gtk.Align.START)
         self._connections_label.get_style_context().add_class("stats-value")
@@ -454,7 +452,7 @@ class MainWindow(Gtk.Window):
         delay_title.set_halign(Gtk.Align.START)
         delay_title.get_style_context().add_class("stats-label")
         stats_grid.attach(delay_title, 0, 4, 1, 1)
-        
+
         self._delay_label = Gtk.Label(label="—")
         self._delay_label.set_halign(Gtk.Align.START)
         stats_grid.attach(self._delay_label, 1, 4, 1, 1)
@@ -478,37 +476,37 @@ class MainWindow(Gtk.Window):
         close_all_btn.set_tooltip_text("Закрыть все активные подключения")
         close_all_btn.connect("clicked", self._on_close_all_connections_clicked)
         button_box.pack_start(close_all_btn, False, False, 0)
-        
+
         # Empty space
         page_box.pack_start(Gtk.Box(), True, True, 0)
-        
+
         return page_box
-    
+
     def _start_stats_timer(self) -> None:
         """Start statistics update timer."""
         if self._stats_timer_id is not None:
             return
-        
+
         # Update stats
         self._stats_timer_id = GLib.timeout_add(2000, self._update_stats)
 
         self._update_stats()
         self._update_version()
-    
+
     def _stop_stats_timer(self) -> None:
         """Stop statistics update timer."""
         if self._stats_timer_id is not None:
             GLib.source_remove(self._stats_timer_id)
             self._stats_timer_id = None
-    
+
     def _update_stats(self) -> bool:
         """Update statistics from Clash API. Returns True to continue timer."""
         if not self._context.proxy_state.is_running:
             return False  # Stop timer
-        
+
         try:
             manager = self._context.singbox_manager
-            
+
             # Get traffic stats
             traffic = manager.get_traffic()
             self._upload_label.set_text(format_bytes(traffic.upload))
@@ -519,18 +517,18 @@ class MainWindow(Gtk.Window):
             # Get connections count
             connections = manager.get_connections()
             self._connections_label.set_text(str(len(connections)))
-            
-        except Exception as e:
+
+        except Exception:
             pass
-        
+
         return True
-    
+
     def _update_version(self) -> None:
         """Update sing-box version."""
         if not self._context.proxy_state.is_running:
             self._version_label.set_text("—")
             return
-        
+
         try:
             manager = self._context.singbox_manager
             version_info = manager.get_version()
@@ -541,7 +539,7 @@ class MainWindow(Gtk.Window):
                 self._version_label.set_text("—")
         except Exception:
             self._version_label.set_text("—")
-    
+
     def _reset_stats_display(self) -> None:
         """Reset stats display to default values."""
         self._upload_label.set_text("0 B")
@@ -554,7 +552,7 @@ class MainWindow(Gtk.Window):
         ctx.remove_class("delay-good")
         ctx.remove_class("delay-medium")
         ctx.remove_class("delay-bad")
-    
+
     def _on_test_delay_clicked(self, button: Gtk.Button) -> None:
         """Test proxy delay."""
         if not self._context.proxy_state.is_running:
@@ -572,48 +570,48 @@ class MainWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
             return
-        
+
         # Show testing status
         self._delay_label.set_text("...")
-        
+
         # Run test in background
         def do_test():
             try:
                 manager = self._context.singbox_manager
-                
+
                 # Get actual proxy name from proxies list
                 proxies_data = manager.get_proxies()
                 proxies = proxies_data.get("proxies", {})
-                
+
                 # Find first non-system proxy (not direct, dns, block)
                 proxy_name = None
                 system_types = {"direct", "dns", "block", "selector", "urltest", "fallback"}
-                
+
                 for name, info in proxies.items():
                     proxy_type = info.get("type", "").lower()
                     if proxy_type not in system_types and name not in ("direct", "DIRECT"):
                         proxy_name = name
                         break
-                
+
                 if not proxy_name:
                     # Fallback to "proxy" tag
                     proxy_name = "proxy"
-                
+
                 delay = manager.test_delay(proxy_name)
                 GLib.idle_add(self._show_delay_result, delay)
-            except Exception as e:
+            except Exception:
                 GLib.idle_add(self._show_delay_result, -1)
 
         thread = threading.Thread(target=do_test, daemon=True)
         thread.start()
-    
+
     def _show_delay_result(self, delay: int) -> None:
         """Show delay test result."""
         ctx = self._delay_label.get_style_context()
         ctx.remove_class("delay-good")
         ctx.remove_class("delay-medium")
         ctx.remove_class("delay-bad")
-        
+
         if delay < 0:
             self._delay_label.set_text("Ошибка")
             ctx.add_class("delay-bad")
@@ -625,7 +623,7 @@ class MainWindow(Gtk.Window):
                 ctx.add_class("delay-medium")
             else:
                 ctx.add_class("delay-bad")
-    
+
     def _on_view_connections_clicked(self, button: Gtk.Button) -> None:
         """Show connections dialog."""
         if not self._context.proxy_state.is_running:
@@ -643,14 +641,14 @@ class MainWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
             return
-        
+
         self._show_connections_dialog()
-    
+
     def _show_connections_dialog(self) -> None:
         """Show connections in a dialog."""
         manager = self._context.singbox_manager
         connections = manager.get_connections()
-        
+
         dialog = Gtk.Dialog(
             title="Активные подключения",
             transient_for=self,
@@ -659,14 +657,14 @@ class MainWindow(Gtk.Window):
         dialog.add_button("Закрыть", Gtk.ResponseType.CLOSE)
         dialog.add_button("Обновить", Gtk.ResponseType.APPLY)
         dialog.set_default_size(700, 400)
-        
+
         content = dialog.get_content_area()
         content.set_spacing(10)
         content.set_margin_top(10)
         content.set_margin_bottom(10)
         content.set_margin_start(10)
         content.set_margin_end(10)
-        
+
         # Header
         header_label = Gtk.Label()
         header_label.set_markup(f"<b>Всего подключений: {len(connections)}</b>")
@@ -681,10 +679,10 @@ class MainWindow(Gtk.Window):
         store = Gtk.ListStore(str, str, str, str, str, str, str)  # +id for closing
         tree = Gtk.TreeView(model=store)
         tree.set_headers_visible(True)
-        
+
         renderer = Gtk.CellRendererText()
         renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
-        
+
         columns = [
             ("Хост", 200),
             ("Сеть", 60),
@@ -693,7 +691,7 @@ class MainWindow(Gtk.Window):
             ("Цепочка", 100),
             ("Правило", 100),
         ]
-        
+
         for i, (title, width) in enumerate(columns):
             col = Gtk.TreeViewColumn(title, renderer, text=i)
             col.set_min_width(width)
@@ -708,18 +706,18 @@ class MainWindow(Gtk.Window):
             upload = format_bytes(conn.upload)
             chain = " → ".join(conn.chains) if conn.chains else "—"
             rule = conn.rule or "—"
-            
+
             store.append([host, network, download, upload, chain, rule, conn.id])
-        
+
         scrolled.add(tree)
-        
+
         # Close connection button
         close_btn = Gtk.Button(label="Закрыть выбранное подключение")
         close_btn.connect("clicked", self._on_close_connection_clicked, tree, store, header_label)
         content.pack_start(close_btn, False, False, 0)
-        
+
         dialog.show_all()
-        
+
         while True:
             response = dialog.run()
             if response == Gtk.ResponseType.APPLY:
@@ -737,9 +735,9 @@ class MainWindow(Gtk.Window):
                     store.append([host, network, download, upload, chain, rule, conn.id])
             else:
                 break
-        
+
         dialog.destroy()
-    
+
     def _on_close_connection_clicked(
         self,
         button: Gtk.Button,
@@ -750,24 +748,24 @@ class MainWindow(Gtk.Window):
         """Close selected connection."""
         selection = tree.get_selection()
         model, treeiter = selection.get_selected()
-        
+
         if not treeiter:
             return
-        
+
         conn_id = model[treeiter][6]
-        
+
         manager = self._context.singbox_manager
         if manager.close_connection(conn_id):
             store.remove(treeiter)
             # Update header
             count = len(store)
             header_label.set_markup(f"<b>Всего подключений: {count}</b>")
-    
+
     def _on_close_all_connections_clicked(self, button: Gtk.Button) -> None:
         """Close all connections."""
         if not self._context.proxy_state.is_running:
             return
-        
+
         dialog = Gtk.MessageDialog(
             transient_for=self,
             flags=0,
@@ -781,7 +779,7 @@ class MainWindow(Gtk.Window):
         dialog.format_secondary_text("Все активные подключения будут разорваны.")
         response = dialog.run()
         dialog.destroy()
-        
+
         if response == Gtk.ResponseType.YES:
             manager = self._context.singbox_manager
             if manager.close_all_connections():
@@ -790,32 +788,34 @@ class MainWindow(Gtk.Window):
     def _refresh_profiles(self) -> None:
         """Refresh profile list."""
         self._profile_store.clear()
-        
+
         profiles = self._context.profiles.get_current_group_profiles()
         current_id = self._context.proxy_state.started_profile_id
-        
+
         for profile in profiles:
             name = profile.name
             if profile.id == current_id:
                 name = f"✓ {name}"
-            
-            self._profile_store.append([
-                profile.id,
-                name,
-                profile.proxy_type.upper(),
-                profile.bean.display_address,
-                "preferences-system-symbolic",
-            ])
-    
-    def _on_state_changed(self, state: 'ProxyState') -> None:
+
+            self._profile_store.append(
+                [
+                    profile.id,
+                    name,
+                    profile.proxy_type.upper(),
+                    profile.bean.display_address,
+                    "preferences-system-symbolic",
+                ]
+            )
+
+    def _on_state_changed(self, state: ProxyState) -> None:
         """State change handler."""
         GLib.idle_add(self._update_ui, state)
-    
+
     def _update_icon_color(self, color: str) -> None:
         """Update header icon color."""
         if not self._header_icon:
             return
-        
+
         try:
             icon_theme = Gtk.IconTheme.get_default()
             icon_info = icon_theme.lookup_icon("tenga-proxy", 64, 0)
@@ -838,33 +838,45 @@ class MainWindow(Gtk.Window):
                     pixels = pixbuf.get_pixels()
 
                     new_pixbuf = GdkPixbuf.Pixbuf.new(
-                        GdkPixbuf.Colorspace.RGB,
-                        has_alpha,
-                        8,
-                        width,
-                        height
+                        GdkPixbuf.Colorspace.RGB, has_alpha, 8, width, height
                     )
-                    pixels_array = array.array('B', pixels)
-                    new_pixels_array = array.array('B', [0] * (height * new_pixbuf.get_rowstride()))
-                    
+                    pixels_array = array.array("B", pixels)
+                    new_pixels_array = array.array("B", [0] * (height * new_pixbuf.get_rowstride()))
+
                     for y in range(height):
                         for x in range(width):
                             idx = y * rowstride + x * n_channels
                             new_idx = y * new_pixbuf.get_rowstride() + x * n_channels
-                            
+
                             if has_alpha and n_channels == 4:
-                                alpha = pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
-                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                alpha = (
+                                    pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
+                                )
+                                gray = int(
+                                    (
+                                        pixels_array[idx]
+                                        + pixels_array[idx + 1]
+                                        + pixels_array[idx + 2]
+                                    )
+                                    / 3
+                                )
                                 new_pixels_array[new_idx] = int(gray * r / 255)
                                 new_pixels_array[new_idx + 1] = int(gray * g / 255)
                                 new_pixels_array[new_idx + 2] = int(gray * b / 255)
                                 new_pixels_array[new_idx + 3] = alpha
                             elif n_channels == 3:
-                                gray = int((pixels_array[idx] + pixels_array[idx + 1] + pixels_array[idx + 2]) / 3)
+                                gray = int(
+                                    (
+                                        pixels_array[idx]
+                                        + pixels_array[idx + 1]
+                                        + pixels_array[idx + 2]
+                                    )
+                                    / 3
+                                )
                                 new_pixels_array[new_idx] = int(gray * r / 255)
                                 new_pixels_array[new_idx + 1] = int(gray * g / 255)
                                 new_pixels_array[new_idx + 2] = int(gray * b / 255)
-                    
+
                     new_pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
                         GLib.Bytes.new(new_pixels_array.tobytes()),
                         GdkPixbuf.Colorspace.RGB,
@@ -872,50 +884,52 @@ class MainWindow(Gtk.Window):
                         8,
                         width,
                         height,
-                        new_pixbuf.get_rowstride()
+                        new_pixbuf.get_rowstride(),
                     )
                     self._header_icon.set_from_pixbuf(new_pixbuf)
         except Exception:
             pass
-    
-    def _update_ui(self, state: 'ProxyState') -> None:
+
+    def _update_ui(self, state: ProxyState) -> None:
         """Update UI."""
         if state.is_running:
             profile = self._context.profiles.get_profile(state.started_profile_id)
             name = profile.name if profile else "Unknown"
-            
+
             self._status_label.set_text(f"Подключено ({name})")
             self._status_label.get_style_context().remove_class("status-disconnected")
             self._status_label.get_style_context().add_class("status-connected")
-            
+
             if self._header_icon:
                 self._update_icon_color("#4CAF50")
-            
+
             self._connect_button.set_label("⏻ Отключить")
             self._start_stats_timer()
         else:
             self._status_label.set_text("Отключено")
             self._status_label.get_style_context().remove_class("status-connected")
             self._status_label.get_style_context().add_class("status-disconnected")
-            
+
             if self._header_icon:
                 self._update_icon_color("#9E9E9E")
-            
+
             self._connect_button.set_label("⏻ Подключить")
             self._stop_stats_timer()
             self._reset_stats_display()
-        
+
         self._refresh_profiles()
-    
-    def _get_selected_profile_id(self) -> Optional[int]:
+
+    def _get_selected_profile_id(self) -> int | None:
         """Get selected profile ID."""
         selection = self._profile_list.get_selection()
         model, treeiter = selection.get_selected()
         if treeiter:
             return model[treeiter][0]
         return None
-    
-    def _on_row_activated(self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn) -> None:
+
+    def _on_row_activated(
+        self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn
+    ) -> None:
         """Double click on profile."""
         model = tree_view.get_model()
         treeiter = model.get_iter(path)
@@ -923,8 +937,10 @@ class MainWindow(Gtk.Window):
 
         if self._on_connect:
             self._on_connect(profile_id)
-    
-    def _on_profile_list_button_press(self, tree_view: Gtk.TreeView, event: Gdk.EventButton) -> bool:
+
+    def _on_profile_list_button_press(
+        self, tree_view: Gtk.TreeView, event: Gdk.EventButton
+    ) -> bool:
         """Handle button press on profile list."""
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
             return False
@@ -932,7 +948,7 @@ class MainWindow(Gtk.Window):
         path_info = tree_view.get_path_at_pos(int(event.x), int(event.y))
         if not path_info:
             return False
-        
+
         path, column, cell_x, cell_y = path_info
 
         columns = tree_view.get_columns()
@@ -940,27 +956,31 @@ class MainWindow(Gtk.Window):
             model = tree_view.get_model()
             treeiter = model.get_iter(path)
             profile_id = model[treeiter][0]
-            
+
             profile = self._context.profiles.get_profile(profile_id)
             if profile:
                 # Callback to reload config if this profile is currently active
                 def on_settings_applied(edited_profile_id: int) -> None:
                     """Reload configuration if edited profile is currently active."""
-                    if (self._context.proxy_state.is_running and 
-                        self._context.proxy_state.started_profile_id == edited_profile_id and
-                        self._on_config_reload):
+                    if (
+                        self._context.proxy_state.is_running
+                        and self._context.proxy_state.started_profile_id == edited_profile_id
+                        and self._on_config_reload
+                    ):
                         try:
                             self._on_config_reload()
                         except Exception:
                             # Silently ignore errors - they will be logged by _reload_config
                             pass
-                
-                show_profile_vpn_settings_dialog(profile, self, on_settings_applied=on_settings_applied)
+
+                show_profile_vpn_settings_dialog(
+                    profile, self, on_settings_applied=on_settings_applied
+                )
                 self._context.profiles.save()
                 return True
-        
+
         return False
-    
+
     def _on_connect_clicked(self, button: Gtk.Button) -> None:
         """Click on Connect/Disconnect button."""
         if self._context.proxy_state.is_running:
@@ -985,17 +1005,17 @@ class MainWindow(Gtk.Window):
                 dialog.format_secondary_text("Выберите профиль из списка для подключения.")
                 dialog.run()
                 dialog.destroy()
-    
+
     def _on_refresh_clicked(self, button: Gtk.Button) -> None:
         """Click on Refresh button."""
         self._refresh_profiles()
-    
+
     def _on_add_clicked(self, button: Gtk.Button) -> None:
         """Click on Add button."""
         from src.ui.dialogs import show_add_profile_dialog
-        
+
         profile = show_add_profile_dialog(self)
-        
+
         if profile:
             # Add profile
             entry = self._context.profiles.add_profile(profile)
@@ -1016,11 +1036,11 @@ class MainWindow(Gtk.Window):
             dialog.format_secondary_text(f"{entry.name}\n{profile.display_address}")
             dialog.run()
             dialog.destroy()
-    
+
     def _on_delete_profile_clicked(self, button: Gtk.Button) -> None:
         """Click on Delete button."""
         profile_id = self._get_selected_profile_id()
-        
+
         if profile_id is None:
             dialog = Gtk.MessageDialog(
                 transient_for=self,
@@ -1036,7 +1056,7 @@ class MainWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
             return
-        
+
         profile = self._context.profiles.get_profile(profile_id)
         if not profile:
             return
@@ -1054,7 +1074,7 @@ class MainWindow(Gtk.Window):
         dialog.format_secondary_text(f"Удалить профиль '{profile.name}'?")
         response = dialog.run()
         dialog.destroy()
-        
+
         if response == Gtk.ResponseType.YES:
             self._context.profiles.remove_profile(profile_id)
             self._context.profiles.save()
@@ -1088,12 +1108,13 @@ class MainWindow(Gtk.Window):
         if changed:
             self._context.profiles.save()
             self._refresh_profiles()
-    
+
     def _on_settings_clicked(self, button: Gtk.Button) -> None:
         """Click on Settings button."""
         from src.ui.dialogs import show_settings_dialog
+
         show_settings_dialog(self._context, self, on_config_reload=self._on_config_reload)
-    
+
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""
         window = self.get_window()
@@ -1103,16 +1124,16 @@ class MainWindow(Gtk.Window):
                 window.set_wmclass("tenga-proxy", "tenga-proxy")
             except Exception:
                 pass
-    
+
     def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
         """Handle window state changes (maximize/restore)."""
         is_maximized = bool(event.new_window_state & Gdk.WindowState.MAXIMIZED)
-        
+
         if self._is_maximized and not is_maximized:
             self.resize(self._saved_width, self._saved_height)
-        
+
         self._is_maximized = is_maximized
-    
+
     def _on_configure_event(self, widget: Gtk.Widget, event: Gdk.EventConfigure) -> None:
         """Handle window configuration changes (size/position)."""
         if not self._is_maximized:
@@ -1121,14 +1142,14 @@ class MainWindow(Gtk.Window):
                 self._saved_width = width
                 self._saved_height = height
         return False
-    
+
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
         # Stop stats timer when window is hidden
         self._stop_stats_timer()
         self.hide()
         return True
-    
+
     def _on_destroy(self, widget: Gtk.Widget) -> None:
         """Handle window destruction - cleanup resources."""
         # Stop stats timer
@@ -1138,38 +1159,37 @@ class MainWindow(Gtk.Window):
             self._context.proxy_state.remove_listener(self._on_state_changed)
         except Exception:
             pass
-    
+
     def show_all(self) -> None:
         """Override show_all to restart stats timer if connected."""
         super().show_all()
         if self._context.proxy_state.is_running:
             self._start_stats_timer()
 
-    
     def set_on_connect(self, callback: Callable[[int], None]) -> None:
         """Set callback for connection."""
         self._on_connect = callback
-    
+
     def set_on_disconnect(self, callback: Callable[[], None]) -> None:
         """Set callback for disconnection."""
         self._on_disconnect = callback
-    
+
     def set_on_config_reload(self, callback: Callable[[], None]) -> None:
         """Set callback for configuration reload."""
         self._on_config_reload = callback
-    
+
     def refresh(self) -> None:
         """Refresh UI."""
         GLib.idle_add(self._refresh_profiles)
         self._update_monitoring_tab_visibility()
-    
+
     def _update_monitoring_tab_visibility(self) -> None:
         """Update monitoring tab visibility based on settings."""
         if not self._monitoring_notebook or not self._monitoring_page:
             return
-        
+
         monitoring_enabled = self._context.config.monitoring.enabled
-        
+
         # Find monitoring page index
         num_pages = self._monitoring_notebook.get_n_pages()
         monitoring_index = -1
@@ -1177,16 +1197,14 @@ class MainWindow(Gtk.Window):
             if self._monitoring_notebook.get_nth_page(i) == self._monitoring_page:
                 monitoring_index = i
                 break
-        
+
         if monitoring_enabled:
             # Show tab if it doesn't exist
             if monitoring_index < 0:
                 # Tab doesn't exist, add it after Connection tab (index 2)
                 # Profiles=0, Connection=1, Monitoring=2
                 self._monitoring_page_index = self._monitoring_notebook.insert_page(
-                    self._monitoring_page,
-                    Gtk.Label(label="Мониторинг"),
-                    2
+                    self._monitoring_page, Gtk.Label(label="Мониторинг"), 2
                 )
                 self._monitoring_notebook.show_all()
         else:
@@ -1194,7 +1212,7 @@ class MainWindow(Gtk.Window):
             if monitoring_index >= 0:
                 self._monitoring_notebook.remove_page(monitoring_index)
                 self._monitoring_page_index = -1
-    
+
     def update_monitoring_status(
         self,
         proxy_ok: bool,
@@ -1206,12 +1224,12 @@ class MainWindow(Gtk.Window):
         """Update monitoring status display."""
         if not self._monitoring_proxy_status or not self._monitoring_vpn_status:
             return
-        
+
         # Update proxy status
         ctx = self._monitoring_proxy_status.get_style_context()
         ctx.remove_class("status-connected")
         ctx.remove_class("status-disconnected")
-        
+
         if proxy_ok:
             self._monitoring_proxy_status.set_text("🟢 Работает")
             ctx.add_class("status-connected")
@@ -1220,12 +1238,12 @@ class MainWindow(Gtk.Window):
             if proxy_error:
                 self._monitoring_proxy_status.set_tooltip_text(proxy_error)
             ctx.add_class("status-disconnected")
-        
+
         # Update VPN status
         ctx = self._monitoring_vpn_status.get_style_context()
         ctx.remove_class("status-connected")
         ctx.remove_class("status-disconnected")
-        
+
         if vpn_ok:
             self._monitoring_vpn_status.set_text("🟢 Подключен")
             ctx.add_class("status-connected")
@@ -1234,11 +1252,12 @@ class MainWindow(Gtk.Window):
             if vpn_error:
                 self._monitoring_vpn_status.set_tooltip_text(vpn_error)
             ctx.add_class("status-disconnected")
-        
+
         # Update last check time
         if self._monitoring_last_check:
             if last_check_time > 0:
                 import datetime
+
                 check_time = datetime.datetime.fromtimestamp(last_check_time)
                 time_str = check_time.strftime("%H:%M:%S")
                 self._monitoring_last_check.set_text(time_str)

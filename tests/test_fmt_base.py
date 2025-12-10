@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from src.fmt.base import ProxyBean, format_address, is_ip_address
 
@@ -32,7 +32,7 @@ class DummyProxyBean(ProxyBean):
     def try_parse_link(self, link: str) -> bool:
         return link.startswith("test://")
 
-    def build_outbound(self, skip_cert: bool = False) -> Dict[str, Any]:
+    def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
         return {"type": "test", "server": self.server_address, "port": self.server_port}
 
 
@@ -73,7 +73,7 @@ def test_proxy_bean_build_core_obj_singbox_success():
 
 def test_proxy_bean_build_core_obj_singbox_with_error():
     class FailingBean(DummyProxyBean):
-        def build_outbound(self, skip_cert: bool = False) -> Dict[str, Any]:
+        def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
             raise ValueError("test error")
 
     bean = FailingBean()
