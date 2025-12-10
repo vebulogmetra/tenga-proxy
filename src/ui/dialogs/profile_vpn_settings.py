@@ -10,7 +10,7 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, Gtk, Pango
 
-from src.db.config import RoutingSettings, VpnSettings
+from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.sys.vpn import (
     get_vpn_interface,
     is_vpn_active,
@@ -50,7 +50,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         self.set_skip_taskbar_hint(True)
 
         self._profile = profile
-        self._routing = RoutingSettings()
+        self._routing = profile.routing_settings or RoutingSettings()
 
         self._setup_ui()
         self._load_settings()
@@ -70,9 +70,67 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         content = self.get_content_area()
         content.set_spacing(0)
 
+        notebook = Gtk.Notebook()
+        content.pack_start(notebook, True, True, 0)
+
+        # Profile settings
+        profile_page = self._create_profile_page()
+        notebook.append_page(profile_page, Gtk.Label(label="Профиль"))
+
+        # VPN settings
+        vpn_page = self._create_vpn_page()
+        notebook.append_page(vpn_page, Gtk.Label(label="VPN"))
+
+        # Routing settings
+        routing_page = self._create_routing_page()
+        notebook.append_page(routing_page, Gtk.Label(label="Маршруты"))
+
+        content.show_all()
+
+    def _create_profile_page(self) -> Gtk.Widget:
+        """Create profile settings page."""
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        content.pack_start(scrolled, True, True, 0)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        box.set_margin_start(15)
+        box.set_margin_end(15)
+        box.set_margin_top(15)
+        box.set_margin_bottom(15)
+
+        profile_frame = Gtk.Frame()
+        profile_frame.set_label("Профиль")
+        box.pack_start(profile_frame, False, False, 0)
+
+        profile_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        profile_box.set_margin_start(10)
+        profile_box.set_margin_end(10)
+        profile_box.set_margin_top(10)
+        profile_box.set_margin_bottom(10)
+        profile_frame.add(profile_box)
+
+        name_grid = Gtk.Grid()
+        name_grid.set_row_spacing(8)
+        name_grid.set_column_spacing(10)
+        profile_box.pack_start(name_grid, False, False, 0)
+
+        name_grid.attach(
+            Gtk.Label(label="Имя профиля:", halign=Gtk.Align.END), 0, 0, 1, 1
+        )
+        self._profile_name_entry = Gtk.Entry()
+        self._profile_name_entry.set_text(self._profile.name)
+        self._profile_name_entry.set_tooltip_text("Имя профиля для отображения в списке")
+        name_grid.attach(self._profile_name_entry, 1, 0, 1, 1)
+
+        box.pack_start(Gtk.Box(), True, True, 0)
+
+        scrolled.add(box)
+        return scrolled
+
+    def _create_vpn_page(self) -> Gtk.Widget:
+        """Create VPN settings page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         box.set_margin_start(15)
@@ -193,74 +251,211 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         refresh_btn.connect("clicked", self._on_vpn_refresh_clicked)
         status_box.pack_end(refresh_btn, False, False, 0)
 
-        networks_frame = Gtk.Frame()
-        networks_frame.set_label("Подсети")
-        box.pack_start(networks_frame, True, True, 0)
+        box.pack_start(Gtk.Box(), True, True, 0)
 
-        networks_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        networks_box.set_margin_start(10)
-        networks_box.set_margin_end(10)
-        networks_box.set_margin_top(10)
-        networks_box.set_margin_bottom(10)
-        networks_frame.add(networks_box)
+        scrolled.add(box)
+        return scrolled
 
-        networks_hint = Gtk.Label()
-        networks_hint.set_markup(
-            "<small>Укажите подсети и домены, которые должны маршрутизироваться через VPN.\n"
+    def _create_routing_page(self) -> Gtk.Widget:
+        """Create routing settings page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        box.set_margin_start(15)
+        box.set_margin_end(15)
+        box.set_margin_top(15)
+        box.set_margin_bottom(15)
+
+        mode_frame = Gtk.Frame()
+        mode_frame.set_label("Режим роутинга")
+        box.pack_start(mode_frame, False, False, 0)
+
+        mode_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        mode_box.set_margin_start(10)
+        mode_box.set_margin_end(10)
+        mode_box.set_margin_top(10)
+        mode_box.set_margin_bottom(10)
+        mode_frame.add(mode_box)
+
+        self._routing_radios = {}
+        first_radio = None
+
+        for mode in RoutingMode.ALL:
+            if first_radio is None:
+                radio = Gtk.RadioButton.new_with_label(None, RoutingMode.LABELS[mode])
+                first_radio = radio
+            else:
+                radio = Gtk.RadioButton.new_with_label_from_widget(
+                    first_radio, RoutingMode.LABELS[mode]
+                )
+
+            radio.connect("toggled", self._on_routing_mode_changed)
+            self._routing_radios[mode] = radio
+
+            desc_label = Gtk.Label()
+            desc_label.set_markup(f"<small>{RoutingMode.DESCRIPTIONS[mode]}</small>")
+            desc_label.set_halign(Gtk.Align.START)
+            desc_label.get_style_context().add_class("dim-label")
+            desc_label.set_margin_start(30)
+
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            row.pack_start(radio, False, False, 0)
+            row.pack_start(desc_label, False, False, 0)
+            mode_box.pack_start(row, False, False, 0)
+
+        lists_frame = Gtk.Frame()
+        lists_frame.set_label("Списки роутинга (для режима 'Пользовательские списки')")
+        box.pack_start(lists_frame, True, True, 0)
+
+        lists_notebook = Gtk.Notebook()
+        lists_notebook.set_margin_start(10)
+        lists_notebook.set_margin_end(10)
+        lists_notebook.set_margin_top(10)
+        lists_notebook.set_margin_bottom(10)
+        lists_frame.add(lists_notebook)
+
+        proxy_scroll = Gtk.ScrolledWindow()
+        proxy_scroll.set_shadow_type(Gtk.ShadowType.IN)
+        proxy_scroll.set_min_content_height(200)
+        self._proxy_list_text = Gtk.TextView()
+        self._proxy_list_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self._proxy_list_text.modify_font(Pango.FontDescription("monospace 10"))
+        proxy_scroll.add(self._proxy_list_text)
+
+        proxy_hint = Gtk.Label()
+        proxy_hint.set_markup(
+            "<small>Домены и IP-адреса, которые должны идти через прокси.\n"
             "Одна запись на строку. Примеры:\n"
-            "  • <tt>10.0.0.0/8</tt> — IP подсеть\n"
-            "  • <tt>172.16.0.0/12</tt> — IP подсеть\n"
-            "  • <tt>my.example.com</tt> — домен</small>"
+            "  • <tt>example.com</tt>\n"
+            "  • <tt>192.168.1.0/24</tt></small>"
         )
-        networks_hint.set_halign(Gtk.Align.START)
-        networks_hint.get_style_context().add_class("dim-label")
-        networks_box.pack_start(networks_hint, False, False, 0)
+        proxy_hint.set_halign(Gtk.Align.START)
+        proxy_hint.get_style_context().add_class("dim-label")
 
-        networks_scroll = Gtk.ScrolledWindow()
-        networks_scroll.set_shadow_type(Gtk.ShadowType.IN)
-        networks_scroll.set_min_content_height(200)
-        self._vpn_networks_text = Gtk.TextView()
-        self._vpn_networks_text.set_wrap_mode(Gtk.WrapMode.WORD)
-        self._vpn_networks_text.modify_font(Pango.FontDescription("monospace 10"))
-        networks_scroll.add(self._vpn_networks_text)
-        networks_box.pack_start(networks_scroll, True, True, 0)
-
-        # Direct access lists
-        direct_frame = Gtk.Frame()
-        direct_frame.set_label("Прямой доступ (без прокси и VPN)")
-        box.pack_start(direct_frame, True, True, 0)
-
-        direct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        direct_box.set_margin_start(10)
-        direct_box.set_margin_end(10)
-        direct_box.set_margin_top(10)
-        direct_box.set_margin_bottom(10)
-        direct_frame.add(direct_box)
-
-        direct_hint = Gtk.Label()
-        direct_hint.set_markup(
-            "<small>Укажите подсети и домены, которые должны всегда идти напрямую, "
-            "без использования VPN/прокси.\n"
-            "Одна запись на строку. Примеры:\n"
-            "  • <tt>gosuslugi.ru</tt>\n"
-            "  • <tt>provider.portal.local</tt>\n"
-            "  • <tt>100.64.0.0/10</tt></small>"
-        )
-        direct_hint.set_halign(Gtk.Align.START)
-        direct_hint.get_style_context().add_class("dim-label")
-        direct_box.pack_start(direct_hint, False, False, 0)
+        proxy_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        proxy_box.set_margin_start(5)
+        proxy_box.set_margin_end(5)
+        proxy_box.set_margin_top(5)
+        proxy_box.set_margin_bottom(5)
+        proxy_box.pack_start(proxy_hint, False, False, 0)
+        proxy_box.pack_start(proxy_scroll, True, True, 0)
+        lists_notebook.append_page(proxy_box, Gtk.Label(label="Через прокси"))
 
         direct_scroll = Gtk.ScrolledWindow()
         direct_scroll.set_shadow_type(Gtk.ShadowType.IN)
-        direct_scroll.set_min_content_height(160)
-        self._vpn_direct_text = Gtk.TextView()
-        self._vpn_direct_text.set_wrap_mode(Gtk.WrapMode.WORD)
-        self._vpn_direct_text.modify_font(Pango.FontDescription("monospace 10"))
-        direct_scroll.add(self._vpn_direct_text)
+        direct_scroll.set_min_content_height(200)
+        self._direct_list_text = Gtk.TextView()
+        self._direct_list_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self._direct_list_text.modify_font(Pango.FontDescription("monospace 10"))
+        direct_scroll.add(self._direct_list_text)
+
+        direct_hint = Gtk.Label()
+        direct_hint.set_markup(
+            "<small>Домены и IP-адреса, которые должны идти напрямую (без прокси и VPN).\n"
+            "Одна запись на строку. Примеры:\n"
+            "  • <tt>local.example.com</tt>\n"
+            "  • <tt>10.0.0.0/8</tt></small>"
+        )
+        direct_hint.set_halign(Gtk.Align.START)
+        direct_hint.get_style_context().add_class("dim-label")
+
+        direct_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        direct_box.set_margin_start(5)
+        direct_box.set_margin_end(5)
+        direct_box.set_margin_top(5)
+        direct_box.set_margin_bottom(5)
+        direct_box.pack_start(direct_hint, False, False, 0)
+
+        self._bypass_local_check = Gtk.CheckButton(label="Добавить локальные сети")
+        self._bypass_local_check.set_tooltip_text(
+            "Автоматически добавлять локальные сети (127.0.0.0/8, 192.168.0.0/16, etc.) в список"
+        )
+        self._bypass_local_check.connect("toggled", self._on_bypass_local_changed)
+        direct_box.pack_start(self._bypass_local_check, False, False, 0)
+        
         direct_box.pack_start(direct_scroll, True, True, 0)
+        lists_notebook.append_page(direct_box, Gtk.Label(label="Напрямую"))
+
+        vpn_scroll = Gtk.ScrolledWindow()
+        vpn_scroll.set_shadow_type(Gtk.ShadowType.IN)
+        vpn_scroll.set_min_content_height(200)
+        self._vpn_list_text = Gtk.TextView()
+        self._vpn_list_text.set_wrap_mode(Gtk.WrapMode.WORD)
+        self._vpn_list_text.modify_font(Pango.FontDescription("monospace 10"))
+        vpn_scroll.add(self._vpn_list_text)
+
+        vpn_hint = Gtk.Label()
+        vpn_hint.set_markup(
+            "<small>Домены и IP-адреса, которые должны идти через VPN.\n"
+            "Доступно только если включена интеграция VPN.\n"
+            "Одна запись на строку. Примеры:\n"
+            "  • <tt>vpn.example.com</tt>\n"
+            "  • <tt>172.16.0.0/12</tt></small>"
+        )
+        vpn_hint.set_halign(Gtk.Align.START)
+        vpn_hint.get_style_context().add_class("dim-label")
+
+        vpn_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        vpn_box.set_margin_start(5)
+        vpn_box.set_margin_end(5)
+        vpn_box.set_margin_top(5)
+        vpn_box.set_margin_bottom(5)
+        vpn_box.pack_start(vpn_hint, False, False, 0)
+        vpn_box.pack_start(vpn_scroll, True, True, 0)
+        lists_notebook.append_page(vpn_box, Gtk.Label(label="Через VPN"))
+
+        box.pack_start(Gtk.Box(), True, True, 0)
 
         scrolled.add(box)
-        content.show_all()
+        return scrolled
+
+    def _on_routing_mode_changed(self, radio: Gtk.RadioButton | None) -> None:
+        """Routing mode change handler."""
+        if not hasattr(self, "_routing_radios") or not hasattr(self, "_proxy_list_text"):
+            return
+
+        is_custom = False
+        for mode, r in self._routing_radios.items():
+            if r.get_active() and mode == RoutingMode.CUSTOM:
+                is_custom = True
+                break
+
+        self._proxy_list_text.set_sensitive(is_custom)
+        self._direct_list_text.set_sensitive(is_custom)
+        self._vpn_list_text.set_sensitive(True)
+        if hasattr(self, "_bypass_local_check"):
+            self._bypass_local_check.set_sensitive(is_custom)
+
+    def _on_bypass_local_changed(self, check: Gtk.CheckButton) -> None:
+        """Bypass local networks checkbox handler."""
+        if not hasattr(self, "_direct_list_text"):
+            return
+        
+        local_networks = [
+            "127.0.0.0/8",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "192.168.0.0/16",
+            "169.254.0.0/16",
+            "::1/128",
+            "fc00::/7",
+            "fe80::/10",
+        ]
+        
+        buffer = self._direct_list_text.get_buffer()
+        start, end = buffer.get_bounds()
+        current_text = buffer.get_text(start, end, True)
+        current_lines = [line.strip() for line in current_text.split("\n") if line.strip()]
+        
+        if check.get_active():
+            for network in local_networks:
+                if network not in current_lines:
+                    current_lines.append(network)
+        else:
+            current_lines = [line for line in current_lines if line not in local_networks]
+        
+        buffer.set_text("\n".join(current_lines))
 
     def _on_vpn_enable_changed(self, check: Gtk.CheckButton) -> None:
         """VPN enable checkbox handler."""
@@ -269,8 +464,6 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         self._vpn_interface_combo.set_sensitive(enabled)
         self._direct_interface_combo.set_sensitive(enabled)
         self._vpn_auto_connect_check.set_sensitive(enabled)
-        self._vpn_networks_text.set_sensitive(enabled)
-        self._vpn_direct_text.set_sensitive(enabled)
 
     def _on_vpn_refresh_clicked(self, button: Gtk.Button | None) -> None:
         """Refresh VPN status."""
@@ -329,16 +522,24 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
 
         self._vpn_auto_connect_check.set_active(getattr(vpn, "auto_connect", False))
 
-        all_networks = vpn.over_vpn_networks + vpn.over_vpn_domains
-        networks_text = "\n".join(all_networks)
-        self._vpn_networks_text.get_buffer().set_text(networks_text)
+        # Load routing settings
+        routing = self._profile.routing_settings
+        if routing is None:
+            routing = RoutingSettings()
 
-        # Direct access lists
-        direct_networks = getattr(vpn, "direct_networks", []) or []
-        direct_domains = getattr(vpn, "direct_domains", []) or []
-        all_direct = direct_networks + direct_domains
-        direct_text = "\n".join(all_direct)
-        self._vpn_direct_text.get_buffer().set_text(direct_text)
+        if hasattr(self, "_routing_radios") and routing.mode in self._routing_radios:
+            self._routing_radios[routing.mode].set_active(True)
+
+        if hasattr(self, "_proxy_list_text") and hasattr(self, "_direct_list_text") and hasattr(self, "_vpn_list_text"):
+            self._proxy_list_text.get_buffer().set_text("\n".join(routing.proxy_list))
+            self._direct_list_text.get_buffer().set_text("\n".join(routing.direct_list))
+            self._vpn_list_text.get_buffer().set_text("\n".join(routing.vpn_list))
+
+            if hasattr(self, "_bypass_local_check"):
+                self._bypass_local_check.set_active(routing.bypass_local_networks)
+
+            if hasattr(self, "_routing_radios"):
+                self._on_routing_mode_changed(None)
 
         self._on_vpn_enable_changed(self._vpn_enable_check)
         self._on_vpn_refresh_clicked(None)
@@ -349,6 +550,10 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         Returns:
             True if settings were saved successfully
         """
+        profile_name = self._profile_name_entry.get_text().strip()
+        if profile_name:
+            self._profile.bean.name = profile_name
+
         # Create or update VPN settings
         if self._profile.vpn_settings is None:
             self._profile.vpn_settings = VpnSettings()
@@ -407,19 +612,35 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
                 dialog.destroy()
                 return False
 
-        networks_buffer = self._vpn_networks_text.get_buffer()
-        start, end = networks_buffer.get_bounds()
-        networks_text = networks_buffer.get_text(start, end, True)
+        if self._profile.routing_settings is None:
+            self._profile.routing_settings = RoutingSettings()
 
-        entries = [line.strip() for line in networks_text.split("\n") if line.strip()]
-        vpn.over_vpn_domains, vpn.over_vpn_networks = self._routing.parse_entries(entries)
+        routing = self._profile.routing_settings
 
-        direct_buffer = self._vpn_direct_text.get_buffer()
-        start, end = direct_buffer.get_bounds()
-        direct_text = direct_buffer.get_text(start, end, True)
+        if hasattr(self, "_routing_radios"):
+            for mode, radio in self._routing_radios.items():
+                if radio.get_active():
+                    routing.mode = mode
+                    break
 
-        direct_entries = [line.strip() for line in direct_text.split("\n") if line.strip()]
-        vpn.direct_domains, vpn.direct_networks = self._routing.parse_entries(direct_entries)
+        if hasattr(self, "_proxy_list_text") and hasattr(self, "_direct_list_text") and hasattr(self, "_vpn_list_text"):
+            proxy_buffer = self._proxy_list_text.get_buffer()
+            start, end = proxy_buffer.get_bounds()
+            proxy_text = proxy_buffer.get_text(start, end, True)
+            routing.proxy_list = [line.strip() for line in proxy_text.split("\n") if line.strip()]
+
+            direct_buffer = self._direct_list_text.get_buffer()
+            start, end = direct_buffer.get_bounds()
+            direct_text = direct_buffer.get_text(start, end, True)
+            routing.direct_list = [line.strip() for line in direct_text.split("\n") if line.strip()]
+
+            vpn_buffer = self._vpn_list_text.get_buffer()
+            start, end = vpn_buffer.get_bounds()
+            vpn_text = vpn_buffer.get_text(start, end, True)
+            routing.vpn_list = [line.strip() for line in vpn_text.split("\n") if line.strip()]
+
+            if hasattr(self, "_bypass_local_check"):
+                routing.bypass_local_networks = self._bypass_local_check.get_active()
 
         return True
 

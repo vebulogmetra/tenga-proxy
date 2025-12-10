@@ -977,6 +977,7 @@ class MainWindow(Gtk.Window):
                     profile, self, on_settings_applied=on_settings_applied
                 )
                 self._context.profiles.save()
+                self._refresh_profiles()
                 return True
 
         return False
