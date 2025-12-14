@@ -1,4 +1,4 @@
-.PHONY: install dev-install run cli gui test lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean
+.PHONY: install dev-install run cli gui test lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
 
 # Переменные
 PYTHON := uv run python
@@ -90,3 +90,6 @@ clean:
 	find . -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true
 	find . -type f -name "*.pyc" -delete
 	find . -type f -name "*.pyo" -delete
+
+clean-logs:
+	rm logs/*.log

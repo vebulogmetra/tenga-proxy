@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import array
 import threading
+import time
+import datetime
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -11,7 +13,13 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
-from src.ui.dialogs import show_edit_profile_dialog, show_profile_vpn_settings_dialog
+from src.ui.dialogs import (
+    show_edit_group_dialog,
+    show_edit_profile_dialog,
+    show_profile_vpn_settings_dialog,
+    show_subscription_dialog,
+)
+from src.sub.updater import SubscriptionUpdater
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
@@ -42,7 +50,9 @@ class MainWindow(Gtk.Window):
         self._on_config_reload: Callable[[], None] | None = None
         # UI elements
         self._profile_list: Gtk.TreeView | None = None
-        self._profile_store: Gtk.ListStore | None = None
+        self._profile_store: Gtk.TreeStore | None = None
+        self._subscription_list: Gtk.TreeView | None = None
+        self._subscription_store: Gtk.ListStore | None = None
         self._connect_button: Gtk.Button | None = None
         self._status_label: Gtk.Label | None = None
         self._header_icon: Gtk.Image | None = None
@@ -74,6 +84,7 @@ class MainWindow(Gtk.Window):
         self._context.proxy_state.add_listener(self._on_state_changed)
         # Initial update
         self._refresh_profiles()
+        self._refresh_subscriptions()
         self._update_ui(self._context.proxy_state)
         self._update_monitoring_tab_visibility()
 
@@ -174,11 +185,15 @@ class MainWindow(Gtk.Window):
         profiles_page = self._create_profiles_page()
         self._monitoring_notebook.append_page(profiles_page, Gtk.Label(label="Профили"))
 
-        # Tab 2: Connection
+        # Tab 2: Subscriptions
+        subscriptions_page = self._create_subscriptions_page()
+        self._monitoring_notebook.append_page(subscriptions_page, Gtk.Label(label="Подписки"))
+
+        # Tab 3: Connection
         connection_page = self._create_connection_page()
         self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
 
-        # Tab 3: Monitoring (only if monitoring is enabled)
+        # Tab 4: Monitoring (only if monitoring is enabled)
         self._monitoring_page = self._create_monitoring_page()
         self._monitoring_page_index = self._monitoring_notebook.append_page(
             self._monitoring_page, Gtk.Label(label="Мониторинг")
@@ -222,30 +237,31 @@ class MainWindow(Gtk.Window):
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_min_content_height(200)
         page_box.pack_start(scrolled, True, True, 0)
-        # TreeView
-        self._profile_store = Gtk.ListStore(int, str, str, str, str)
+        self._profile_store = Gtk.TreeStore(bool, int, str, str, str, str)
         self._profile_list = Gtk.TreeView(model=self._profile_store)
         self._profile_list.set_headers_visible(True)
+        self._profile_list.set_show_expanders(True)
+        self._profile_list.set_level_indentation(20)
         # Columns
         renderer = Gtk.CellRendererText()
         renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
 
-        col_name = Gtk.TreeViewColumn("Имя", renderer, text=1)
+        col_name = Gtk.TreeViewColumn("Имя", renderer, text=2)
         col_name.set_expand(True)
         col_name.set_min_width(150)
         self._profile_list.append_column(col_name)
 
-        col_type = Gtk.TreeViewColumn("Тип", renderer, text=2)
+        col_type = Gtk.TreeViewColumn("Тип", renderer, text=3)
         col_type.set_min_width(70)
         self._profile_list.append_column(col_type)
 
-        col_addr = Gtk.TreeViewColumn("Сервер", renderer, text=3)
+        col_addr = Gtk.TreeViewColumn("Сервер", renderer, text=4)
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
 
         # Settings icon column
         icon_renderer = Gtk.CellRendererPixbuf()
-        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=4)
+        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=5)
         col_settings.set_min_width(30)
         col_settings.set_max_width(30)
         self._profile_list.append_column(col_settings)
@@ -374,6 +390,81 @@ class MainWindow(Gtk.Window):
         monitor = self._context.monitor
         if monitor:
             monitor.check_now()
+
+    def _create_subscriptions_page(self) -> Gtk.Widget:
+        """Create subscriptions page."""
+        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        page_box.set_margin_start(5)
+        page_box.set_margin_end(5)
+        page_box.set_margin_top(5)
+        page_box.set_margin_bottom(5)
+
+        subscriptions_label = Gtk.Label()
+        subscriptions_label.set_markup("<b>Подписки</b>")
+        subscriptions_label.set_halign(Gtk.Align.START)
+        page_box.pack_start(subscriptions_label, False, False, 0)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_min_content_height(200)
+        page_box.pack_start(scrolled, True, True, 0)
+
+        self._subscription_store = Gtk.ListStore(int, str, str, str, int)
+        self._subscription_list = Gtk.TreeView(model=self._subscription_store)
+        self._subscription_list.set_headers_visible(True)
+
+        renderer = Gtk.CellRendererText()
+        renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
+
+        col_name = Gtk.TreeViewColumn("Название", renderer, text=1)
+        col_name.set_expand(True)
+        col_name.set_min_width(150)
+        self._subscription_list.append_column(col_name)
+
+        col_url = Gtk.TreeViewColumn("URL", renderer, text=2)
+        col_url.set_min_width(200)
+        self._subscription_list.append_column(col_url)
+
+        col_updated = Gtk.TreeViewColumn("Обновлено", renderer, text=3)
+        col_updated.set_min_width(150)
+        self._subscription_list.append_column(col_updated)
+
+        col_count = Gtk.TreeViewColumn("Профилей", renderer, text=4)
+        col_count.set_min_width(80)
+        self._subscription_list.append_column(col_count)
+
+        self._subscription_list.connect("row-activated", self._on_subscription_row_activated)
+        self._subscription_list.connect(
+            "button-press-event", self._on_subscription_list_button_press
+        )
+
+        scrolled.add(self._subscription_list)
+
+        sub_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        sub_button_box.set_halign(Gtk.Align.CENTER)
+        page_box.pack_start(sub_button_box, False, False, 0)
+
+        add_sub_button = Gtk.Button(label="➕ Добавить подписку")
+        add_sub_button.set_tooltip_text("Добавить новую подписку")
+        add_sub_button.connect("clicked", self._on_add_subscription_clicked)
+        sub_button_box.pack_start(add_sub_button, False, False, 0)
+
+        update_sub_button = Gtk.Button(label="🔄 Обновить")
+        update_sub_button.set_tooltip_text("Обновить выбранную подписку")
+        update_sub_button.connect("clicked", self._on_update_subscription_clicked)
+        sub_button_box.pack_start(update_sub_button, False, False, 0)
+
+        edit_sub_button = Gtk.Button(label="✏️ Редактировать")
+        edit_sub_button.set_tooltip_text("Редактировать выбранную подписку")
+        edit_sub_button.connect("clicked", self._on_edit_subscription_clicked)
+        sub_button_box.pack_start(edit_sub_button, False, False, 0)
+
+        delete_sub_button = Gtk.Button(label="🗑️ Удалить")
+        delete_sub_button.set_tooltip_text("Удалить выбранную подписку")
+        delete_sub_button.connect("clicked", self._on_delete_subscription_clicked)
+        sub_button_box.pack_start(delete_sub_button, False, False, 0)
+
+        return page_box
 
     def _create_connection_page(self) -> Gtk.Widget:
         """Create connection information page."""
@@ -786,26 +877,325 @@ class MainWindow(Gtk.Window):
                 self._connections_label.set_text("0")
 
     def _refresh_profiles(self) -> None:
-        """Refresh profile list."""
+        """Refresh profile list with hierarchical structure (groups -> profiles)."""
+        if not self._profile_store:
+            return
+
         self._profile_store.clear()
 
-        profiles = self._context.profiles.get_current_group_profiles()
-        current_id = self._context.proxy_state.started_profile_id
+        groups = self._context.profiles.groups
+        current_profile_id = self._context.proxy_state.started_profile_id
 
-        for profile in profiles:
-            name = profile.name
-            if profile.id == current_id:
-                name = f"✓ {name}"
+        sorted_groups = sorted(
+            groups.values(),
+            key=lambda g: (not g.is_subscription, g.name.lower())
+        )
 
-            self._profile_store.append(
+        for group in sorted_groups:
+    
+            if group.is_subscription:
+                group_icon = "network-server-symbolic"
+                group_prefix = "📡 "
+            else:
+                group_icon = "folder-symbolic"
+                group_prefix = "📁 "
+
+            group_profiles = self._context.profiles.get_profiles_in_group(group.id)
+            group_iter = self._profile_store.append(
+                None,
                 [
-                    profile.id,
-                    name,
-                    profile.proxy_type.upper(),
-                    profile.bean.display_address,
-                    "preferences-system-symbolic",
+                    True,  # is_group
+                    group.id,
+                    f"{group_prefix}{group.name} ({len(group_profiles)})",  # name
+                    "Группа",
+                    "",
+                    group_icon,
                 ]
             )
+
+            for profile in group_profiles:
+                name = profile.name
+                if profile.id == current_profile_id:
+                    name = f"✓ {name}"
+
+                self._profile_store.append(
+                    group_iter,
+                    [
+                        False,  # is_group
+                        profile.id,
+                        name,
+                        profile.proxy_type.upper(),
+                        profile.bean.display_address,
+                        "preferences-system-symbolic",
+                    ]
+                )
+
+            if group.is_subscription:
+                self._profile_list.expand_row(
+                    self._profile_store.get_path(group_iter), False
+                )
+
+    def _refresh_subscriptions(self) -> None:
+        """Refresh subscriptions list."""
+        if not self._subscription_store:
+            return
+
+        self._subscription_store.clear()
+
+        groups = self._context.profiles.groups
+        for group in groups.values():
+            if not group.is_subscription:
+                continue
+            if group.last_updated > 0:
+                update_time = datetime.datetime.fromtimestamp(group.last_updated)
+                updated_str = update_time.strftime("%d.%m.%Y %H:%M")
+            else:
+                updated_str = "Никогда"
+
+            profile_count = len(
+                self._context.profiles.get_profiles_in_group(group.id)
+            )
+
+            url_display = group.subscription_url
+            if len(url_display) > 50:
+                url_display = url_display[:47] + "..."
+
+            self._subscription_store.append(
+                [
+                    group.id,
+                    group.name,
+                    url_display,
+                    updated_str,
+                    profile_count,
+                ]
+            )
+
+    def _get_selected_subscription_id(self) -> int | None:
+        """Get selected subscription group ID."""
+        if not self._subscription_list:
+            return None
+        selection = self._subscription_list.get_selection()
+        model, treeiter = selection.get_selected()
+        if treeiter:
+            return model[treeiter][0]
+        return None
+
+    def _on_subscription_row_activated(
+        self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn
+    ) -> None:
+        """Double click on subscription - update it."""
+        self._on_update_subscription_clicked(None)
+
+    def _on_subscription_list_button_press(
+        self, tree_view: Gtk.TreeView, event: Gdk.EventButton
+    ) -> bool:
+        """Handle button press on subscription list."""
+        return False
+
+    def _on_add_subscription_clicked(self, button: Gtk.Button) -> None:
+        """Click on Add Subscription button."""
+        result = show_subscription_dialog(self)
+
+        if result:
+            name, url = result
+            group = self._context.profiles.add_group(name, is_subscription=True)
+            group.subscription_url = url
+            self._update_subscription(group.id)
+
+    def _on_update_subscription_clicked(self, button: Gtk.Button | None) -> None:
+        """Click on Update Subscription button."""
+        group_id = self._get_selected_subscription_id()
+
+        if group_id is None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="Выберите подписку",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text("Выберите подписку для обновления.")
+            dialog.run()
+            dialog.destroy()
+            return
+
+        self._update_subscription(group_id)
+
+    def _update_subscription(self, group_id: int) -> None:
+        """Update subscription."""
+        group = self._context.profiles.get_group(group_id)
+        if not group or not group.is_subscription:
+            return
+
+        progress_dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.NONE,
+            text="Обновление подписки...",
+        )
+        progress_dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        progress_dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        progress_dialog.set_skip_taskbar_hint(True)
+        progress_dialog.format_secondary_text(f"Загрузка подписки: {group.name}")
+        progress_dialog.show()
+
+        def do_update():
+            """Update subscription in background thread."""
+            try:
+                updater = SubscriptionUpdater(
+                    config=self._context.config, profiles=self._context.profiles
+                )
+
+                beans = updater.update(
+                    group.subscription_url,
+                    group_id=group_id,
+                    clear_existing=True,
+                )
+                group.last_updated = int(time.time())
+                self._context.profiles.save()
+
+                GLib.idle_add(
+                    lambda: self._show_update_result(
+                        progress_dialog, True, len(beans), group.name
+                    )
+                )
+            except Exception as e:
+                GLib.idle_add(
+                    lambda: self._show_update_result(progress_dialog, False, 0, group.name, str(e))
+                )
+
+        thread = threading.Thread(target=do_update, daemon=True)
+        thread.start()
+
+    def _show_update_result(
+        self,
+        progress_dialog: Gtk.Dialog,
+        success: bool,
+        count: int,
+        name: str,
+        error: str = "",
+    ) -> None:
+        """Show subscription update result."""
+        progress_dialog.destroy()
+
+        if success:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.INFO,
+                buttons=Gtk.ButtonsType.OK,
+                text="Подписка обновлена",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text(f"Подписка '{name}' обновлена.\nДобавлено профилей: {count}")
+            dialog.run()
+            dialog.destroy()
+
+            self._refresh_subscriptions()
+            self._refresh_profiles()
+        else:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Ошибка обновления подписки",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text(f"Не удалось обновить подписку '{name}'.\n\nОшибка: {error}")
+            dialog.run()
+            dialog.destroy()
+
+    def _on_edit_subscription_clicked(self, button: Gtk.Button) -> None:
+        """Click on Edit Subscription button."""
+        group_id = self._get_selected_subscription_id()
+
+        if group_id is None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="Выберите подписку",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text("Выберите подписку для редактирования.")
+            dialog.run()
+            dialog.destroy()
+            return
+
+        group = self._context.profiles.get_group(group_id)
+        if not group:
+            return
+
+        result = show_subscription_dialog(self, group)
+
+        if result:
+            name, url = result
+            group.name = name
+            group.subscription_url = url
+            self._context.profiles.save()
+            self._refresh_subscriptions()
+
+    def _on_delete_subscription_clicked(self, button: Gtk.Button) -> None:
+        """Click on Delete Subscription button."""
+        group_id = self._get_selected_subscription_id()
+
+        if group_id is None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="Выберите подписку",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text("Выберите подписку для удаления.")
+            dialog.run()
+            dialog.destroy()
+            return
+
+        group = self._context.profiles.get_group(group_id)
+        if not group:
+            return
+
+        profile_count = len(self._context.profiles.get_profiles_in_group(group_id))
+
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.YES_NO,
+            text="Удалить подписку?",
+        )
+        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        dialog.set_skip_taskbar_hint(True)
+        dialog.format_secondary_text(
+            f"Удалить подписку '{group.name}'?\n\n"
+            f"Будет удалено профилей: {profile_count}\n"
+            f"Это действие нельзя отменить."
+        )
+        response = dialog.run()
+        dialog.destroy()
+
+        if response == Gtk.ResponseType.YES:
+            self._context.profiles.remove_group(group_id, remove_profiles=True)
+            self._context.profiles.save()
+            self._refresh_subscriptions()
+            self._refresh_profiles()
 
     def _on_state_changed(self, state: ProxyState) -> None:
         """State change handler."""
@@ -920,23 +1310,44 @@ class MainWindow(Gtk.Window):
         self._refresh_profiles()
 
     def _get_selected_profile_id(self) -> int | None:
-        """Get selected profile ID."""
+        """Get selected profile ID (returns None if group is selected)."""
         selection = self._profile_list.get_selection()
         model, treeiter = selection.get_selected()
         if treeiter:
-            return model[treeiter][0]
+            is_group = model[treeiter][0]
+            profile_id = model[treeiter][1]
+            if not is_group:
+                return profile_id
+        return None
+
+    def _get_selected_group_id(self) -> int | None:
+        """Get selected group ID (returns None if profile is selected)."""
+        selection = self._profile_list.get_selection()
+        model, treeiter = selection.get_selected()
+        if treeiter:
+            is_group = model[treeiter][0]
+            group_id = model[treeiter][1]
+            if is_group:
+                return group_id
         return None
 
     def _on_row_activated(
         self, tree_view: Gtk.TreeView, path: Gtk.TreePath, column: Gtk.TreeViewColumn
     ) -> None:
-        """Double click on profile."""
+        """Double click on profile or group."""
         model = tree_view.get_model()
         treeiter = model.get_iter(path)
-        profile_id = model[treeiter][0]
+        is_group = model[treeiter][0]
+        item_id = model[treeiter][1]
 
-        if self._on_connect:
-            self._on_connect(profile_id)
+        if is_group:
+            if tree_view.row_expanded(path):
+                tree_view.collapse_row(path)
+            else:
+                tree_view.expand_row(path, False)
+        else:
+            if self._on_connect:
+                self._on_connect(item_id)
 
     def _on_profile_list_button_press(
         self, tree_view: Gtk.TreeView, event: Gdk.EventButton
@@ -955,30 +1366,31 @@ class MainWindow(Gtk.Window):
         if column == columns[-1]:
             model = tree_view.get_model()
             treeiter = model.get_iter(path)
-            profile_id = model[treeiter][0]
+            is_group = model[treeiter][0]
+            item_id = model[treeiter][1]
 
-            profile = self._context.profiles.get_profile(profile_id)
-            if profile:
-                # Callback to reload config if this profile is currently active
-                def on_settings_applied(edited_profile_id: int) -> None:
-                    """Reload configuration if edited profile is currently active."""
-                    if (
-                        self._context.proxy_state.is_running
-                        and self._context.proxy_state.started_profile_id == edited_profile_id
-                        and self._on_config_reload
-                    ):
-                        try:
-                            self._on_config_reload()
-                        except Exception:
-                            # Silently ignore errors - they will be logged by _reload_config
-                            pass
+            if not is_group:
+                profile = self._context.profiles.get_profile(item_id)
+                if profile:
+                    # Callback to reload config if this profile is currently active
+                    def on_settings_applied(edited_profile_id: int) -> None:
+                        """Reload configuration if edited profile is currently active."""
+                        if (
+                            self._context.proxy_state.is_running
+                            and self._context.proxy_state.started_profile_id == edited_profile_id
+                            and self._on_config_reload
+                        ):
+                            try:
+                                self._on_config_reload()
+                            except Exception:
+                                pass
 
-                show_profile_vpn_settings_dialog(
-                    profile, self, on_settings_applied=on_settings_applied
-                )
-                self._context.profiles.save()
-                self._refresh_profiles()
-                return True
+                    show_profile_vpn_settings_dialog(
+                        profile, self, on_settings_applied=on_settings_applied
+                    )
+                    self._context.profiles.save()
+                    self._refresh_profiles()
+                    return True
 
         return False
 
@@ -992,20 +1404,37 @@ class MainWindow(Gtk.Window):
             if profile_id is not None and self._on_connect:
                 self._on_connect(profile_id)
             else:
-                # Show selection dialog
-                dialog = Gtk.MessageDialog(
-                    transient_for=self,
-                    flags=0,
-                    message_type=Gtk.MessageType.INFO,
-                    buttons=Gtk.ButtonsType.OK,
-                    text="Выберите профиль",
-                )
-                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-                dialog.set_skip_taskbar_hint(True)
-                dialog.format_secondary_text("Выберите профиль из списка для подключения.")
-                dialog.run()
-                dialog.destroy()
+                group_id = self._get_selected_group_id()
+                if group_id is not None:
+                    dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        flags=0,
+                        message_type=Gtk.MessageType.INFO,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="Выбрана группа",
+                    )
+                    dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                    dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                    dialog.set_skip_taskbar_hint(True)
+                    dialog.format_secondary_text(
+                        "Выбрана группа. Выберите конкретный профиль для подключения."
+                    )
+                    dialog.run()
+                    dialog.destroy()
+                else:
+                    dialog = Gtk.MessageDialog(
+                        transient_for=self,
+                        flags=0,
+                        message_type=Gtk.MessageType.INFO,
+                        buttons=Gtk.ButtonsType.OK,
+                        text="Выберите профиль",
+                    )
+                    dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                    dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                    dialog.set_skip_taskbar_hint(True)
+                    dialog.format_secondary_text("Выберите профиль из списка для подключения.")
+                    dialog.run()
+                    dialog.destroy()
 
     def _on_refresh_clicked(self, button: Gtk.Button) -> None:
         """Click on Refresh button."""
@@ -1043,19 +1472,37 @@ class MainWindow(Gtk.Window):
         profile_id = self._get_selected_profile_id()
 
         if profile_id is None:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.WARNING,
-                buttons=Gtk.ButtonsType.OK,
-                text="Выберите профиль",
-            )
-            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text("Выберите профиль для удаления.")
-            dialog.run()
-            dialog.destroy()
+            group_id = self._get_selected_group_id()
+            if group_id is not None:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.INFO,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="Выбрана группа",
+                )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
+                dialog.format_secondary_text(
+                    "Выбрана группа. Выберите конкретный профиль для удаления."
+                )
+                dialog.run()
+                dialog.destroy()
+            else:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.WARNING,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="Выберите профиль",
+                )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
+                dialog.format_secondary_text("Выберите профиль для удаления.")
+                dialog.run()
+                dialog.destroy()
             return
 
         profile = self._context.profiles.get_profile(profile_id)
@@ -1085,30 +1532,52 @@ class MainWindow(Gtk.Window):
         """Click on Edit button."""
         profile_id = self._get_selected_profile_id()
 
-        if profile_id is None:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.WARNING,
-                buttons=Gtk.ButtonsType.OK,
-                text="Выберите профиль",
-            )
-            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text("Выберите профиль для редактирования.")
-            dialog.run()
-            dialog.destroy()
+        if profile_id is not None:
+            profile = self._context.profiles.get_profile(profile_id)
+            if not profile:
+                return
+
+            changed = show_edit_profile_dialog(profile, self)
+            if changed:
+                self._context.profiles.save()
+                self._refresh_profiles()
             return
 
-        profile = self._context.profiles.get_profile(profile_id)
-        if not profile:
+        group_id = self._get_selected_group_id()
+        if group_id is not None:
+            group = self._context.profiles.get_group(group_id)
+            if not group:
+                return
+            if group.is_subscription:
+                result = show_subscription_dialog(self, group)
+                if result:
+                    name, url = result
+                    group.name = name
+                    group.subscription_url = url
+                    self._context.profiles.save()
+                    self._refresh_profiles()
+                    self._refresh_subscriptions()
+            else:
+                new_name = show_edit_group_dialog(self, group)
+                if new_name:
+                    group.name = new_name
+                    self._context.profiles.save()
+                    self._refresh_profiles()
             return
 
-        changed = show_edit_profile_dialog(profile, self)
-        if changed:
-            self._context.profiles.save()
-            self._refresh_profiles()
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.OK,
+            text="Выберите профиль или группу",
+        )
+        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        dialog.set_skip_taskbar_hint(True)
+        dialog.format_secondary_text("Выберите профиль или группу для редактирования.")
+        dialog.run()
+        dialog.destroy()
 
     def _on_settings_clicked(self, button: Gtk.Button) -> None:
         """Click on Settings button."""
@@ -1182,6 +1651,7 @@ class MainWindow(Gtk.Window):
     def refresh(self) -> None:
         """Refresh UI."""
         GLib.idle_add(self._refresh_profiles)
+        GLib.idle_add(self._refresh_subscriptions)
         self._update_monitoring_tab_visibility()
 
     def _update_monitoring_tab_visibility(self) -> None:
