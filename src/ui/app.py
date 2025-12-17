@@ -31,6 +31,8 @@ from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.main_window import MainWindow
 from src.ui.tray import TrayIcon
 
+from src.db.config import DEFAULT_ROUTING_ORDER
+
 logger = logging.getLogger("tenga.ui.app")
 
 
@@ -428,11 +430,17 @@ class TengaApp:
                 if routing.mode == RoutingMode.CUSTOM:
                     routing.load_lists_from_files(self._context.config_dir)
 
-            route_rules = []
+            route_rules: list[dict] = []
             vpn_settings = profile.vpn_settings
             vpn_tag = None
             vpn_interface = None
             over_vpn_domains_for_dns = []
+            direct_domains: list[str] = []
+            direct_ips: list[str] = []
+            vpn_domains: list[str] = []
+            vpn_ips: list[str] = []
+            proxy_domains: list[str] = []
+            proxy_ips: list[str] = []
 
             # Process VPN routing rules (only if VPN is enabled and active)
             if vpn_settings and vpn_settings.enabled:
@@ -474,61 +482,96 @@ class TengaApp:
                 
                 if direct_list:
                     direct_domains, direct_ips = routing.parse_entries(direct_list)
-                    if direct_ips:
-                        route_rules.append(
-                            {
-                                "ip_cidr": direct_ips,
-                                "outbound": "direct",
-                            }
-                        )
-                        logger.debug("Added DIRECT routing from list for IPs: %s", direct_ips)
-                    if direct_domains:
-                        route_rules.append(
-                            {
-                                "domain_suffix": direct_domains,
-                                "outbound": "direct",
-                            }
-                        )
-                        logger.debug("Added DIRECT routing from list for domains: %s", direct_domains)
 
                 if routing.vpn_list and vpn_tag and vpn_interface:
                     vpn_domains, vpn_ips = routing.parse_entries(routing.vpn_list)
-                    if vpn_ips:
-                        route_rules.append(
-                            {
-                                "ip_cidr": vpn_ips,
-                                "outbound": vpn_tag,
-                            }
-                        )
-                        logger.debug("Added VPN routing from list for IPs: %s", vpn_ips)
                     if vpn_domains:
-                        route_rules.append(
-                            {
-                                "domain_suffix": vpn_domains,
-                                "outbound": vpn_tag,
-                            }
-                        )
-                        logger.debug("Added VPN routing from list for domains: %s", vpn_domains)
                         over_vpn_domains_for_dns = vpn_domains
 
                 if routing.proxy_list:
                     proxy_domains, proxy_ips = routing.parse_entries(routing.proxy_list)
-                    if proxy_ips:
-                        route_rules.append(
-                            {
-                                "ip_cidr": proxy_ips,
-                                "outbound": proxy_tag,
-                            }
-                        )
-                        logger.debug("Added PROXY routing from list for IPs: %s", proxy_ips)
-                    if proxy_domains:
-                        route_rules.append(
-                            {
-                                "domain_suffix": proxy_domains,
-                                "outbound": proxy_tag,
-                            }
-                        )
-                        logger.debug("Added PROXY routing from list for domains: %s", proxy_domains)
+
+                try:
+                    rule_order = routing.get_rule_order()
+                except AttributeError:
+                    rule_order = DEFAULT_ROUTING_ORDER
+
+                for group in rule_order:
+                    if group == "direct":
+                        if direct_ips:
+                            route_rules.append(
+                                {
+                                    "ip_cidr": direct_ips,
+                                    "outbound": "direct",
+                                }
+                            )
+                            logger.debug(
+                                "Added DIRECT routing from list for IPs (order %s): %s",
+                                rule_order,
+                                direct_ips,
+                            )
+                        if direct_domains:
+                            route_rules.append(
+                                {
+                                    "domain_suffix": direct_domains,
+                                    "outbound": "direct",
+                                }
+                            )
+                            logger.debug(
+                                "Added DIRECT routing from list for domains (order %s): %s",
+                                rule_order,
+                                direct_domains,
+                            )
+                    elif group == "vpn" and vpn_tag and vpn_interface:
+                        if vpn_ips:
+                            route_rules.append(
+                                {
+                                    "ip_cidr": vpn_ips,
+                                    "outbound": vpn_tag,
+                                }
+                            )
+                            logger.debug(
+                                "Added VPN routing from list for IPs (order %s): %s",
+                                rule_order,
+                                vpn_ips,
+                            )
+                        if vpn_domains:
+                            route_rules.append(
+                                {
+                                    "domain_suffix": vpn_domains,
+                                    "outbound": vpn_tag,
+                                }
+                            )
+                            logger.debug(
+                                "Added VPN routing from list for domains (order %s): %s",
+                                rule_order,
+                                vpn_domains,
+                            )
+                    elif group == "proxy":
+                        if proxy_ips:
+                            route_rules.append(
+                                {
+                                    "ip_cidr": proxy_ips,
+                                    "outbound": proxy_tag,
+                                }
+                            )
+                            logger.debug(
+                                "Added PROXY routing from list for IPs (order %s): %s",
+                                rule_order,
+                                proxy_ips,
+                            )
+                        if proxy_domains:
+                            route_rules.append(
+                                {
+                                    "domain_suffix": proxy_domains,
+                                    "outbound": proxy_tag,
+                                }
+                            )
+                            logger.debug(
+                                "Added PROXY routing from list for domains (order %s): %s",
+                                rule_order,
+                                proxy_domains,
+                            )
 
             final_outbound = proxy_tag
             # Outbounds
