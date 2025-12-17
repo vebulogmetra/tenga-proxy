@@ -37,9 +37,14 @@ class StreamSettings(ConfigBase):
         if self.network == "tcp" and self.header_type != "http":
             return None
 
-        transport: dict[str, Any] = {"type": self.network}
+        # Normalize transport type (xhttp -> http)
+        transport_type = self.network
+        if transport_type == "xhttp":
+            transport_type = "http"
 
-        if self.network == "ws":
+        transport: dict[str, Any] = {"type": transport_type}
+
+        if transport_type == "ws":
             if self.host:
                 transport["headers"] = {"Host": self.host}
 
@@ -62,18 +67,19 @@ class StreamSettings(ConfigBase):
                 transport["max_early_data"] = self.ws_early_data_length
                 transport["early_data_header_name"] = self.ws_early_data_name
 
-        elif self.network == "http":
+        elif transport_type == "http":
             # HTTP/2
+            transport["method"] = "GET"
             if self.path:
                 transport["path"] = self.path
             if self.host:
                 transport["host"] = self.host.split(",")
 
-        elif self.network == "grpc":
+        elif transport_type == "grpc":
             if self.path:
                 transport["service_name"] = self.path
 
-        elif self.network == "httpupgrade":
+        elif transport_type == "httpupgrade":
             if self.path:
                 transport["path"] = self.path
             if self.host:

@@ -78,6 +78,8 @@ class VMessBean(ProxyBean):
             net = obj.get("net", "")
             if net == "h2":
                 net = "http"
+            if net == "xhttp":
+                net = "http"
             if net:
                 self.stream.network = net
 
@@ -122,6 +124,8 @@ class VMessBean(ProxyBean):
             # Network type
             net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
+                net_type = "http"
+            if net_type == "xhttp":
                 net_type = "http"
             self.stream.network = net_type
             # SNI

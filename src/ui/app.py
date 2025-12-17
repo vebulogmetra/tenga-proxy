@@ -907,6 +907,7 @@ class TengaApp:
                     "rules": route_rules,
                     "final": final_outbound,
                     "auto_detect_interface": not (vpn_tag and vpn_interface),
+                    "default_domain_resolver": "main-dns",
                 },
             }
 

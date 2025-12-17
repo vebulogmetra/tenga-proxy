@@ -130,6 +130,15 @@ def cmd_generate(args: argparse.Namespace) -> int:
 
     config = {
         "log": {"level": "info", "timestamp": True},
+        "dns": {
+            "servers": [
+                {
+                    "tag": "local-dns",
+                    "type": "local",
+                }
+            ],
+            "final": "local-dns",
+        },
         "inbounds": [
             {"type": "mixed", "listen": "127.0.0.1", "listen_port": args.port, "sniff": True}
         ],
@@ -152,6 +161,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
             ],
             "final": outbound["tag"],
             "auto_detect_interface": False,
+            "default_domain_resolver": "local-dns",
         },
     }
 
@@ -645,6 +655,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         config = {
             "log": {"level": "info", "timestamp": True},
+            "dns": {
+                "servers": [
+                    {
+                        "tag": "local-dns",
+                        "type": "local",
+                    }
+                ],
+                "final": "local-dns",
+            },
             "inbounds": [
                 {"type": "mixed", "listen": "127.0.0.1", "listen_port": args.port, "sniff": True}
             ],
@@ -667,6 +686,7 @@ def cmd_run(args: argparse.Namespace) -> int:
                 ],
                 "final": outbound["tag"],
                 "auto_detect_interface": False,
+                "default_domain_resolver": "local-dns",
             },
         }
 
