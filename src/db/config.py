@@ -283,6 +283,10 @@ class RoutingMode:
     }
 
 
+ROUTING_GROUPS = ["direct", "vpn", "proxy"]
+DEFAULT_ROUTING_ORDER = ["direct", "vpn", "proxy"]
+
+
 @dataclass
 class RoutingSettings(ConfigBase):
     """Traffic routing settings."""
@@ -292,6 +296,8 @@ class RoutingSettings(ConfigBase):
     direct_list: list[str] = field(default_factory=list)
     vpn_list: list[str] = field(default_factory=list)
     bypass_local_networks: bool = False
+    # direct/vpn/proxy
+    rule_order: list[str] = field(default_factory=lambda: DEFAULT_ROUTING_ORDER.copy())
 
     def load_list_file(self, filepath: Path) -> list[str]:
         """Load list from file."""
@@ -374,6 +380,29 @@ class RoutingSettings(ConfigBase):
             domains.append(entry)
 
         return domains, ips
+
+    def get_rule_order(self) -> list[str]:
+        """
+        Get effective routing rule order.
+
+        Ensures backward compatibility if the field is missing or empty.
+        """
+        order = getattr(self, "rule_order", None)
+        if not order:
+            return DEFAULT_ROUTING_ORDER.copy()
+
+        normalized = [item for item in order if item in ROUTING_GROUPS]
+        if not normalized:
+            return DEFAULT_ROUTING_ORDER.copy()
+
+        result: list[str] = []
+        for group in normalized:
+            if group not in result:
+                result.append(group)
+        for group in ROUTING_GROUPS:
+            if group not in result:
+                result.append(group)
+        return result
 
 
 @dataclass

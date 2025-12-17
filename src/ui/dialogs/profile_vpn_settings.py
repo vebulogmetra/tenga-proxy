@@ -17,6 +17,8 @@ from src.sys.vpn import (
     list_network_interfaces,
     list_vpn_connections,
 )
+from src.db.config import DEFAULT_ROUTING_ORDER
+
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
@@ -267,6 +269,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         box.set_margin_top(15)
         box.set_margin_bottom(15)
 
+        # Routing mode
         mode_frame = Gtk.Frame()
         mode_frame.set_label("Режим роутинга")
         box.pack_start(mode_frame, False, False, 0)
@@ -303,6 +306,48 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
             row.pack_start(radio, False, False, 0)
             row.pack_start(desc_label, False, False, 0)
             mode_box.pack_start(row, False, False, 0)
+
+        order_frame = Gtk.Frame()
+        order_frame.set_label("Порядок применения правил")
+        box.pack_start(order_frame, False, False, 0)
+
+        order_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        order_box.set_margin_start(10)
+        order_box.set_margin_end(10)
+        order_box.set_margin_top(10)
+        order_box.set_margin_bottom(10)
+        order_frame.add(order_box)
+
+        order_label = Gtk.Label(label="Приоритет групп маршрутов:")
+        order_label.set_halign(Gtk.Align.START)
+        order_box.pack_start(order_label, False, False, 0)
+
+        self._routing_order_combo = Gtk.ComboBoxText.new()
+        self._routing_order_presets: dict[str, list[str]] = {
+            "direct_vpn_proxy": ["direct", "vpn", "proxy"],
+            "direct_proxy_vpn": ["direct", "proxy", "vpn"],
+            "vpn_direct_proxy": ["vpn", "direct", "proxy"],
+            "vpn_proxy_direct": ["vpn", "proxy", "direct"],
+            "proxy_direct_vpn": ["proxy", "direct", "vpn"],
+            "proxy_vpn_direct": ["proxy", "vpn", "direct"],
+        }
+
+        labels = {
+            "direct_vpn_proxy": "Напрямую → VPN → Прокси",
+            "direct_proxy_vpn": "Напрямую → Прокси → VPN",
+            "vpn_direct_proxy": "VPN → Напрямую → Прокси",
+            "vpn_proxy_direct": "VPN → Прокси → Напрямую",
+            "proxy_direct_vpn": "Прокси → Напрямую → VPN",
+            "proxy_vpn_direct": "Прокси → VPN → Напрямую",
+        }
+
+        self._routing_order_keys: list[str] = list(self._routing_order_presets.keys())
+        for key in self._routing_order_keys:
+            label = labels.get(key, " → ".join(self._routing_order_presets[key]))
+            self._routing_order_combo.append_text(label)
+
+        self._routing_order_combo.set_active(0)
+        order_box.pack_start(self._routing_order_combo, False, False, 0)
 
         lists_frame = Gtk.Frame()
         lists_frame.set_label("Списки роутинга")
@@ -542,6 +587,21 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
             if hasattr(self, "_routing_radios"):
                 self._on_routing_mode_changed(None)
 
+        if hasattr(self, "_routing_order_combo") and hasattr(self, "_routing_order_presets"):
+            try:
+                current_order = routing.get_rule_order()
+            except AttributeError:
+                current_order = DEFAULT_ROUTING_ORDER
+
+            active_index = 0
+            for idx, key in enumerate(self._routing_order_keys):
+                preset = self._routing_order_presets.get(key) or []
+                if preset == current_order:
+                    active_index = idx
+                    break
+
+            self._routing_order_combo.set_active(active_index)
+
         self._on_vpn_enable_changed(self._vpn_enable_check)
         self._on_vpn_refresh_clicked(None)
 
@@ -612,7 +672,6 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
                 dialog.run()
                 dialog.destroy()
                 return False
-
         if self._profile.routing_settings is None:
             self._profile.routing_settings = RoutingSettings()
 
@@ -642,6 +701,18 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
 
             if hasattr(self, "_bypass_local_check"):
                 routing.bypass_local_networks = self._bypass_local_check.get_active()
+
+        if hasattr(self, "_routing_order_combo") and hasattr(self, "_routing_order_presets"):
+            active_index = self._routing_order_combo.get_active()
+            if (
+                active_index is not None
+                and isinstance(active_index, int)
+                and 0 <= active_index < len(self._routing_order_keys)
+            ):
+                key = self._routing_order_keys[active_index]
+                preset = self._routing_order_presets.get(key)
+                if preset:
+                    routing.rule_order = list(preset)
 
         return True
 
