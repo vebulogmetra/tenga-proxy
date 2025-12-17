@@ -239,6 +239,8 @@ class TrojanBean(ProxyBean):
             net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
+            if net_type == "xhttp":
+                net_type = "http"
             self.stream.network = net_type
             # Security - Trojan uses TLS by default
             security = query.get("security", ["tls"])[0]
