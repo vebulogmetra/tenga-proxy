@@ -5,11 +5,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.core.config import CORE_DIR, find_singbox_binary
+from src.core.config import CORE_DIR, find_xray_binary
 
 if TYPE_CHECKING:
     from src.core.monitor import ConnectionMonitor
-    from src.core.singbox_manager import SingBoxManager
+    from src.core.xray_manager import XrayManager
     from src.db.data_store import DataStore
     from src.db.profiles import ProfileManager
 
@@ -74,7 +74,7 @@ class AppContext:
         self._config_dir = config_dir or self._get_default_config_dir()
         self._config: DataStore | None = config
         self._profiles: ProfileManager | None = None
-        self._singbox_manager: SingBoxManager | None = None
+        self._xray_manager: XrayManager | None = None
         self._proxy_state = ProxyState()
         self._monitor: ConnectionMonitor | None = None
 
@@ -113,18 +113,24 @@ class AppContext:
         return self._profiles
 
     @property
-    def singbox_manager(self) -> SingBoxManager:
+    def xray_manager(self) -> XrayManager:
         """
-        Sing-box manager (lazy loading).
+        Xray-core manager (lazy loading).
 
         Created on first access.
-        SingBoxManager will automatically find sing-box in core/bin/ or in system PATH.
+        XrayManager will automatically find xray in core/bin/ or in system PATH.
         """
-        if self._singbox_manager is None:
-            from src.core.singbox_manager import SingBoxManager
+        if self._xray_manager is None:
+            from src.core.xray_manager import XrayManager
 
-            self._singbox_manager = SingBoxManager(binary_path=None)
-        return self._singbox_manager
+            self._xray_manager = XrayManager(binary_path=None)
+        return self._xray_manager
+
+    # alias (deprecated)
+    @property
+    def singbox_manager(self) -> XrayManager:
+        """Deprecated: use xray_manager instead."""
+        return self.xray_manager
 
     @property
     def proxy_state(self) -> ProxyState:
@@ -140,9 +146,14 @@ class AppContext:
         """Set connection monitor."""
         self._monitor = monitor
 
+    def find_xray_binary(self) -> str | None:
+        """Find xray-core binary."""
+        return find_xray_binary()
+
+    # alias (deprecated)
     def find_singbox_binary(self) -> str | None:
-        """Find sing-box binary."""
-        return find_singbox_binary()
+        """Deprecated: use find_xray_binary instead."""
+        return self.find_xray_binary()
 
     def save_config(self) -> bool:
         """Save configuration."""

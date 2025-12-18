@@ -28,7 +28,7 @@ class ConnectionMonitor:
     Monitor proxy and VPN connection status.
 
     Periodically checks:
-    - Proxy: Clash API availability + test HTTP request through proxy
+    - Proxy: xray-core process status + version check
     - VPN: NetworkManager connection status (if VPN integration enabled)
     """
 
@@ -150,25 +150,25 @@ class ConnectionMonitor:
             logger.info("Proxy check: proxy is not running")
             return False, "Прокси не запущен"
 
-        manager = self._context.singbox_manager
+        manager = self._context.xray_manager
 
         if not manager.is_running:
-            logger.warning("Proxy check: sing-box process is not running")
-            return False, "Процесс sing-box не запущен"
+            logger.warning("Proxy check: xray-core process is not running")
+            return False, "Процесс xray-core не запущен"
 
         try:
             version_info = manager.get_version()
             if not version_info:
-                logger.warning("Proxy check: Clash API not responding")
-                return False, "Clash API не отвечает"
+                logger.warning("Proxy check: xray-core version check failed")
+                return False, "Не удалось получить версию xray-core"
             logger.debug(
-                "Proxy check: Clash API OK, version: %s", version_info.get("version", "unknown")
+                "Proxy check: xray-core OK, version: %s", version_info.get("version", "unknown")
             )
         except Exception as e:
-            logger.warning("Proxy check: Clash API check failed: %s", e)
-            return False, f"Ошибка Clash API: {e}"
+            logger.warning("Proxy check: xray-core check failed: %s", e)
+            return False, f"Ошибка проверки xray-core: {e}"
 
-        logger.info("Proxy check: SUCCESS (Clash API responding)")
+        logger.info("Proxy check: SUCCESS (xray-core running)")
         return True, ""
 
     def _check_vpn_status(self) -> tuple[bool, str]:

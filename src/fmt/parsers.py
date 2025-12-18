@@ -82,10 +82,8 @@ class LinkParser:
     def parse_network(cls, value: str) -> str:
         """Normalize network value."""
         value = value.lower()
-        # Нормализуем для sing-box
+        # Нормализуем для xray-core
         if value == "h2":
-            return "http"
-        if value == "xhttp":
             return "http"
         return value
 

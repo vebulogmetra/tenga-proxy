@@ -66,8 +66,8 @@ class ProxyBean(ConfigBase, ABC):
 
     @property
     def core_type(self) -> str:
-        """Core type (sing-box)."""
-        return "sing-box"
+        """Core type (xray-core)."""
+        return "xray-core"
 
     @abstractmethod
     def to_share_link(self) -> str:
@@ -79,11 +79,11 @@ class ProxyBean(ConfigBase, ABC):
 
     @abstractmethod
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound configuration for sing-box."""
+        """Build outbound configuration for xray-core."""
 
-    def build_core_obj_singbox(self, skip_cert: bool = False) -> dict[str, Any]:
+    def build_core_obj_xray(self, skip_cert: bool = False) -> dict[str, Any]:
         """
-        Build configuration for sing-box.
+        Build configuration for xray-core.
         Returns dictionary with fields: outbound, error.
         """
         try:
@@ -91,6 +91,10 @@ class ProxyBean(ConfigBase, ABC):
             return {"outbound": outbound, "error": ""}
         except Exception as e:
             return {"outbound": {}, "error": str(e)}
+
+    def build_core_obj_singbox(self, skip_cert: bool = False) -> dict[str, Any]:
+        """Deprecated: use build_core_obj_xray instead."""
+        return self.build_core_obj_xray(skip_cert)
 
     def to_tenga_share_link(self) -> str:
         """Create Tenga share link."""

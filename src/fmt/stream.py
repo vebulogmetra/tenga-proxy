@@ -33,120 +33,139 @@ class StreamSettings(ConfigBase):
     packet_encoding: str = "xudp"  # Для VMess/VLESS
 
     def build_transport(self) -> dict[str, Any] | None:
-        """Build transport configuration for sing-box."""
+        """Build transport configuration for xray-core (streamSettings)."""
         if self.network == "tcp" and self.header_type != "http":
             return None
 
-        # Normalize transport type (xhttp -> http)
         transport_type = self.network
-        if transport_type == "xhttp":
-            transport_type = "http"
 
-        transport: dict[str, Any] = {"type": transport_type}
+        stream_settings: dict[str, Any] = {"network": transport_type}
 
         if transport_type == "ws":
+            ws_settings: dict[str, Any] = {}
+            if self.path:
+                ws_settings["path"] = self.path
             if self.host:
-                transport["headers"] = {"Host": self.host}
-
+                ws_settings["headers"] = {"Host": self.host}
+            if self.ws_early_data_length > 0:
+                ws_settings["maxEarlyData"] = self.ws_early_data_length
+                ws_settings["earlyDataHeaderName"] = self.ws_early_data_name
             path = self.path
             if "?ed=" in path:
                 path_parts = path.split("?ed=")
                 path = path_parts[0]
+                ws_settings["path"] = path
                 try:
                     ed_length = int(path_parts[1])
                     if ed_length > 0:
-                        transport["max_early_data"] = ed_length
-                        transport["early_data_header_name"] = "Sec-WebSocket-Protocol"
+                        ws_settings["maxEarlyData"] = ed_length
+                        ws_settings["earlyDataHeaderName"] = "Sec-WebSocket-Protocol"
                 except ValueError:
                     pass
+            if ws_settings:
+                stream_settings["wsSettings"] = ws_settings
 
-            if path:
-                transport["path"] = path
-
-            if self.ws_early_data_length > 0:
-                transport["max_early_data"] = self.ws_early_data_length
-                transport["early_data_header_name"] = self.ws_early_data_name
-
-        elif transport_type == "http":
-            # HTTP/2
-            transport["method"] = "GET"
+        elif transport_type in ("http", "xhttp"):
+            # HTTP/2 or xHTTP
+            http_settings: dict[str, Any] = {}
             if self.path:
-                transport["path"] = self.path
+                http_settings["path"] = self.path
             if self.host:
-                transport["host"] = self.host.split(",")
+                http_settings["host"] = self.host.split(",")
+            if http_settings:
+                stream_settings["httpSettings"] = http_settings
 
         elif transport_type == "grpc":
+            grpc_settings: dict[str, Any] = {}
             if self.path:
-                transport["service_name"] = self.path
+                grpc_settings["serviceName"] = self.path
+            if grpc_settings:
+                stream_settings["grpcSettings"] = grpc_settings
 
         elif transport_type == "httpupgrade":
+            httpupgrade_settings: dict[str, Any] = {}
             if self.path:
-                transport["path"] = self.path
+                httpupgrade_settings["path"] = self.path
             if self.host:
-                transport["host"] = self.host
+                httpupgrade_settings["host"] = self.host
+            if httpupgrade_settings:
+                stream_settings["httpupgradeSettings"] = httpupgrade_settings
 
         elif self.network == "tcp" and self.header_type == "http":
-            transport = {
-                "type": "http",
-                "method": "GET",
-            }
+            stream_settings["network"] = "http"
+            http_settings: dict[str, Any] = {}
             if self.path:
-                transport["path"] = self.path
+                http_settings["path"] = self.path
             if self.host:
-                transport["headers"] = {"Host": self.host.split(",")}
+                http_settings["host"] = self.host.split(",")
+            if http_settings:
+                stream_settings["httpSettings"] = http_settings
 
-        return transport
+        return stream_settings
 
     def build_tls(self, skip_cert: bool = False) -> dict[str, Any] | None:
-        """Build TLS configuration for sing-box."""
+        """Build TLS configuration for xray-core."""
         if self.security not in ("tls", "reality"):
             return None
 
-        tls: dict[str, Any] = {"enabled": True}
+        tls_settings: dict[str, Any] = {}
 
         if self.allow_insecure or skip_cert:
-            tls["insecure"] = True
+            tls_settings["allowInsecure"] = True
 
         if self.sni.strip():
-            tls["server_name"] = self.sni.strip()
+            tls_settings["serverName"] = self.sni.strip()
 
         if self.certificate.strip():
-            tls["certificate"] = self.certificate.strip()
+            # xray-core uses certificates array
+            tls_settings["certificates"] = [{"certificate": self.certificate.strip()}]
 
         if self.alpn.strip():
-            tls["alpn"] = [x.strip() for x in self.alpn.split(",") if x.strip()]
+            tls_settings["alpn"] = [x.strip() for x in self.alpn.split(",") if x.strip()]
 
         # Reality
         if self.reality_public_key.strip():
-            tls["reality"] = {
-                "enabled": True,
-                "public_key": self.reality_public_key,
-                "short_id": self.reality_short_id.split(",")[0] if self.reality_short_id else "",
+            reality_settings: dict[str, Any] = {
+                "show": False,
+                "dest": self.sni.strip() if self.sni.strip() else "www.microsoft.com:443",
+                "xver": 0,
             }
-            # Reality require uTLS
-            if not self.utls_fingerprint:
-                self.utls_fingerprint = "random"
+            if self.reality_public_key:
+                reality_settings["publicKey"] = self.reality_public_key
+            if self.reality_short_id:
+                reality_settings["shortId"] = self.reality_short_id.split(",")[0]
+            if self.reality_spider_x:
+                reality_settings["spiderX"] = self.reality_spider_x
+            tls_settings["reality"] = reality_settings
 
         # uTLS fingerprint
         if self.utls_fingerprint:
-            tls["utls"] = {"enabled": True, "fingerprint": self.utls_fingerprint}
+            tls_settings["fingerprint"] = self.utls_fingerprint
 
-        return tls
+        return tls_settings
 
     def apply_to_outbound(self, outbound: dict[str, Any], skip_cert: bool = False) -> None:
         """Apply transport settings to outbound."""
-        # Transport
-        transport = self.build_transport()
-        if transport:
-            outbound["transport"] = transport
-        # TLS
-        tls = self.build_tls(skip_cert)
-        if tls:
-            outbound["tls"] = tls
-        # Packet encoding for VMess/VLESS
-        outbound_type = outbound.get("type", "")
+        stream_settings = self.build_transport()
+        if stream_settings:
+            tls = self.build_tls(skip_cert)
+            if tls:
+                stream_settings["security"] = self.security
+                stream_settings["tlsSettings"] = tls
+            outbound["streamSettings"] = stream_settings
+        else:
+            tls = self.build_tls(skip_cert)
+            if tls:
+                outbound["streamSettings"] = {
+                    "security": self.security,
+                    "tlsSettings": tls,
+                }
+
+        outbound_type = outbound.get("protocol", "")
         if outbound_type in ("vmess", "vless"):
-            outbound["packet_encoding"] = self.packet_encoding
+            if "settings" not in outbound:
+                outbound["settings"] = {}
+            outbound["settings"]["packetEncoding"] = self.packet_encoding
 
     # Aliases
     @property

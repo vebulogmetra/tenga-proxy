@@ -23,8 +23,8 @@ main() {
     echo "=========================================="
     echo
 
-    if [ ! -f "$PROJECT_ROOT/core/bin/sing-box" ]; then
-        error "sing-box не найден в core/bin/"
+    if [ ! -f "$PROJECT_ROOT/core/bin/xray" ]; then
+        error "xray-core не найден в core/bin/"
         echo
         echo "Для разработки запустите:"
         echo "  core/scripts/install_dev.sh"

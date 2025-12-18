@@ -1,9 +1,9 @@
 from src.core.context import AppContext, get_context, init_context
-from src.core.singbox_manager import SingBoxManager
+from src.core.xray_manager import XrayManager
 
 __all__ = [
     "AppContext",
-    "SingBoxManager",
+    "XrayManager",
     "get_context",
     "init_context",
 ]

@@ -70,7 +70,7 @@ def test_connection_monitor_start_enabled(tmp_path, monkeypatch):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = {"version": "1.0.0"}
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     mock_timeout_add = Mock(return_value=123)
     mock_glib = MagicMock()
@@ -133,7 +133,7 @@ def test_connection_monitor_check_proxy_clash_api_fails(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = None
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
 
@@ -150,7 +150,7 @@ def test_connection_monitor_check_proxy_clash_api_exception(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.side_effect = Exception("Connection refused")
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
 
@@ -167,7 +167,7 @@ def test_connection_monitor_check_proxy_success(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = {"version": "1.0.0"}
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
 
@@ -308,7 +308,7 @@ def test_connection_monitor_check_connections_enabled(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = {"version": "1.0.0"}
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
     callback = Mock()
@@ -334,7 +334,7 @@ def test_connection_monitor_check_now_disabled(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = {"version": "1.0.0"}
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
     callback = Mock()
@@ -354,7 +354,7 @@ def test_connection_monitor_check_now_enabled(tmp_path):
     mock_manager = MagicMock()
     mock_manager.is_running = True
     mock_manager.get_version.return_value = {"version": "1.0.0"}
-    context._singbox_manager = mock_manager
+    context._xray_manager = mock_manager
 
     monitor = ConnectionMonitor(context)
     callback = Mock()

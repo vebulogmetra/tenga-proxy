@@ -248,14 +248,24 @@ class VMessBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound for sing-box."""
+        """Build outbound for xray-core."""
         outbound: dict[str, Any] = {
-            "type": "vmess",
-            "server": self.server_address,
-            "server_port": self.server_port,
-            "uuid": self.uuid.strip(),
-            "alter_id": self.alter_id,
-            "security": self.security,
+            "protocol": "vmess",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                        "users": [
+                            {
+                                "id": self.uuid.strip(),
+                                "alterId": self.alter_id,
+                                "security": self.security,
+                            }
+                        ],
+                    }
+                ]
+            },
         }
 
         if self.name:
