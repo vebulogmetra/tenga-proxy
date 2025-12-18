@@ -623,16 +623,10 @@ class TengaApp:
                     direct_outbound,
                 ]
             else:
-                if not route_rules:
-                    outbounds = [
-                        outbound,
-                        direct_outbound,
-                    ]
-                else:
-                    outbounds = [
-                        direct_outbound,
-                        outbound,
-                    ]
+                outbounds = [
+                    outbound,
+                    direct_outbound,
+                ]
 
             if vpn_tag and vpn_interface:
                 vpn_outbound = {
@@ -647,8 +641,7 @@ class TengaApp:
                         },
                     },
                 }
-                # Note: xray-core doesn't have domain_resolver in outbound settings
-                # DNS resolution is handled separately in DNS configuration
+
                 logger.info(
                     "Added VPN outbound with interface: %s",
                     vpn_interface,

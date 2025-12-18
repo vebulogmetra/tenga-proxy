@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="0.7.0"
+APP_VERSION="0.7.1"
 BUILD_DIR="$PROJECT_ROOT/build"
 APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
 
