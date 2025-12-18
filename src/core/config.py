@@ -56,12 +56,12 @@ PROJECT_ROOT: Path = (
 )
 CORE_DIR: Path = _get_config_dir()
 CORE_BIN_DIR: Path = BUNDLE_DIR / "core" / "bin" if _is_frozen() else CORE_DIR / "bin"
-SINGBOX_BINARY_NAME: str = "sing-box"
+XRAY_BINARY_NAME: str = "xray"
 
 LOG_DIR: Path = _get_log_dir()
 GUI_LOG_FILE: Path = LOG_DIR / "tenga_gui.log"
 CLI_LOG_FILE: Path = LOG_DIR / "tenga_cli.log"
-SINGBOX_LOG_FILE: Path = LOG_DIR / "singbox.log"
+XRAY_LOG_FILE: Path = LOG_DIR / "xray.log"
 
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
@@ -81,59 +81,59 @@ def get_lock_file(config_dir: Path | None = None) -> Path:
     return CORE_DIR / "tenga-proxy.lock"
 
 
-# Clash API
-DEFAULT_CLASH_API_ADDR: str = "127.0.0.1:9090"
-DEFAULT_CLASH_API_SECRET: str = ""
+# Stats API
+DEFAULT_STATS_API_ADDR: str = "127.0.0.1:10085"
+DEFAULT_STATS_API_TOKEN: str = ""
 
 
-def find_singbox_binary() -> str | None:
+def find_xray_binary() -> str | None:
     """
-    Find sing-box binary.
+    Find xray-core binary.
 
     Search priority:
-    1. Bundled sing-box (in PyInstaller bundle)
-    2. sing-box in core/bin/ directory
-    3. sing-box in user config dir
-    4. sing-box in system PATH
+    1. Bundled xray (in PyInstaller bundle)
+    2. xray in core/bin/ directory
+    3. xray in user config dir
+    4. xray in system PATH
 
     Returns:
-        Path to sing-box or None if not found
+        Path to xray or None if not found
     """
     search_paths = []
 
     if _is_frozen():
-        bundled = BUNDLE_DIR / "core" / "bin" / SINGBOX_BINARY_NAME
+        bundled = BUNDLE_DIR / "core" / "bin" / XRAY_BINARY_NAME
         search_paths.append(bundled)
 
-    search_paths.append(CORE_BIN_DIR / SINGBOX_BINARY_NAME)
+    search_paths.append(CORE_BIN_DIR / XRAY_BINARY_NAME)
 
     if _is_frozen():
-        user_bin = CORE_DIR / "bin" / SINGBOX_BINARY_NAME
+        user_bin = CORE_DIR / "bin" / XRAY_BINARY_NAME
         search_paths.append(user_bin)
 
-    for singbox_path in search_paths:
-        if singbox_path.exists() and singbox_path.is_file():
+    for xray_path in search_paths:
+        if xray_path.exists() and xray_path.is_file():
             try:
                 result = subprocess.run(
-                    [str(singbox_path), "version"],
+                    [str(xray_path), "version"],
                     capture_output=True,
                     text=True,
                     timeout=5,
                 )
                 if result.returncode == 0:
-                    return str(singbox_path)
+                    return str(xray_path)
             except Exception:
                 pass
 
     try:
         result = subprocess.run(
-            [SINGBOX_BINARY_NAME, "version"],
+            [XRAY_BINARY_NAME, "version"],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if result.returncode == 0:
-            return SINGBOX_BINARY_NAME
+            return XRAY_BINARY_NAME
     except FileNotFoundError:
         pass
     except Exception:

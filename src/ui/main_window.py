@@ -499,7 +499,7 @@ class MainWindow(Gtk.Window):
         stats_box.pack_start(stats_grid, False, False, 0)
 
         # Version
-        version_title = Gtk.Label(label="Версия sing-box:")
+        version_title = Gtk.Label(label="Версия xray-core:")
         version_title.set_halign(Gtk.Align.START)
         version_title.get_style_context().add_class("stats-label")
         stats_grid.attach(version_title, 0, 0, 1, 1)
@@ -591,12 +591,12 @@ class MainWindow(Gtk.Window):
             self._stats_timer_id = None
 
     def _update_stats(self) -> bool:
-        """Update statistics from Clash API. Returns True to continue timer."""
+        """Update statistics from Stats API. Returns True to continue timer."""
         if not self._context.proxy_state.is_running:
             return False  # Stop timer
 
         try:
-            manager = self._context.singbox_manager
+            manager = self._context.xray_manager
 
             # Get traffic stats
             traffic = manager.get_traffic()
@@ -605,7 +605,6 @@ class MainWindow(Gtk.Window):
             # Update proxy state with traffic
             self._context.proxy_state.upload_bytes = traffic.upload
             self._context.proxy_state.download_bytes = traffic.download
-            # Get connections count
             connections = manager.get_connections()
             self._connections_label.set_text(str(len(connections)))
 
@@ -615,13 +614,13 @@ class MainWindow(Gtk.Window):
         return True
 
     def _update_version(self) -> None:
-        """Update sing-box version."""
+        """Update xray-core version."""
         if not self._context.proxy_state.is_running:
             self._version_label.set_text("—")
             return
 
         try:
-            manager = self._context.singbox_manager
+            manager = self._context.xray_manager
             version_info = manager.get_version()
             if version_info:
                 version = version_info.get("version", "?")
@@ -668,7 +667,7 @@ class MainWindow(Gtk.Window):
         # Run test in background
         def do_test():
             try:
-                manager = self._context.singbox_manager
+                manager = self._context.xray_manager
 
                 # Get actual proxy name from proxies list
                 proxies_data = manager.get_proxies()
@@ -737,7 +736,7 @@ class MainWindow(Gtk.Window):
 
     def _show_connections_dialog(self) -> None:
         """Show connections in a dialog."""
-        manager = self._context.singbox_manager
+        manager = self._context.xray_manager
         connections = manager.get_connections()
 
         dialog = Gtk.Dialog(
@@ -845,7 +844,7 @@ class MainWindow(Gtk.Window):
 
         conn_id = model[treeiter][6]
 
-        manager = self._context.singbox_manager
+        manager = self._context.xray_manager
         if manager.close_connection(conn_id):
             store.remove(treeiter)
             # Update header
@@ -872,7 +871,7 @@ class MainWindow(Gtk.Window):
         dialog.destroy()
 
         if response == Gtk.ResponseType.YES:
-            manager = self._context.singbox_manager
+            manager = self._context.xray_manager
             if manager.close_all_connections():
                 self._connections_label.set_text("0")
 
