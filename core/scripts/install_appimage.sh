@@ -76,13 +76,13 @@ install_appimage() {
 [Desktop Entry]
 Name=Tenga Proxy
 GenericName=Proxy Client
-Comment=Secure proxy client with sing-box backend
+Comment=Secure proxy client with xray-core backend
 Exec=$installed_path %U
 Icon=tenga-proxy
 Terminal=false
 Type=Application
 Categories=Network;Security;
-Keywords=proxy;vpn;singbox;network;
+Keywords=proxy;vpn;xray;network;
 StartupNotify=true
 StartupWMClass=tenga-proxy
 Actions=quit;
