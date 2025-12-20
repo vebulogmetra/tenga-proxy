@@ -65,8 +65,8 @@ class StreamSettings(ConfigBase):
             if ws_settings:
                 stream_settings["wsSettings"] = ws_settings
 
-        elif transport_type in ("http", "xhttp"):
-            # HTTP/2 or xHTTP
+        elif transport_type == "http":
+            # HTTP/2
             http_settings: dict[str, Any] = {}
             if self.path:
                 http_settings["path"] = self.path
@@ -74,6 +74,27 @@ class StreamSettings(ConfigBase):
                 http_settings["host"] = self.host.split(",")
             if http_settings:
                 stream_settings["httpSettings"] = http_settings
+
+        elif transport_type == "xhttp":
+            stream_settings["network"] = "splithttp"
+            splithttp_settings: dict[str, Any] = {}
+
+            if self.path and self.path.strip() and self.path.strip() != "/":
+                splithttp_settings["path"] = self.path.strip()
+            host_value = None
+            if self.host:
+                if isinstance(self.host, str):
+                    host_parts = [h.strip() for h in self.host.split(",") if h.strip()]
+                    if host_parts:
+                        host_value = host_parts[0]
+                elif isinstance(self.host, list):
+                    if self.host:
+                        host_value = str(self.host[0])
+            if not host_value and self.sni:
+                host_value = self.sni.strip()
+            if host_value:
+                splithttp_settings["host"] = host_value
+            stream_settings["splithttpSettings"] = splithttp_settings
 
         elif transport_type == "grpc":
             grpc_settings: dict[str, Any] = {}
@@ -123,43 +144,66 @@ class StreamSettings(ConfigBase):
         if self.alpn.strip():
             tls_settings["alpn"] = [x.strip() for x in self.alpn.split(",") if x.strip()]
 
-        # Reality
-        if self.reality_public_key.strip():
-            reality_settings: dict[str, Any] = {
-                "show": False,
-                "dest": self.sni.strip() if self.sni.strip() else "www.microsoft.com:443",
-                "xver": 0,
-            }
-            if self.reality_public_key:
-                reality_settings["publicKey"] = self.reality_public_key
-            if self.reality_short_id:
-                reality_settings["shortId"] = self.reality_short_id.split(",")[0]
-            if self.reality_spider_x:
-                reality_settings["spiderX"] = self.reality_spider_x
-            tls_settings["reality"] = reality_settings
-
         # uTLS fingerprint
         if self.utls_fingerprint:
             tls_settings["fingerprint"] = self.utls_fingerprint
 
         return tls_settings
 
+    def build_reality(self) -> dict[str, Any] | None:
+        """Build Reality configuration for xray-core."""
+        if not self.reality_public_key.strip():
+            return None
+
+        reality_settings: dict[str, Any] = {
+            "show": False,
+        }
+
+        if self.sni.strip():
+            reality_settings["serverName"] = self.sni.strip()
+
+        if self.reality_public_key:
+            reality_settings["publicKey"] = self.reality_public_key
+
+        if self.reality_short_id:
+            reality_settings["shortId"] = self.reality_short_id.split(",")[0]
+
+        if self.reality_spider_x:
+            reality_settings["spiderX"] = self.reality_spider_x
+
+        # uTLS fingerprint (required for Reality)
+        if self.utls_fingerprint:
+            reality_settings["fingerprint"] = self.utls_fingerprint
+        else:
+            reality_settings["fingerprint"] = "chrome"
+
+        return reality_settings
+
+    def is_reality(self) -> bool:
+        """Check if Reality is enabled."""
+        return bool(self.reality_public_key.strip())
+
     def apply_to_outbound(self, outbound: dict[str, Any], skip_cert: bool = False) -> None:
         """Apply transport settings to outbound."""
         stream_settings = self.build_transport()
-        if stream_settings:
+
+        if stream_settings is None:
+            stream_settings = {}
+
+        # Check if Reality is used
+        if self.is_reality():
+            reality = self.build_reality()
+            if reality:
+                stream_settings["security"] = "reality"
+                stream_settings["realitySettings"] = reality
+        else:
             tls = self.build_tls(skip_cert)
             if tls:
                 stream_settings["security"] = self.security
                 stream_settings["tlsSettings"] = tls
+
+        if stream_settings:
             outbound["streamSettings"] = stream_settings
-        else:
-            tls = self.build_tls(skip_cert)
-            if tls:
-                outbound["streamSettings"] = {
-                    "security": self.security,
-                    "tlsSettings": tls,
-                }
 
         outbound_type = outbound.get("protocol", "")
         if outbound_type in ("vmess", "vless"):

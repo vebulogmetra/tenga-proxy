@@ -55,7 +55,7 @@ class VLESSBean(ProxyBean):
 
             # Security
             security = query.get("security", [""])[0]
-            if security == "reality":
+            if security in ("reality", "tls"):
                 security = "tls"
             elif security == "none":
                 security = ""
@@ -102,7 +102,7 @@ class VLESSBean(ProxyBean):
                 self.stream.path = query["path"][0]
             if "host" in query:
                 self.stream.host = query["host"][0]
-        elif self.stream.network == "http":
+        elif self.stream.network in ("http", "xhttp"):
             if "path" in query:
                 self.stream.path = query["path"][0]
             if "host" in query:
@@ -172,7 +172,7 @@ class VLESSBean(ProxyBean):
 
     def _add_transport_params(self, params: dict[str, str]) -> None:
         """Add transport parameters."""
-        if self.stream.network in ("ws", "http", "httpupgrade"):
+        if self.stream.network in ("ws", "http", "xhttp", "httpupgrade"):
             if self.stream.path:
                 params["path"] = self.stream.path
             if self.stream.host:
@@ -258,12 +258,9 @@ class TrojanBean(ProxyBean):
             net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
-            if net_type == "xhttp":
-                net_type = "http"
             self.stream.network = net_type
-            # Security - Trojan uses TLS by default
             security = query.get("security", ["tls"])[0]
-            if security == "reality":
+            if security in ("reality", "tls"):
                 security = "tls"
             elif security == "none":
                 security = ""
