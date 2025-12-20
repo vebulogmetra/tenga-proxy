@@ -7,7 +7,7 @@ import tempfile
 import time
 import requests
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import IO, Any
 
@@ -29,20 +29,6 @@ class TrafficStats:
     download: int = 0
 
 
-@dataclass
-class Connection:
-    """Connection information."""
-
-    id: str
-    metadata: dict[str, Any] = field(default_factory=dict)
-    upload: int = 0
-    download: int = 0
-    start: str = ""
-    chains: list[str] = field(default_factory=list)
-    rule: str = ""
-    rule_payload: str = ""
-
-
 class XrayManager:
     """
     Management of xray-core via subprocess + Stats API.
@@ -51,7 +37,6 @@ class XrayManager:
     - Start/stop xray-core as subprocess
     - Monitoring via Stats API (gRPC or HTTP)
     - Traffic statistics retrieval
-    - Connection management (limited - xray-core doesn't expose connections like Clash)
     """
 
     def __init__(
@@ -366,7 +351,6 @@ class XrayManager:
             )
             if result.returncode == 0:
                 version_str = result.stdout.strip()
-                # Parse version string (format: "Xray 1.8.0 (Xray, Penetrates Everything.)")
                 parts = version_str.split()
                 version = parts[1] if len(parts) > 1 else version_str
                 return {"version": version, "full": version_str}
@@ -377,125 +361,79 @@ class XrayManager:
     def _get_stats_via_api(self, name: str, reset: bool = False) -> int:
         """
         Get stats via API.
-
-        Note: xray-core Stats API requires gRPC client or external API server.
-        For now, this is a placeholder that returns 0.
-        In production, you would need to implement gRPC client or use external API.
         """
-        # xray-core Stats API works via gRPC
-        # To implement this properly, you would need:
-        # 1. gRPC client library
-        # 2. xray-core proto files
-        # 3. Or use external API server that wraps Stats API
         logger.debug("Stats API not fully implemented, returning 0 for %s", name)
         return 0
 
     def get_traffic(self) -> TrafficStats:
         """
         Get current traffic statistics.
-
-        Uses Stats API to get upload/download stats for outbound tags.
-        Note: Requires proper Stats API implementation (gRPC client).
         """
         upload = 0
         download = 0
 
-        # Get stats for outbound tags (upload/download)
-        # xray-core tracks stats with names like "outbound>>>proxy>>>traffic>>>uplink"
-        # We need to query all outbounds and sum them up
-        # For simplicity, we'll query common patterns
         upload = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>uplink", reset=False)
         download = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>downlink", reset=False)
 
         return TrafficStats(upload=upload, download=download)
 
-    def get_connections(self) -> list[Connection]:
-        """
-        Get list of active connections.
-
-        Note: xray-core doesn't expose connections like Clash API.
-        This method returns empty list as xray-core doesn't provide this functionality.
-        """
-        # xray-core Stats API doesn't provide connection information
-        # This is a limitation compared to Clash API
-        return []
-
-    def close_connection(self, connection_id: str) -> bool:
-        """
-        Close connection by ID.
-
-        Note: xray-core doesn't support closing individual connections.
-        """
-        # Not supported by xray-core
-        return False
-
-    def close_all_connections(self) -> bool:
-        """
-        Close all connections.
-
-        Note: xray-core doesn't support closing connections.
-        """
-        # Not supported by xray-core
-        return False
-
-    def get_proxies(self) -> dict[str, Any]:
-        """
-        Get list of proxies (outbounds).
-
-        Note: xray-core doesn't expose outbound list like Clash API.
-        Returns empty dict.
-        """
-        # Not directly supported by xray-core Stats API
-        return {}
-
     def test_delay(
         self,
-        proxy_name: str,
-        url: str = "https://www.google.com/generate_204",
+        proxy_address: str | None = None,
+        proxy_port: int | None = None,
         timeout: int = 5000,
     ) -> int:
         """
-        Test proxy latency.
-
-        Note: xray-core doesn't have built-in delay testing.
-        This would require external implementation.
+        Test proxy latency using HTTP HEAD request through proxy.
 
         Args:
-            proxy_name: Proxy name (outbound tag) - not used
-            url: URL for testing - not used
-            timeout: Timeout in milliseconds - not used
+            proxy_address: Proxy address
+            proxy_port: Proxy SOCKS5 port
+            timeout: Timeout in milliseconds
 
         Returns:
-            -1 (not supported)
+            Latency in milliseconds, or -1 on error
         """
-        # xray-core doesn't have built-in delay testing
-        return -1
+        if not self.is_running:
+            logger.debug("xray-core is not running, cannot test delay")
+            return -1
 
-    def get_logs(self, level: str = "info") -> requests.Response | None:
-        """
-        Get log stream.
+        if proxy_address is None or proxy_port is None:
+            logger.debug("Proxy address or port not provided, cannot test delay")
+            return -1
 
-        Note: xray-core doesn't expose logs via API like Clash.
-        Returns None. Logs should be read from log file.
+        try:
+            timeout_sec = timeout / 1000.0
+            http_port = proxy_port + 1
+            proxy_url = f"http://{proxy_address}:{http_port}"
+            test_url = "http://www.google.com/generate_204"
 
-        Args:
-            level: Log level (not used)
+            start_time = time.time()
+            response = requests.head(
+                test_url,
+                proxies={"http": proxy_url, "https": proxy_url},
+                timeout=timeout_sec,
+                allow_redirects=False,
+            )
+            elapsed_ms = int((time.time() - start_time) * 1000)
 
-        Returns:
-            None (not supported)
-        """
-        # xray-core doesn't expose logs via API
-        return None
+            # Accept 2xx, 3xx, and some 4xx (like 403) as success
+            if 200 <= response.status_code < 500:
+                logger.debug("Delay test successful: %d ms", elapsed_ms)
+                return elapsed_ms
+            else:
+                logger.debug("Request failed with status %d", response.status_code)
+                return -1
 
-    def get_config(self) -> dict[str, Any]:
-        """
-        Get current configuration.
-
-        Note: xray-core doesn't expose config via API.
-        Returns empty dict.
-        """
-        # Not supported by xray-core
-        return {}
+        except requests.exceptions.Timeout:
+            logger.debug("Delay test timed out after %d ms", timeout)
+            return -1
+        except requests.exceptions.RequestException as e:
+            logger.debug("Delay test error: %s", e)
+            return -1
+        except Exception as e:
+            logger.debug("Unexpected error in delay test: %s", e)
+            return -1
 
     def __enter__(self) -> XrayManager:
         """Context manager entry."""
