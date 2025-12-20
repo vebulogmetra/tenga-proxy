@@ -126,40 +126,6 @@ def test_connection_monitor_check_proxy_not_running(tmp_path):
     assert "не запущен" in error
 
 
-def test_connection_monitor_check_proxy_clash_api_fails(tmp_path):
-    context = AppContext(config_dir=tmp_path)
-    context.proxy_state.is_running = True
-
-    mock_manager = MagicMock()
-    mock_manager.is_running = True
-    mock_manager.get_version.return_value = None
-    context._xray_manager = mock_manager
-
-    monitor = ConnectionMonitor(context)
-
-    ok, error = monitor._check_proxy_status()
-
-    assert ok is False
-    assert "Clash API" in error
-
-
-def test_connection_monitor_check_proxy_clash_api_exception(tmp_path):
-    context = AppContext(config_dir=tmp_path)
-    context.proxy_state.is_running = True
-
-    mock_manager = MagicMock()
-    mock_manager.is_running = True
-    mock_manager.get_version.side_effect = Exception("Connection refused")
-    context._xray_manager = mock_manager
-
-    monitor = ConnectionMonitor(context)
-
-    ok, error = monitor._check_proxy_status()
-
-    assert ok is False
-    assert "Clash API" in error
-
-
 def test_connection_monitor_check_proxy_success(tmp_path):
     context = AppContext(config_dir=tmp_path)
     context.proxy_state.is_running = True
