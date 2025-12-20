@@ -48,10 +48,10 @@ python cli.py setup-dev
 
 - Системные зависимости
 - Python venv
-- Python зависимости из `requirements.txt`
-- Бинарник sing-box
+- Python зависимости из `pyproject.toml`
+- Бинарник xray-core
 
-#### Установка sing-box
+#### Установка xray-core
 
 **Вариант 1: Скачать бинарник**
 ```bash
@@ -104,13 +104,13 @@ python cli.py install --uninstall
 python cli.py bump-version
 
 # С указанием версии
-python cli.py bump-version 1.6.0
+python cli.py bump-version 0.9.0
 
 # С автоматической сборкой после обновления
-python cli.py bump-version 1.6.0 --build
+python cli.py bump-version 0.9.0 --build
 
 # Принудительное обновление (даже если версия совпадает)
-python cli.py bump-version 1.6.0 --force
+python cli.py bump-version 0.9.0 --force
 ```
 
 ## Использование
@@ -213,7 +213,7 @@ python cli.py install --uninstall
 python cli.py setup-dev
 
 # Обновить версию проекта
-python cli.py bump-version 1.6.0
+python cli.py bump-version 0.9.0
 ```
 
 #### Проверка кода и форматирование
@@ -294,20 +294,14 @@ curl -x http://127.0.0.1:2080 https://ifconfig.me
 
 Для работы CLI требуются:
 
-- Python 3.8+
-- Модуль `requests` (для загрузки подписок)
+- Python 3.11+
+- Зависимости из `pyproject.toml`
 - Бинарник `xray` (для запуска прокси)
 
-**Минимальная установка для CLI:**
+**Установка зависимостей:**
 
 ```bash
-pip3 install requests
-```
-
-Или установите все зависимости из `requirements.txt`:
-
-```bash
-pip3 install -r requirements.txt
+uv sync
 ```
 
 ### Требования для GUI/AppImage
@@ -331,16 +325,14 @@ sudo apt install -y \
 #### Python пакеты
 
 ```bash
-pip3 install requests PyYAML PyGObject
+# Используя uv (рекомендуется)
+uv sync
+
+# Или используя pip
+pip3 install -e .
 ```
 
-Или установите все зависимости из `requirements.txt`:
-
-```bash
-pip3 install -r requirements.txt
-```
-
-### Требования для sing-box
+### Требования для xray-core
 
 CLI и GUI требуют наличия бинарника `xray`. Он может быть:
 
@@ -349,3 +341,11 @@ CLI и GUI требуют наличия бинарника `xray`. Он мож�
 3. **В AppImage:** встроен в образ
 
 Если `xray` не найден, CLI покажет инструкции по установке при попытке запуска прокси.
+
+
+### Тестирование
+
+```bash
+# Запустить все тесты
+uv run pytest
+```
