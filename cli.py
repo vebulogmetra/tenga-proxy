@@ -149,6 +149,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
                 "port": args.port + 1,
                 "protocol": "http",
                 "settings": {},
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"],
+                },
             },
         ],
         "outbounds": [

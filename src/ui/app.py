@@ -983,6 +983,10 @@ class TengaApp:
                     "port": port + 1,
                     "protocol": "http",
                     "settings": {},
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"],
+                    },
                 },
             ]
 
