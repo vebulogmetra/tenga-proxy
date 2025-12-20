@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import array
+import socket
 import threading
 import time
 import datetime
@@ -56,15 +57,8 @@ class MainWindow(Gtk.Window):
         self._connect_button: Gtk.Button | None = None
         self._status_label: Gtk.Label | None = None
         self._header_icon: Gtk.Image | None = None
-        # Stats UI elements
-        self._stats_frame: Gtk.Frame | None = None
-        self._upload_label: Gtk.Label | None = None
-        self._download_label: Gtk.Label | None = None
-        self._connections_label: Gtk.Label | None = None
-        self._version_label: Gtk.Label | None = None
+        # Delay label
         self._delay_label: Gtk.Label | None = None
-        # Stats update timer
-        self._stats_timer_id: int | None = None
         # Monitoring UI elements
         self._monitoring_proxy_status: Gtk.Label | None = None
         self._monitoring_vpn_status: Gtk.Label | None = None
@@ -172,10 +166,32 @@ class MainWindow(Gtk.Window):
         self._header_icon.set_pixel_size(64)
         header_box.pack_start(self._header_icon, False, False, 0)
         main_box.pack_start(header_box, False, False, 5)
-        # Status
+
+        # Status container
+        status_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        status_container.set_halign(Gtk.Align.CENTER)
+        status_container.set_margin_start(10)
+        status_container.set_margin_end(10)
+        status_container.set_margin_top(5)
+        status_container.set_margin_bottom(5)
+
+        # Connection status
         self._status_label = Gtk.Label(label="Отключено")
         self._status_label.get_style_context().add_class("status-disconnected")
-        main_box.pack_start(self._status_label, False, False, 5)
+        status_container.pack_start(self._status_label, False, False, 0)
+
+        # Delay status
+        delay_container = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        delay_container.set_halign(Gtk.Align.CENTER)
+        delay_label_title = Gtk.Label(label="Задержка:")
+        delay_label_title.set_halign(Gtk.Align.END)
+        delay_container.pack_start(delay_label_title, False, False, 0)
+        self._delay_label = Gtk.Label(label="—")
+        self._delay_label.set_halign(Gtk.Align.START)
+        delay_container.pack_start(self._delay_label, False, False, 0)
+        status_container.pack_start(delay_container, False, False, 0)
+
+        main_box.pack_start(status_container, False, False, 5)
 
         # Notebook with tabs
         self._monitoring_notebook = Gtk.Notebook()
@@ -189,11 +205,7 @@ class MainWindow(Gtk.Window):
         subscriptions_page = self._create_subscriptions_page()
         self._monitoring_notebook.append_page(subscriptions_page, Gtk.Label(label="Подписки"))
 
-        # Tab 3: Connection
-        connection_page = self._create_connection_page()
-        self._monitoring_notebook.append_page(connection_page, Gtk.Label(label="Подключение"))
-
-        # Tab 4: Monitoring (only if monitoring is enabled)
+        # Tab 3: Monitoring (only if monitoring is enabled)
         self._monitoring_page = self._create_monitoring_page()
         self._monitoring_page_index = self._monitoring_notebook.append_page(
             self._monitoring_page, Gtk.Label(label="Мониторинг")
@@ -237,7 +249,7 @@ class MainWindow(Gtk.Window):
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_min_content_height(200)
         page_box.pack_start(scrolled, True, True, 0)
-        self._profile_store = Gtk.TreeStore(bool, int, str, str, str, str)
+        self._profile_store = Gtk.TreeStore(bool, int, str, str, str, str, str)
         self._profile_list = Gtk.TreeView(model=self._profile_store)
         self._profile_list.set_headers_visible(True)
         self._profile_list.set_show_expanders(True)
@@ -248,7 +260,7 @@ class MainWindow(Gtk.Window):
 
         col_name = Gtk.TreeViewColumn("Имя", renderer, text=2)
         col_name.set_expand(True)
-        col_name.set_min_width(150)
+        col_name.set_min_width(100)
         self._profile_list.append_column(col_name)
 
         col_type = Gtk.TreeViewColumn("Тип", renderer, text=3)
@@ -259,9 +271,13 @@ class MainWindow(Gtk.Window):
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
 
+        col_ping = Gtk.TreeViewColumn("Пинг", renderer, text=5)
+        col_ping.set_min_width(80)
+        self._profile_list.append_column(col_ping)
+
         # Settings icon column
         icon_renderer = Gtk.CellRendererPixbuf()
-        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=5)
+        col_settings = Gtk.TreeViewColumn("", icon_renderer, icon_name=6)
         col_settings.set_min_width(30)
         col_settings.set_max_width(30)
         self._profile_list.append_column(col_settings)
@@ -289,6 +305,12 @@ class MainWindow(Gtk.Window):
         delete_button.set_tooltip_text("Удалить выбранный профиль")
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
+
+        # Test delay button
+        test_delay_btn = Gtk.Button(label="🔍 Тест задержки")
+        test_delay_btn.set_tooltip_text("Проверить задержку до прокси-сервера")
+        test_delay_btn.connect("clicked", self._on_test_delay_clicked)
+        profile_button_box.pack_start(test_delay_btn, False, False, 0)
 
         return page_box
 
@@ -466,234 +488,194 @@ class MainWindow(Gtk.Window):
 
         return page_box
 
-    def _create_connection_page(self) -> Gtk.Widget:
-        """Create connection information page."""
-        page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-        page_box.set_margin_start(15)
-        page_box.set_margin_end(15)
-        page_box.set_margin_top(15)
-        page_box.set_margin_bottom(15)
+    def _test_profile_latency(self, profile_id: int, timeout: float = 5.0) -> int:
+        """
+        Test latency to profile server directly via TCP connection.
 
-        # Title
-        title_label = Gtk.Label()
-        title_label.set_markup("<b>Информация о подключении</b>")
-        title_label.set_halign(Gtk.Align.START)
-        page_box.pack_start(title_label, False, False, 0)
+        Args:
+            profile_id: Profile ID
+            timeout: Connection timeout in seconds
 
-        # Stats frame
-        self._stats_frame = Gtk.Frame()
-        self._stats_frame.get_style_context().add_class("stats-frame")
-        self._stats_frame.set_label("Статистика")
-        page_box.pack_start(self._stats_frame, False, False, 0)
-
-        stats_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
-        stats_box.set_margin_top(8)
-        stats_box.set_margin_bottom(8)
-        stats_box.set_margin_start(8)
-        stats_box.set_margin_end(8)
-        self._stats_frame.add(stats_box)
-
-        stats_grid = Gtk.Grid()
-        stats_grid.set_column_spacing(15)
-        stats_grid.set_row_spacing(5)
-        stats_box.pack_start(stats_grid, False, False, 0)
-
-        # Version
-        version_title = Gtk.Label(label="Версия xray-core:")
-        version_title.set_halign(Gtk.Align.START)
-        version_title.get_style_context().add_class("stats-label")
-        stats_grid.attach(version_title, 0, 0, 1, 1)
-
-        self._version_label = Gtk.Label(label="—")
-        self._version_label.set_halign(Gtk.Align.START)
-        self._version_label.get_style_context().add_class("stats-value")
-        stats_grid.attach(self._version_label, 1, 0, 1, 1)
-        # Upload
-        upload_title = Gtk.Label(label="↑ Отправлено:")
-        upload_title.set_halign(Gtk.Align.START)
-        upload_title.get_style_context().add_class("stats-label")
-        stats_grid.attach(upload_title, 0, 1, 1, 1)
-
-        self._upload_label = Gtk.Label(label="0 B")
-        self._upload_label.set_halign(Gtk.Align.START)
-        self._upload_label.get_style_context().add_class("stats-upload")
-        stats_grid.attach(self._upload_label, 1, 1, 1, 1)
-        # Download
-        download_title = Gtk.Label(label="↓ Получено:")
-        download_title.set_halign(Gtk.Align.START)
-        download_title.get_style_context().add_class("stats-label")
-        stats_grid.attach(download_title, 0, 2, 1, 1)
-
-        self._download_label = Gtk.Label(label="0 B")
-        self._download_label.set_halign(Gtk.Align.START)
-        self._download_label.get_style_context().add_class("stats-download")
-        stats_grid.attach(self._download_label, 1, 2, 1, 1)
-        # Connections count
-        conn_title = Gtk.Label(label="Подключений:")
-        conn_title.set_halign(Gtk.Align.START)
-        conn_title.get_style_context().add_class("stats-label")
-        stats_grid.attach(conn_title, 0, 3, 1, 1)
-
-        self._connections_label = Gtk.Label(label="0")
-        self._connections_label.set_halign(Gtk.Align.START)
-        self._connections_label.get_style_context().add_class("stats-value")
-        stats_grid.attach(self._connections_label, 1, 3, 1, 1)
-        # Delay
-        delay_title = Gtk.Label(label="Задержка:")
-        delay_title.set_halign(Gtk.Align.START)
-        delay_title.get_style_context().add_class("stats-label")
-        stats_grid.attach(delay_title, 0, 4, 1, 1)
-
-        self._delay_label = Gtk.Label(label="—")
-        self._delay_label.set_halign(Gtk.Align.START)
-        stats_grid.attach(self._delay_label, 1, 4, 1, 1)
-        # Buttons row
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        button_box.set_margin_top(10)
-        button_box.set_halign(Gtk.Align.CENTER)
-        stats_box.pack_start(button_box, False, False, 0)
-        # Test delay button
-        test_delay_btn = Gtk.Button(label="🔍 Тест задержки")
-        test_delay_btn.set_tooltip_text("Проверить задержку до прокси-сервера")
-        test_delay_btn.connect("clicked", self._on_test_delay_clicked)
-        button_box.pack_start(test_delay_btn, False, False, 0)
-        # View connections button
-        view_conn_btn = Gtk.Button(label="📋 Подключения")
-        view_conn_btn.set_tooltip_text("Показать активные подключения")
-        view_conn_btn.connect("clicked", self._on_view_connections_clicked)
-        button_box.pack_start(view_conn_btn, False, False, 0)
-        # Close all connections button
-        close_all_btn = Gtk.Button(label="❌ Закрыть все")
-        close_all_btn.set_tooltip_text("Закрыть все активные подключения")
-        close_all_btn.connect("clicked", self._on_close_all_connections_clicked)
-        button_box.pack_start(close_all_btn, False, False, 0)
-
-        # Empty space
-        page_box.pack_start(Gtk.Box(), True, True, 0)
-
-        return page_box
-
-    def _start_stats_timer(self) -> None:
-        """Start statistics update timer."""
-        if self._stats_timer_id is not None:
-            return
-
-        # Update stats
-        self._stats_timer_id = GLib.timeout_add(2000, self._update_stats)
-
-        self._update_stats()
-        self._update_version()
-
-    def _stop_stats_timer(self) -> None:
-        """Stop statistics update timer."""
-        if self._stats_timer_id is not None:
-            GLib.source_remove(self._stats_timer_id)
-            self._stats_timer_id = None
-
-    def _update_stats(self) -> bool:
-        """Update statistics from Stats API. Returns True to continue timer."""
-        if not self._context.proxy_state.is_running:
-            return False  # Stop timer
+        Returns:
+            Latency in milliseconds, or -1 on error
+        """
+        profile = self._context.profiles.get_profile(profile_id)
+        if not profile:
+            return -1
 
         try:
-            manager = self._context.xray_manager
+            server_address = profile.bean.server_address
+            server_port = profile.bean.server_port
+            try:
+                # Try IPv6 first if address contains colons
+                if ":" in server_address and not server_address.count(":") == 1:
+                    # Likely IPv6 address
+                    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+                else:
+                    # IPv4 address
+                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            except (socket.error, OSError):
+                # IPv4
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
-            # Get traffic stats
-            traffic = manager.get_traffic()
-            self._upload_label.set_text(format_bytes(traffic.upload))
-            self._download_label.set_text(format_bytes(traffic.download))
-            # Update proxy state with traffic
-            self._context.proxy_state.upload_bytes = traffic.upload
-            self._context.proxy_state.download_bytes = traffic.download
-            connections = manager.get_connections()
-            self._connections_label.set_text(str(len(connections)))
+            sock.settimeout(timeout)
 
+            start_time = time.time()
+            sock.connect((server_address, server_port))
+            elapsed_ms = int((time.time() - start_time) * 1000)
+
+            sock.close()
+            return elapsed_ms
+        except socket.timeout:
+            return -1
+        except (socket.error, OSError, ValueError):
+            return -1
         except Exception:
-            pass
+            return -1
 
-        return True
+    def _format_ping_text(self, latency_ms: int) -> str:
+        """Format latency value for display."""
+        if latency_ms == -2:
+            return "..."
+        elif latency_ms >= 0:
+            return f"{latency_ms} ms"
+        else:
+            return "—"
 
-    def _update_version(self) -> None:
-        """Update xray-core version."""
-        if not self._context.proxy_state.is_running:
-            self._version_label.set_text("—")
+    def _find_profile_iter(self, store: Gtk.TreeStore, profile_id: int, parent: Gtk.TreeIter | None = None) -> Gtk.TreeIter | None:
+        """
+        Find TreeIter for profile with given ID in the tree.
+
+        Args:
+            store: TreeStore to search in
+            profile_id: Profile ID to find
+            parent: Parent iterator (None for root level)
+
+        Returns:
+            TreeIter if found, None otherwise
+        """
+        iter = store.iter_children(parent) if parent else store.get_iter_first()
+        while iter:
+            is_group = store[iter][0]
+            item_id = store[iter][1]
+
+            if not is_group and item_id == profile_id:
+                return iter
+
+            # Check children if it's a group
+            if is_group:
+                child_iter = self._find_profile_iter(store, profile_id, iter)
+                if child_iter:
+                    return child_iter
+
+            iter = store.iter_next(iter)
+
+        return None
+
+    def _update_profile_ping_in_ui(self, profile_id: int, latency_ms: int) -> None:
+        """Update ping value for a profile in the UI tree."""
+        if not self._profile_store:
             return
 
-        try:
-            manager = self._context.xray_manager
-            version_info = manager.get_version()
-            if version_info:
-                version = version_info.get("version", "?")
-                self._version_label.set_text(version)
-            else:
-                self._version_label.set_text("—")
-        except Exception:
-            self._version_label.set_text("—")
-
-    def _reset_stats_display(self) -> None:
-        """Reset stats display to default values."""
-        self._upload_label.set_text("0 B")
-        self._download_label.set_text("0 B")
-        self._connections_label.set_text("0")
-        self._delay_label.set_text("—")
-        self._version_label.set_text("—")
-
-        ctx = self._delay_label.get_style_context()
-        ctx.remove_class("delay-good")
-        ctx.remove_class("delay-medium")
-        ctx.remove_class("delay-bad")
+        iter = self._find_profile_iter(self._profile_store, profile_id)
+        if iter:
+            ping_text = self._format_ping_text(latency_ms)
+            self._profile_store[iter][5] = ping_text
 
     def _on_test_delay_clicked(self, button: Gtk.Button) -> None:
-        """Test proxy delay."""
-        if not self._context.proxy_state.is_running:
+        """Test profile or group latency."""
+        profile_id = self._get_selected_profile_id()
+        group_id = self._get_selected_group_id()
+
+        if profile_id is not None:
+            profile = self._context.profiles.get_profile(profile_id)
+            if not profile:
+                return
+
+            self._delay_label.set_text("...")
+            self._update_profile_ping_in_ui(profile_id, -2)
+
+            def do_test():
+                latency_ms = self._test_profile_latency(profile_id)
+                profile.latency_ms = latency_ms
+                self._context.profiles.save()
+
+                GLib.idle_add(self._update_profile_ping_in_ui, profile_id, latency_ms)
+                GLib.idle_add(self._show_delay_result, latency_ms)
+
+            thread = threading.Thread(target=do_test, daemon=True)
+            thread.start()
+
+        elif group_id is not None:
+            group = self._context.profiles.get_group(group_id)
+            if not group:
+                return
+
+            profiles = self._context.profiles.get_profiles_in_group(group_id)
+            if not profiles:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.INFO,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="Группа пуста",
+                )
+                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+                dialog.set_skip_taskbar_hint(True)
+                dialog.format_secondary_text("В группе нет профилей для тестирования.")
+                dialog.run()
+                dialog.destroy()
+                return
+
+            self._delay_label.set_text(f"Тестирование {len(profiles)} профилей...")
+
+            for profile in profiles:
+                self._update_profile_ping_in_ui(profile.id, -2)
+
+            def test_profile(profile_id: int) -> None:
+                """Test single profile and update UI."""
+                latency_ms = self._test_profile_latency(profile_id)
+                profile = self._context.profiles.get_profile(profile_id)
+                if profile:
+                    profile.latency_ms = latency_ms
+
+                GLib.idle_add(self._update_profile_ping_in_ui, profile_id, latency_ms)
+
+            def test_all_profiles():
+                """Test all profiles asynchronously."""
+                threads = []
+                for profile in profiles:
+                    thread = threading.Thread(
+                        target=test_profile, args=(profile.id,), daemon=True
+                    )
+                    thread.start()
+                    threads.append(thread)
+
+                # Wait for all threads to complete
+                for thread in threads:
+                    thread.join()
+
+                self._context.profiles.save()
+                GLib.idle_add(self._delay_label.set_text, "Готово")
+
+            thread = threading.Thread(target=test_all_profiles, daemon=True)
+            thread.start()
+
+        else:
             dialog = Gtk.MessageDialog(
                 transient_for=self,
                 flags=0,
                 message_type=Gtk.MessageType.WARNING,
                 buttons=Gtk.ButtonsType.OK,
-                text="Прокси не подключен",
+                text="Выберите профиль или группу",
             )
             dialog.set_wmclass("tenga-proxy", "tenga-proxy")
             dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
             dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text("Подключитесь к прокси для тестирования задержки.")
+            dialog.format_secondary_text("Выберите профиль или группу для тестирования задержки.")
             dialog.run()
             dialog.destroy()
-            return
-
-        # Show testing status
-        self._delay_label.set_text("...")
-
-        # Run test in background
-        def do_test():
-            try:
-                manager = self._context.xray_manager
-
-                # Get actual proxy name from proxies list
-                proxies_data = manager.get_proxies()
-                proxies = proxies_data.get("proxies", {})
-
-                # Find first non-system proxy (not direct, dns, block)
-                proxy_name = None
-                system_types = {"direct", "dns", "block", "selector", "urltest", "fallback"}
-
-                for name, info in proxies.items():
-                    proxy_type = info.get("type", "").lower()
-                    if proxy_type not in system_types and name not in ("direct", "DIRECT"):
-                        proxy_name = name
-                        break
-
-                if not proxy_name:
-                    # Fallback to "proxy" tag
-                    proxy_name = "proxy"
-
-                delay = manager.test_delay(proxy_name)
-                GLib.idle_add(self._show_delay_result, delay)
-            except Exception:
-                GLib.idle_add(self._show_delay_result, -1)
-
-        thread = threading.Thread(target=do_test, daemon=True)
-        thread.start()
 
     def _show_delay_result(self, delay: int) -> None:
         """Show delay test result."""
@@ -713,167 +695,6 @@ class MainWindow(Gtk.Window):
                 ctx.add_class("delay-medium")
             else:
                 ctx.add_class("delay-bad")
-
-    def _on_view_connections_clicked(self, button: Gtk.Button) -> None:
-        """Show connections dialog."""
-        if not self._context.proxy_state.is_running:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.WARNING,
-                buttons=Gtk.ButtonsType.OK,
-                text="Прокси не подключен",
-            )
-            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text("Подключитесь к прокси для просмотра подключений.")
-            dialog.run()
-            dialog.destroy()
-            return
-
-        self._show_connections_dialog()
-
-    def _show_connections_dialog(self) -> None:
-        """Show connections in a dialog."""
-        manager = self._context.xray_manager
-        connections = manager.get_connections()
-
-        dialog = Gtk.Dialog(
-            title="Активные подключения",
-            transient_for=self,
-            flags=0,
-        )
-        dialog.add_button("Закрыть", Gtk.ResponseType.CLOSE)
-        dialog.add_button("Обновить", Gtk.ResponseType.APPLY)
-        dialog.set_default_size(700, 400)
-
-        content = dialog.get_content_area()
-        content.set_spacing(10)
-        content.set_margin_top(10)
-        content.set_margin_bottom(10)
-        content.set_margin_start(10)
-        content.set_margin_end(10)
-
-        # Header
-        header_label = Gtk.Label()
-        header_label.set_markup(f"<b>Всего подключений: {len(connections)}</b>")
-        header_label.set_halign(Gtk.Align.START)
-        content.pack_start(header_label, False, False, 0)
-        # Scrolled window
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-        content.pack_start(scrolled, True, True, 0)
-        # TreeView for connections
-        # Columns: host, network, download, upload, chain, rule
-        store = Gtk.ListStore(str, str, str, str, str, str, str)  # +id for closing
-        tree = Gtk.TreeView(model=store)
-        tree.set_headers_visible(True)
-
-        renderer = Gtk.CellRendererText()
-        renderer.set_property("ellipsize", Pango.EllipsizeMode.END)
-
-        columns = [
-            ("Хост", 200),
-            ("Сеть", 60),
-            ("Получено", 80),
-            ("Отправлено", 80),
-            ("Цепочка", 100),
-            ("Правило", 100),
-        ]
-
-        for i, (title, width) in enumerate(columns):
-            col = Gtk.TreeViewColumn(title, renderer, text=i)
-            col.set_min_width(width)
-            col.set_resizable(True)
-            tree.append_column(col)
-
-        for conn in connections:
-            metadata = conn.metadata
-            host = metadata.get("destinationAddress", "") or metadata.get("host", "")
-            network = metadata.get("network", "tcp")
-            download = format_bytes(conn.download)
-            upload = format_bytes(conn.upload)
-            chain = " → ".join(conn.chains) if conn.chains else "—"
-            rule = conn.rule or "—"
-
-            store.append([host, network, download, upload, chain, rule, conn.id])
-
-        scrolled.add(tree)
-
-        # Close connection button
-        close_btn = Gtk.Button(label="Закрыть выбранное подключение")
-        close_btn.connect("clicked", self._on_close_connection_clicked, tree, store, header_label)
-        content.pack_start(close_btn, False, False, 0)
-
-        dialog.show_all()
-
-        while True:
-            response = dialog.run()
-            if response == Gtk.ResponseType.APPLY:
-                store.clear()
-                connections = manager.get_connections()
-                header_label.set_markup(f"<b>Всего подключений: {len(connections)}</b>")
-                for conn in connections:
-                    metadata = conn.metadata
-                    host = metadata.get("destinationAddress", "") or metadata.get("host", "")
-                    network = metadata.get("network", "tcp")
-                    download = format_bytes(conn.download)
-                    upload = format_bytes(conn.upload)
-                    chain = " → ".join(conn.chains) if conn.chains else "—"
-                    rule = conn.rule or "—"
-                    store.append([host, network, download, upload, chain, rule, conn.id])
-            else:
-                break
-
-        dialog.destroy()
-
-    def _on_close_connection_clicked(
-        self,
-        button: Gtk.Button,
-        tree: Gtk.TreeView,
-        store: Gtk.ListStore,
-        header_label: Gtk.Label,
-    ) -> None:
-        """Close selected connection."""
-        selection = tree.get_selection()
-        model, treeiter = selection.get_selected()
-
-        if not treeiter:
-            return
-
-        conn_id = model[treeiter][6]
-
-        manager = self._context.xray_manager
-        if manager.close_connection(conn_id):
-            store.remove(treeiter)
-            # Update header
-            count = len(store)
-            header_label.set_markup(f"<b>Всего подключений: {count}</b>")
-
-    def _on_close_all_connections_clicked(self, button: Gtk.Button) -> None:
-        """Close all connections."""
-        if not self._context.proxy_state.is_running:
-            return
-
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            flags=0,
-            message_type=Gtk.MessageType.QUESTION,
-            buttons=Gtk.ButtonsType.YES_NO,
-            text="Закрыть все подключения?",
-        )
-        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        dialog.set_skip_taskbar_hint(True)
-        dialog.format_secondary_text("Все активные подключения будут разорваны.")
-        response = dialog.run()
-        dialog.destroy()
-
-        if response == Gtk.ResponseType.YES:
-            manager = self._context.xray_manager
-            if manager.close_all_connections():
-                self._connections_label.set_text("0")
 
     def _refresh_profiles(self) -> None:
         """Refresh profile list with hierarchical structure (groups -> profiles)."""
@@ -908,6 +729,7 @@ class MainWindow(Gtk.Window):
                     f"{group_prefix}{group.name} ({len(group_profiles)})",  # name
                     "Группа",
                     "",
+                    "",  # ping
                     group_icon,
                 ]
             )
@@ -917,6 +739,11 @@ class MainWindow(Gtk.Window):
                 if profile.id == current_profile_id:
                     name = f"✓ {name}"
 
+                if profile.latency_ms >= 0:
+                    ping_text = f"{profile.latency_ms} ms"
+                else:
+                    ping_text = "—"
+
                 self._profile_store.append(
                     group_iter,
                     [
@@ -925,6 +752,7 @@ class MainWindow(Gtk.Window):
                         name,
                         profile.proxy_type.upper(),
                         profile.bean.display_address,
+                        ping_text,
                         "preferences-system-symbolic",
                     ]
                 )
@@ -1293,7 +1121,6 @@ class MainWindow(Gtk.Window):
                 self._update_icon_color("#4CAF50")
 
             self._connect_button.set_label("⏻ Отключить")
-            self._start_stats_timer()
         else:
             self._status_label.set_text("Отключено")
             self._status_label.get_style_context().remove_class("status-connected")
@@ -1303,8 +1130,12 @@ class MainWindow(Gtk.Window):
                 self._update_icon_color("#9E9E9E")
 
             self._connect_button.set_label("⏻ Подключить")
-            self._stop_stats_timer()
-            self._reset_stats_display()
+            if self._delay_label:
+                self._delay_label.set_text("—")
+                ctx = self._delay_label.get_style_context()
+                ctx.remove_class("delay-good")
+                ctx.remove_class("delay-medium")
+                ctx.remove_class("delay-bad")
 
         self._refresh_profiles()
 
@@ -1614,15 +1445,11 @@ class MainWindow(Gtk.Window):
 
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
-        # Stop stats timer when window is hidden
-        self._stop_stats_timer()
         self.hide()
         return True
 
     def _on_destroy(self, widget: Gtk.Widget) -> None:
         """Handle window destruction - cleanup resources."""
-        # Stop stats timer
-        self._stop_stats_timer()
         # Remove state listener to prevent memory leak
         try:
             self._context.proxy_state.remove_listener(self._on_state_changed)
@@ -1630,10 +1457,8 @@ class MainWindow(Gtk.Window):
             pass
 
     def show_all(self) -> None:
-        """Override show_all to restart stats timer if connected."""
+        """Override show_all."""
         super().show_all()
-        if self._context.proxy_state.is_running:
-            self._start_stats_timer()
 
     def set_on_connect(self, callback: Callable[[int], None]) -> None:
         """Set callback for connection."""
@@ -1669,16 +1494,12 @@ class MainWindow(Gtk.Window):
                 break
 
         if monitoring_enabled:
-            # Show tab if it doesn't exist
             if monitoring_index < 0:
-                # Tab doesn't exist, add it after Connection tab (index 2)
-                # Profiles=0, Connection=1, Monitoring=2
                 self._monitoring_page_index = self._monitoring_notebook.insert_page(
                     self._monitoring_page, Gtk.Label(label="Мониторинг"), 2
                 )
                 self._monitoring_notebook.show_all()
         else:
-            # Hide tab if it exists
             if monitoring_index >= 0:
                 self._monitoring_notebook.remove_page(monitoring_index)
                 self._monitoring_page_index = -1
