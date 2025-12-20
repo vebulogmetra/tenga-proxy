@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="0.6.2"
+APP_VERSION="0.8.4"
 BUILD_DIR="$PROJECT_ROOT/build"
 APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
 
@@ -29,8 +29,8 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 check_deps() {
     info "Проверка зависимостей..."
     
-    if [ ! -f "$PROJECT_ROOT/core/bin/sing-box" ]; then
-        error "sing-box не найден в core/bin/"
+    if [ ! -f "$PROJECT_ROOT/core/bin/xray" ]; then
+        error "xray-core не найден в core/bin/"
     fi
     
     if ! command -v wget &>/dev/null && ! command -v curl &>/dev/null; then
@@ -79,8 +79,8 @@ create_appdir() {
     
     # Copy core files
     mkdir -p "$APPDIR/usr/share/tenga-proxy/core/bin"
-    cp "$PROJECT_ROOT/core/bin/sing-box" "$APPDIR/usr/share/tenga-proxy/core/bin/"
-    chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/sing-box"
+    cp "$PROJECT_ROOT/core/bin/xray" "$APPDIR/usr/share/tenga-proxy/core/bin/"
+    chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/xray"
 
     
     # Copy assets
@@ -112,7 +112,7 @@ if [ -n "$WAYLAND_DISPLAY" ] && [ -n "$DISPLAY" ]; then
     export GDK_BACKEND=x11
 fi
 
-# Make sing-box available
+# Make xray-core available
 export PATH="$APP_DIR/core/bin:$PATH"
 
 # Create config dir

@@ -170,62 +170,68 @@ install_system_deps() {
 install_python_deps() {
     info "Проверка Python зависимостей..."
     
-    if [ ! -f "$PROJECT_ROOT/requirements.txt" ]; then
-        error "Файл requirements.txt не найден!"
+    if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
+        error "Файл pyproject.toml не найден!"
         exit 1
     fi
 
-    if [ ! -d "$PROJECT_ROOT/.venv" ]; then
-        info "Создание виртуального окружения Python..."
-        if ! python3 -m venv "$PROJECT_ROOT/.venv"; then
-            error "Не удалось создать виртуальное окружение"
-            error "Установите python3-venv: sudo apt install python3-venv"
+    if ! check_command uv; then
+        info "uv не найден, устанавливаем..."
+        if ! curl -LsSf https://astral.sh/uv/install.sh | sh; then
+            error "Не удалось установить uv"
+            error "Установите вручную: curl -LsSf https://astral.sh/uv/install.sh | sh"
             exit 1
         fi
-        success "Виртуальное окружение создано"
+        export PATH="$HOME/.cargo/bin:$HOME/.local/bin:$PATH"
+        if ! command -v uv &> /dev/null; then
+            error "uv не найден после установки. Перезапустите скрипт или добавьте ~/.cargo/bin и ~/.local/bin в PATH"
+            exit 1
+        fi
+        success "uv установлен"
     fi
 
-    info "Активация виртуального окружения и установка зависимостей..."
-
-    source "$PROJECT_ROOT/.venv/bin/activate"
-    pip install -U pip setuptools wheel
-    pip install -r "$PROJECT_ROOT/requirements.txt"
+    info "Установка зависимостей через uv..."
+    
+    if ! uv sync; then
+        error "Не удалось установить зависимости через uv"
+        exit 1
+    fi
     
     success "Python зависимости установлены"
 }
 
-check_singbox() {
-    local bin_path="$PROJECT_ROOT/core/bin/sing-box"
+check_xray() {
+    local bin_path="$PROJECT_ROOT/core/bin/xray"
     if [ -f "$bin_path" ] && [ -x "$bin_path" ]; then
         if "$bin_path" version &>/dev/null 2>&1; then
             return 0
         fi
     fi
     
-    # Также проверяем системный sing-box
-    if check_command sing-box; then
+    # Также проверяем системный xray
+    if check_command xray; then
         return 0
     fi
     
     return 1
 }
 
-download_singbox() {
-    if check_singbox; then
-        success "sing-box найден"
+download_xray() {
+    if check_xray; then
+        success "xray-core найден"
         return 0
     fi
     
-    info "sing-box не найден, скачиваем..."
+    info "xray-core не найден, скачиваем..."
     
     # Check arch
     ARCH=$(uname -m)
     case "$ARCH" in
         x86_64)
-            ARCH="amd64"
+            ARCH="64"
             ;;
         aarch64|arm64)
-            ARCH="arm64"
+            ARCH="arm64-v8a"
             ;;
         *)
             error "Неподдерживаемая архитектура: $ARCH"
@@ -233,70 +239,72 @@ download_singbox() {
             ;;
     esac
 
-    info "Получение информации о последней версии sing-box..."
-    LATEST_VERSION=$(curl -s https://api.github.com/repos/SagerNet/sing-box/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
+    info "Получение информации о последней версии xray-core..."
+    LATEST_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
     
     if [ -z "$LATEST_VERSION" ]; then
-        error "Не удалось получить версию sing-box"
+        error "Не удалось получить версию xray-core"
         exit 1
     fi
     
     info "Последняя версия: $LATEST_VERSION"
     
-    DOWNLOAD_URL="https://github.com/SagerNet/sing-box/releases/download/v${LATEST_VERSION}/sing-box-${LATEST_VERSION}-linux-${ARCH}.tar.gz"
+    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/v${LATEST_VERSION}/Xray-linux-${ARCH}.zip"
     
     info "Скачивание: $DOWNLOAD_URL"
     
     mkdir -p "$PROJECT_ROOT/core/bin"
     cd "$PROJECT_ROOT/core/bin"
     
-    if [ -f "sing-box" ]; then
-        warning "Найдена нерабочая версия sing-box"
+    if [ -f "xray" ]; then
+        warning "Найдена нерабочая версия xray-core"
         read -p "Перезаписать? (y/n): " -n 1 -r
         echo
         if [[ ! $REPLY =~ ^[Yy]$ ]]; then
             cd "$PROJECT_ROOT"
             return 0
         fi
-        rm -f sing-box
+        rm -f xray
     fi
     
-    if ! curl -L -o sing-box.tar.gz "$DOWNLOAD_URL"; then
-        error "Ошибка при скачивании sing-box"
+    if ! curl -L -o xray.zip "$DOWNLOAD_URL"; then
+        error "Ошибка при скачивании xray-core"
         cd "$PROJECT_ROOT"
         return 1
     fi
     
-    if ! tar -xzf sing-box.tar.gz; then
+    if ! unzip -q xray.zip; then
         error "Ошибка при распаковке архива"
-        rm -f sing-box.tar.gz
+        rm -f xray.zip
         cd "$PROJECT_ROOT"
         return 1
     fi
 
-    rm sing-box.tar.gz
+    rm xray.zip
 
-    if [ -f "sing-box-${LATEST_VERSION}-linux-${ARCH}/sing-box" ]; then
-        mv "sing-box-${LATEST_VERSION}-linux-${ARCH}/sing-box" .
-        rm -rf "sing-box-${LATEST_VERSION}-linux-${ARCH}"
+    if [ -f "xray" ]; then
+        chmod +x xray
+    else
+        error "Бинарник xray не найден в архиве"
+        cd "$PROJECT_ROOT"
+        return 1
     fi
 
-    chmod +x sing-box
     cd "$PROJECT_ROOT"
 
-    success "sing-box установлен в core/bin"
+    success "xray-core установлен в core/bin"
 }
 
-install_singbox() {
-    info "Установка sing-box..."
+install_xray() {
+    info "Установка xray-core..."
     
-    if check_singbox; then
-        success "sing-box уже установлен"
+    if check_xray; then
+        success "xray-core уже установлен"
         return 0
     fi
     
     echo
-    echo "sing-box не найден. Варианты установки:"
+    echo "xray-core не найден. Варианты установки:"
     echo "  1. Скачать с GitHub (рекомендуется)"
     echo "  2. Пропустить (установите вручную позже)"
     echo
@@ -306,15 +314,15 @@ install_singbox() {
     
     case $REPLY in
         1|"")
-            if ! download_singbox; then
-                error "Не удалось установить sing-box"
+            if ! download_xray; then
+                error "Не удалось установить xray-core"
                 exit 1
             fi
             ;;
         2)
-            warning "Пропущено. Вы можете установить sing-box вручную:"
-            echo "  - Поместите бинарник в core/bin/sing-box"
-            echo "  - Или установите системно: https://sing-box.sagernet.org/installation/"
+            warning "Пропущено. Вы можете установить xray-core вручную:"
+            echo "  - Поместите бинарник в core/bin/xray"
+            echo "  - Или установите системно: https://github.com/XTLS/Xray-core"
             ;;
         *)
             error "Неверный выбор"
@@ -334,7 +342,7 @@ main() {
     check_root
     install_system_deps
     install_python_deps
-    install_singbox
+    install_xray
     
     echo
     echo "=========================================="
@@ -342,14 +350,16 @@ main() {
     echo "=========================================="
     echo
     echo "Для использования:"
-    echo "  1. Активируйте виртуальное окружение:"
-    echo "     source .venv/bin/activate"
+    echo "  1. Используйте uv для запуска команд:"
+    echo "     uv run python cli.py --help"
     echo
-    echo "  2. Используйте CLI:"
+    echo "  2. Или активируйте виртуальное окружение:"
+    echo "     source .venv/bin/activate"
     echo "     python cli.py --help"
     echo
-    echo "  3. Или запустите GUI:"
-    echo "     python gui.py"
+    echo "  3. Запустите GUI:"
+    echo "     uv run python gui.py"
+    echo "     # или: python gui.py (после активации .venv)"
     echo
 }
 

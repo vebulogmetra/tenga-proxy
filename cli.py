@@ -10,7 +10,7 @@ from pathlib import Path
 
 from src import __version__
 from src.core import init_context
-from src.core.config import CLI_LOG_FILE, CORE_BIN_DIR, SINGBOX_BINARY_NAME, find_singbox_binary
+from src.core.config import CLI_LOG_FILE, CORE_BIN_DIR, XRAY_BINARY_NAME, find_xray_binary
 from src.core.logging_utils import setup_logging as setup_core_logging
 from src.fmt import parse_link, parse_subscription_content
 from src.sys.proxy import clear_system_proxy, set_system_proxy
@@ -32,7 +32,7 @@ def cmd_parse(args: argparse.Namespace) -> int:
         return 1
 
     if args.format == "json":
-        result = bean.build_core_obj_singbox()
+        result = bean.build_core_obj_xray()
         print(json.dumps(result["outbound"], indent=2, ensure_ascii=False))
     else:
         print(f"Тип: {bean.proxy_type.upper()}")
@@ -90,7 +90,7 @@ def cmd_subscription(args: argparse.Namespace) -> int:
         if args.format == "json":
             outbounds = []
             for profile in profiles:
-                result = profile.build_core_obj_singbox()
+                result = profile.build_core_obj_xray()
                 outbounds.append(result["outbound"])
             print(json.dumps(outbounds, indent=2, ensure_ascii=False))
         else:
@@ -107,7 +107,7 @@ def cmd_subscription(args: argparse.Namespace) -> int:
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
-    """Generate sing-box configuration from a link."""
+    """Generate xray-core configuration from a link."""
     link = args.link
 
     print("Генерация конфигурации...")
@@ -119,7 +119,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
         print("[ERROR] Не удалось распарсить ссылку")
         return 1
 
-    result = bean.build_core_obj_singbox()
+    result = bean.build_core_obj_xray()
 
     if result.get("error"):
         print(f"[WARN] Предупреждение: {result['error']}")
@@ -129,24 +129,42 @@ def cmd_generate(args: argparse.Namespace) -> int:
         outbound["tag"] = "proxy"
 
     config = {
-        "log": {"level": "info", "timestamp": True},
-        "dns": {
-            "servers": [
-                {
-                    "tag": "local-dns",
-                    "type": "local",
-                }
-            ],
-            "final": "local-dns",
-        },
+        "log": {"loglevel": "info"},
         "inbounds": [
-            {"type": "mixed", "listen": "127.0.0.1", "listen_port": args.port, "sniff": True}
+            {
+                "listen": "127.0.0.1",
+                "port": args.port,
+                "protocol": "socks",
+                "settings": {
+                    "auth": "noauth",
+                    "udp": True,
+                },
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"],
+                },
+            },
+            {
+                "listen": "127.0.0.1",
+                "port": args.port + 1,
+                "protocol": "http",
+                "settings": {},
+                "sniffing": {
+                    "enabled": True,
+                    "destOverride": ["http", "tls"],
+                },
+            },
         ],
-        "outbounds": [{"type": "direct", "tag": "direct"}, outbound],
-        "route": {
+        "outbounds": [
+            {"protocol": "freedom", "tag": "direct"},
+            outbound,
+        ],
+        "routing": {
+            "domainStrategy": "IPOnDemand",
             "rules": [
                 {
-                    "ip_cidr": [
+                    "type": "field",
+                    "ip": [
                         "127.0.0.0/8",
                         "10.0.0.0/8",
                         "172.16.0.0/12",
@@ -156,12 +174,9 @@ def cmd_generate(args: argparse.Namespace) -> int:
                         "fc00::/7",
                         "fe80::/10",
                     ],
-                    "outbound": "direct",
+                    "outboundTag": "direct",
                 }
             ],
-            "final": outbound["tag"],
-            "auto_detect_interface": False,
-            "default_domain_resolver": "local-dns",
         },
     }
 
@@ -244,19 +259,19 @@ def cmd_version(_args: argparse.Namespace) -> int:
 
     print(f"{__app_name__} {__version__}")
 
-    # Check sing-box version
-    singbox_path = find_singbox_binary()
-    if singbox_path:
+    # Check xray-core version
+    xray_path = find_xray_binary()
+    if xray_path:
         try:
             result = subprocess.run(
-                [singbox_path, "version"], capture_output=True, text=True, timeout=5
+                [xray_path, "version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
-                print(f"sing-box: {result.stdout.strip()}")
+                print(f"xray-core: {result.stdout.strip()}")
         except Exception:
-            print("sing-box: не удалось определить версию")
+            print("xray-core: не удалось определить версию")
     else:
-        print("sing-box: не найден")
+        print("xray-core: не найден")
 
     return 0
 
@@ -345,8 +360,8 @@ def cmd_build(_args: argparse.Namespace) -> int:
         print(f"[ERROR] Скрипт сборки не найден: {build_script}")
         return 1
 
-    if not (project_root / "core" / "bin" / "sing-box").exists():
-        print("[ERROR] sing-box не найден в core/bin/")
+    if not (project_root / "core" / "bin" / "xray").exists():
+        print("[ERROR] xray-core не найден в core/bin/")
         print()
         print("Для разработки запустите:")
         print("  python cli.py setup-dev")
@@ -395,8 +410,8 @@ def cmd_setup(_args: argparse.Namespace) -> int:
     """Собрать и установить AppImage (аналог core/scripts/setup.sh)."""
     project_root = Path(__file__).parent
 
-    if not (project_root / "core" / "bin" / "sing-box").exists():
-        print("[ERROR] sing-box не найден в core/bin/")
+    if not (project_root / "core" / "bin" / "xray").exists():
+        print("[ERROR] xray-core не найден в core/bin/")
         print()
         print("Для разработки запустите:")
         print("  python cli.py setup-dev")
@@ -536,47 +551,47 @@ def cmd_lint_all(_args: argparse.Namespace) -> int:
 
 def find_core_binary() -> str | None:
     """
-    Find proxy binary for CLI (sing-box).
+    Find proxy binary for CLI (xray-core).
 
     Selection priority:
-    1. sing-box in core/bin/ directory
-    2. system-wide sing-box
+    1. xray in core/bin/ directory
+    2. system-wide xray
 
-    CLI uses only sing-box (not nekobox_core).
+    CLI uses only xray-core.
     """
-    # check sing-box in project
-    singbox_path = CORE_BIN_DIR / SINGBOX_BINARY_NAME
-    if singbox_path.exists() and singbox_path.is_file():
+    # check xray in project
+    xray_path = CORE_BIN_DIR / XRAY_BINARY_NAME
+    if xray_path.exists() and xray_path.is_file():
         try:
             result = subprocess.run(
-                [str(singbox_path), "version"], capture_output=True, text=True, timeout=5
+                [str(xray_path), "version"], capture_output=True, text=True, timeout=5
             )
             if result.returncode == 0:
-                print(f"[OK] sing-box найден: {result.stdout.strip()}")
-                return str(singbox_path)
+                print(f"[OK] xray-core найден: {result.stdout.strip()}")
+                return str(xray_path)
         except Exception:
             pass
 
-    # check sing-box in system
-    path = find_singbox_binary()
-    if path == "sing-box":
+    # check xray in system
+    path = find_xray_binary()
+    if path == "xray":
         try:
             result = subprocess.run(
-                ["sing-box", "version"],
+                ["xray", "version"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode == 0:
-                msg = f"sing-box найден: {result.stdout.strip()}"
+                msg = f"xray-core найден: {result.stdout.strip()}"
                 print(f"[OK] {msg}")
                 logger.info(msg)
-                return "sing-box"
+                return "xray"
         except FileNotFoundError:
             pass
         except Exception as e:
-            print(f"[WARN] Ошибка проверки sing-box: {e}")
-            logger.exception("Ошибка проверки системного sing-box: %s", e)
+            print(f"[WARN] Ошибка проверки xray-core: {e}")
+            logger.exception("Ошибка проверки системного xray-core: %s", e)
 
     return None
 
@@ -644,7 +659,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        result = bean.build_core_obj_singbox()
+        result = bean.build_core_obj_xray()
 
         if result.get("error"):
             raise ValueError(f"Ошибка генерации: {result['error']}")
@@ -654,24 +669,38 @@ def cmd_run(args: argparse.Namespace) -> int:
             outbound["tag"] = "proxy"
 
         config = {
-            "log": {"level": "info", "timestamp": True},
-            "dns": {
-                "servers": [
-                    {
-                        "tag": "local-dns",
-                        "type": "local",
-                    }
-                ],
-                "final": "local-dns",
-            },
+            "log": {"loglevel": "info"},
             "inbounds": [
-                {"type": "mixed", "listen": "127.0.0.1", "listen_port": args.port, "sniff": True}
+                {
+                    "listen": "127.0.0.1",
+                    "port": args.port,
+                    "protocol": "socks",
+                    "settings": {
+                        "auth": "noauth",
+                        "udp": True,
+                    },
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"],
+                    },
+                },
+                {
+                    "listen": "127.0.0.1",
+                    "port": args.port + 1,
+                    "protocol": "http",
+                    "settings": {},
+                },
             ],
-            "outbounds": [{"type": "direct", "tag": "direct"}, outbound],
-            "route": {
+            "outbounds": [
+                {"protocol": "freedom", "tag": "direct"},
+                outbound,
+            ],
+            "routing": {
+                "domainStrategy": "IPOnDemand",
                 "rules": [
                     {
-                        "ip_cidr": [
+                        "type": "field",
+                        "ip": [
                             "127.0.0.0/8",
                             "10.0.0.0/8",
                             "172.16.0.0/12",
@@ -681,12 +710,9 @@ def cmd_run(args: argparse.Namespace) -> int:
                             "fc00::/7",
                             "fe80::/10",
                         ],
-                        "outbound": "direct",
+                        "outboundTag": "direct",
                     }
                 ],
-                "final": outbound["tag"],
-                "auto_detect_interface": False,
-                "default_domain_resolver": "local-dns",
             },
         }
 
@@ -697,11 +723,11 @@ def cmd_run(args: argparse.Namespace) -> int:
         core_binary = find_core_binary()
 
         if not core_binary:
-            print("\n[ERROR] sing-box не найден!")
+            print("\n[ERROR] xray-core не найден!")
             print("\nВарианты решения:")
-            print("1. Установите sing-box: https://github.com/SagerNet/sing-box/releases")
-            print("2. Поместите sing-box в директорию core/bin/")
-            print("3. Или установите системно: sudo apt install sing-box")
+            print("1. Установите xray-core: https://github.com/XTLS/Xray-core/releases")
+            print("2. Поместите xray в директорию core/bin/")
+            print("3. Или установите системно")
             return 1
 
         if not args.no_system_proxy:
@@ -711,7 +737,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             else:
                 print("[WARN] Не удалось настроить системный прокси")
 
-        print("\n[INFO] Запуск sing-box...")
+        print("\n[INFO] Запуск xray-core...")
         print(f"[INFO] Прокси доступен на: 127.0.0.1:{args.port}")
         print(f"   HTTP: http://127.0.0.1:{args.port}")
         print(f"   SOCKS5: socks5://127.0.0.1:{args.port}")
@@ -729,7 +755,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         try:
             process = subprocess.Popen(
-                [core_binary, "run", "-c", str(config_path)],
+                [core_binary, "-config", str(config_path)],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -742,10 +768,10 @@ def cmd_run(args: argparse.Namespace) -> int:
             process.wait()
 
         except KeyboardInterrupt:
-            print("\n\n[STOP] Остановка sing-box...")
+            print("\n\n[STOP] Остановка xray-core...")
             process.terminate()
             process.wait()
-            print("[OK] sing-box остановлен")
+            print("[OK] xray-core остановлен")
         finally:
             if not args.no_system_proxy:
                 clear_system_proxy()

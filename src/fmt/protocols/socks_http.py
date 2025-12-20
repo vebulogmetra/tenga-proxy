@@ -119,22 +119,32 @@ class SocksBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Построить outbound для sing-box."""
-        outbound: dict[str, Any] = {
-            "type": "socks",
-            "server": self.server_address,
-            "server_port": self.server_port,
-        }
+        """Build outbound for xray-core."""
+        if self.socks_version != SocksType.SOCKS5:
+            pass
 
-        if self.socks_version == SocksType.SOCKS4:
-            outbound["version"] = "4"
+        outbound: dict[str, Any] = {
+            "protocol": "socks",
+            "settings": {
+                "servers": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                    }
+                ]
+            },
+        }
 
         if self.name:
             outbound["tag"] = self.name
 
         if self.username and self.password:
-            outbound["username"] = self.username
-            outbound["password"] = self.password
+            outbound["settings"]["servers"][0]["users"] = [
+                {
+                    "user": self.username,
+                    "pass": self.password,
+                }
+            ]
 
         self.stream.apply_to_outbound(outbound, skip_cert)
 
@@ -210,19 +220,29 @@ class HttpBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Check outbound."""
+        """Build outbound for xray-core."""
         outbound: dict[str, Any] = {
-            "type": "http",
-            "server": self.server_address,
-            "server_port": self.server_port,
+            "protocol": "http",
+            "settings": {
+                "servers": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                    }
+                ]
+            },
         }
 
         if self.name:
             outbound["tag"] = self.name
 
         if self.username and self.password:
-            outbound["username"] = self.username
-            outbound["password"] = self.password
+            outbound["settings"]["servers"][0]["users"] = [
+                {
+                    "user": self.username,
+                    "pass": self.password,
+                }
+            ]
 
         self.stream.apply_to_outbound(outbound, skip_cert)
 

@@ -78,8 +78,6 @@ class VMessBean(ProxyBean):
             net = obj.get("net", "")
             if net == "h2":
                 net = "http"
-            if net == "xhttp":
-                net = "http"
             if net:
                 self.stream.network = net
 
@@ -124,8 +122,6 @@ class VMessBean(ProxyBean):
             # Network type
             net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
-                net_type = "http"
-            if net_type == "xhttp":
                 net_type = "http"
             self.stream.network = net_type
             # SNI
@@ -223,7 +219,7 @@ class VMessBean(ProxyBean):
         query_params["type"] = self.stream.network
 
         # Transport params
-        if self.stream.network in ("ws", "http", "httpupgrade"):
+        if self.stream.network in ("ws", "http", "xhttp", "httpupgrade"):
             if self.stream.path:
                 query_params["path"] = self.stream.path
             if self.stream.host:
@@ -248,14 +244,24 @@ class VMessBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound for sing-box."""
+        """Build outbound for xray-core."""
         outbound: dict[str, Any] = {
-            "type": "vmess",
-            "server": self.server_address,
-            "server_port": self.server_port,
-            "uuid": self.uuid.strip(),
-            "alter_id": self.alter_id,
-            "security": self.security,
+            "protocol": "vmess",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                        "users": [
+                            {
+                                "id": self.uuid.strip(),
+                                "alterId": self.alter_id,
+                                "security": self.security,
+                            }
+                        ],
+                    }
+                ]
+            },
         }
 
         if self.name:

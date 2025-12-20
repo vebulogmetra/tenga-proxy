@@ -58,10 +58,10 @@ def test_proxy_bean_display_type_and_name():
 
 def test_proxy_bean_core_type():
     bean = DummyProxyBean()
-    assert bean.core_type == "sing-box"
+    assert bean.core_type == "xray-core"
 
 
-def test_proxy_bean_build_core_obj_singbox_success():
+def test_proxy_bean_build_core_obj_xray_success():
     bean = DummyProxyBean(server_address="127.0.0.1", server_port=1080)
     result = bean.build_core_obj_singbox()
     assert "outbound" in result
@@ -71,7 +71,7 @@ def test_proxy_bean_build_core_obj_singbox_success():
     assert result["outbound"]["port"] == 1080
 
 
-def test_proxy_bean_build_core_obj_singbox_with_error():
+def test_proxy_bean_build_core_obj_xray_with_error():
     class FailingBean(DummyProxyBean):
         def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
             raise ValueError("test error")

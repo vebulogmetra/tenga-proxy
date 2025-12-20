@@ -14,6 +14,7 @@ class VLESSBean(ProxyBean):
 
     uuid: str = ""
     flow: str = ""
+    encryption: str = "none"
     stream: StreamSettings = field(default_factory=StreamSettings)
 
     @property
@@ -54,7 +55,7 @@ class VLESSBean(ProxyBean):
 
             # Security
             security = query.get("security", [""])[0]
-            if security == "reality":
+            if security in ("reality", "tls"):
                 security = "tls"
             elif security == "none":
                 security = ""
@@ -78,6 +79,10 @@ class VLESSBean(ProxyBean):
                 self.stream.reality_spider_x = query["spx"][0]
             # uTLS fingerprint
             self.stream.utls_fingerprint = query.get("fp", [""])[0]
+            if "encryption" in query:
+                self.encryption = query["encryption"][0]
+            else:
+                self.encryption = "none"
             # Transport settings
             self._parse_transport_settings(query)
             # Flow
@@ -97,7 +102,7 @@ class VLESSBean(ProxyBean):
                 self.stream.path = query["path"][0]
             if "host" in query:
                 self.stream.host = query["host"][0]
-        elif self.stream.network == "http":
+        elif self.stream.network in ("http", "xhttp"):
             if "path" in query:
                 self.stream.path = query["path"][0]
             if "host" in query:
@@ -153,6 +158,9 @@ class VLESSBean(ProxyBean):
         # Flow
         if self.flow:
             query_params["flow"] = self.flow
+        # Encryption
+        if self.encryption and self.encryption != "none":
+            query_params["encryption"] = self.encryption
 
         if query_params:
             url += "?" + urlencode(query_params)
@@ -164,7 +172,7 @@ class VLESSBean(ProxyBean):
 
     def _add_transport_params(self, params: dict[str, str]) -> None:
         """Add transport parameters."""
-        if self.stream.network in ("ws", "http", "httpupgrade"):
+        if self.stream.network in ("ws", "http", "xhttp", "httpupgrade"):
             if self.stream.path:
                 params["path"] = self.stream.path
             if self.stream.host:
@@ -181,7 +189,7 @@ class VLESSBean(ProxyBean):
                     params["host"] = self.stream.host
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound for sing-box."""
+        """Build outbound for xray-core."""
         flow = self.flow
         if flow.endswith("-udp443"):
             flow = flow[:-7]
@@ -189,14 +197,25 @@ class VLESSBean(ProxyBean):
             flow = ""
 
         outbound: dict[str, Any] = {
-            "type": "vless",
-            "server": self.server_address,
-            "server_port": self.server_port,
-            "uuid": self.uuid.strip(),
+            "protocol": "vless",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                        "users": [
+                            {
+                                "id": self.uuid.strip(),
+                                "encryption": self.encryption or "none",
+                            }
+                        ],
+                    }
+                ]
+            },
         }
 
         if flow:
-            outbound["flow"] = flow
+            outbound["settings"]["vnext"][0]["users"][0]["flow"] = flow
 
         if self.name:
             outbound["tag"] = self.name
@@ -239,12 +258,9 @@ class TrojanBean(ProxyBean):
             net_type = query.get("type", ["tcp"])[0]
             if net_type == "h2":
                 net_type = "http"
-            if net_type == "xhttp":
-                net_type = "http"
             self.stream.network = net_type
-            # Security - Trojan uses TLS by default
             security = query.get("security", ["tls"])[0]
-            if security == "reality":
+            if security in ("reality", "tls"):
                 security = "tls"
             elif security == "none":
                 security = ""
@@ -360,12 +376,18 @@ class TrojanBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound for sing-box."""
+        """Build outbound for xray-core."""
         outbound: dict[str, Any] = {
-            "type": "trojan",
-            "server": self.server_address,
-            "server_port": self.server_port,
-            "password": self.password,
+            "protocol": "trojan",
+            "settings": {
+                "servers": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                        "password": self.password,
+                    }
+                ]
+            },
         }
 
         if self.name:

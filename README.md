@@ -1,6 +1,6 @@
 # Tenga Proxy
 
-Клиент прокси для Linux. Использует движок [sing-box](https://github.com/SagerNet/sing-box).
+Клиент прокси для Linux с backend [xray-core](https://github.com/XTLS/Xray-core).
 
 ## Поддерживаемые протоколы
 
@@ -15,12 +15,12 @@
 
 - Парсинг share links (vless://, trojan://, vmess://, ss://, socks://)
 - Импорт подписок (base64, plain text)
-- Генерация конфигураций sing-box
+- Генерация конфигураций xray-core
 - Автоматическая настройка системного прокси (GNOME/KDE)
 - Гибкая маршрутизация трафика (через VLESS, VPN или напрямую)
 - Управление профилями
 - Системный трей с уведомлениями (GTK)
-- Мониторинг через Clash API (статистика, соединения)
+- Мониторинг через Stats API (статистика)
 
 ## Установка
 
@@ -53,17 +53,17 @@ python cli.py setup-dev
 
 #### Установка sing-box
 
-**Вариант 1: Собрать из исходников**
+**Вариант 1: Скачать бинарник**
 ```bash
-# Скачать source code с https://github.com/SagerNet/sing-box/releases
-# Собрать бинарник
-# Поместить в core/bin/sing-box
-chmod +x core/bin/sing-box
+# Скачать с https://github.com/XTLS/Xray-core/releases
+# Распаковать
+# Поместить в core/bin/xray
+chmod +x core/bin/xray
 ```
 
 **Вариант 2: Установить системно**
 ```bash
-# См. официальную документацию: https://sing-box.sagernet.org
+# См. официальную документацию: https://xtls.github.io
 ```
 
 ## Сборка AppImage
@@ -73,7 +73,7 @@ chmod +x core/bin/sing-box
 ### Требования для сборки
 
 - Системные зависимости (устанавливаются через `python cli.py setup-dev`)
-- Бинарник `sing-box` в `core/bin/sing-box`
+- Бинарник `xray` в `core/bin/xray`
 
 ### Сборка
 
@@ -125,7 +125,7 @@ python cli.py bump-version 1.6.0 --force
 # Парсинг share link с выводом информации
 python cli.py parse "vless://..."
 
-# Парсинг с выводом JSON конфигурации для sing-box
+# Парсинг с выводом JSON конфигурации для xray-core
 python cli.py parse "vless://..." -f json
 ```
 
@@ -142,7 +142,7 @@ python cli.py sub "https://example.com/subscription" -f json
 #### Генерация конфигураций
 
 ```bash
-# Генерация конфигурации sing-box из share link
+# Генерация конфигурации xray-core из share link
 python cli.py gen "vless://..." -o config.json
 
 # Генерация с указанием порта прокси
@@ -190,7 +190,7 @@ python cli.py run /path/to/link.txt
 #### Информация о версии
 
 ```bash
-# Показать версию приложения и sing-box
+# Показать версию приложения и xray-core
 python cli.py ver
 ```
 
@@ -296,7 +296,7 @@ curl -x http://127.0.0.1:2080 https://ifconfig.me
 
 - Python 3.8+
 - Модуль `requests` (для загрузки подписок)
-- Бинарник `sing-box` (для запуска прокси)
+- Бинарник `xray` (для запуска прокси)
 
 **Минимальная установка для CLI:**
 
@@ -342,10 +342,10 @@ pip3 install -r requirements.txt
 
 ### Требования для sing-box
 
-CLI и GUI требуют наличия бинарника `sing-box`. Он может быть:
+CLI и GUI требуют наличия бинарника `xray`. Он может быть:
 
-1. **В директории проекта:** `core/bin/sing-box`
+1. **В директории проекта:** `core/bin/xray`
 2. **В системном PATH:** установлен системно
 3. **В AppImage:** встроен в образ
 
-Если `sing-box` не найден, CLI покажет инструкции по установке при попытке запуска прокси.
+Если `xray` не найден, CLI покажет инструкции по установке при попытке запуска прокси.

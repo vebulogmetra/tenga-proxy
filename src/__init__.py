@@ -1,7 +1,7 @@
-__version__ = "0.6.2"
+__version__ = "0.8.4"
 __app_name__ = "Tenga Proxy"
 __app_description__ = (
-    "Клиент прокси с бекэндом <a href='https://github.com/SagerNet/sing-box'>sing-box</a>"
+    "Клиент прокси с бекэндом <a href='https://github.com/XTLS/Xray-core'>xray-core</a>"
 )
 __app_author__ = "Artem G."
 __app_website__ = "https://github.com/vebulogmetra/tenga-proxy"

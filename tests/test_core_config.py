@@ -66,7 +66,7 @@ def test_log_dir_created(clean_env, tmp_path, monkeypatch):
     assert config.LOG_DIR.exists()
     assert str(config.GUI_LOG_FILE).startswith(str(config.LOG_DIR))
     assert str(config.CLI_LOG_FILE).startswith(str(config.LOG_DIR))
-    assert str(config.SINGBOX_LOG_FILE).startswith(str(config.LOG_DIR))
+    assert str(config.XRAY_LOG_FILE).startswith(str(config.LOG_DIR))
 
 
 def test_get_lock_file_default_and_custom(tmp_path):

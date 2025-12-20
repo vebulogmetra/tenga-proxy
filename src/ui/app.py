@@ -100,14 +100,14 @@ class TengaApp:
     def run(self) -> int:
         """Run application."""
         try:
-            # Check sing-box
-            singbox_path = self._context.find_singbox_binary()
-            if not singbox_path:
+            # Check xray-core
+            xray_path = self._context.find_xray_binary()
+            if not xray_path:
                 error_msg = (
-                    "sing-box not found!\n\n"
+                    "xray-core not found!\n\n"
                     "Solutions:\n"
-                    "1. Install sing-box globally (see README.md)\n"
-                    "2. Place sing-box binary in core/bin/\n"
+                    "1. Install xray-core globally (see README.md)\n"
+                    "2. Place xray binary in core/bin/\n"
                     "3. Run ./install.sh for automatic installation"
                 )
 
@@ -116,7 +116,7 @@ class TengaApp:
                     flags=0,
                     message_type=Gtk.MessageType.ERROR,
                     buttons=Gtk.ButtonsType.OK,
-                    text="sing-box не найден",
+                    text="xray-core не найден",
                 )
                 dialog.set_wmclass("tenga-proxy", "tenga-proxy")
                 from gi.repository import Gdk
@@ -127,7 +127,7 @@ class TengaApp:
                 dialog.run()
                 dialog.destroy()
 
-                logger.error("sing-box not found")
+                logger.error("xray-core not found")
                 return 1
 
             # Create tray
@@ -276,11 +276,11 @@ class TengaApp:
         config_path = self._context.config_dir / "current_config.json"
         config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         logger.info("Configured profile id=%s, file: %s", profile_id, config_path)
-        # Start sing-box
+        # Start xray-core
         try:
-            success, error = self._context.singbox_manager.start(config)
+            success, error = self._context.xray_manager.start(config)
             if not success:
-                logger.error("Error starting sing-box: %s", error)
+                logger.error("Error starting xray-core: %s", error)
                 if self._tray:
                     self._tray.show_notification("Error", f"Failed to start: {error}")
                 return False
@@ -302,7 +302,7 @@ class TengaApp:
             return True
 
         except Exception as e:
-            logger.exception("Error starting sing-box: %s", e)
+            logger.exception("Error starting xray-core: %s", e)
             if self._tray:
                 self._tray.show_notification("Error", f"Failed to start: {e}")
             return False
@@ -334,11 +334,11 @@ class TengaApp:
         config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
         logger.info("Reloaded configuration for profile id=%s, file: %s", profile_id, config_path)
 
-        # Reload sing-box
+        # Reload xray-core
         try:
-            success, error = self._context.singbox_manager.reload_config(config)
+            success, error = self._context.xray_manager.reload_config(config)
             if not success:
-                logger.error("Error reloading sing-box: %s", error)
+                logger.error("Error reloading xray-core: %s", error)
                 if self._tray:
                     self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {error}")
                 return False
@@ -349,20 +349,20 @@ class TengaApp:
             return True
 
         except Exception as e:
-            logger.exception("Error reloading sing-box: %s", e)
+            logger.exception("Error reloading xray-core: %s", e)
             if self._tray:
                 self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {e}")
             return False
 
     def _disconnect(self) -> None:
         """Disconnect proxy."""
-        # Stop sing-box
+        # Stop xray-core
         try:
-            success, error = self._context.singbox_manager.stop()
+            success, error = self._context.xray_manager.stop()
             if not success:
-                logger.error("Error stopping sing-box: %s", error)
+                logger.error("Error stopping xray-core: %s", error)
         except Exception as e:
-            logger.exception("Exception when stopping sing-box: %s", e)
+            logger.exception("Exception when stopping xray-core: %s", e)
 
         try:
             profile_id = getattr(self._context.proxy_state, "started_profile_id", None)
@@ -405,9 +405,9 @@ class TengaApp:
             self._tray.show_notification("Disconnected", "Proxy disconnected")
 
     def _create_config(self, profile: ProfileEntry) -> dict | None:
-        """Create sing-box configuration for profile."""
+        """Create xray-core configuration for profile."""
         try:
-            result = profile.bean.build_core_obj_singbox()
+            result = profile.bean.build_core_obj_xray()
 
             if result.get("error"):
                 logger.error(
@@ -461,8 +461,27 @@ class TengaApp:
                         vpn_settings.connection_name,
                     )
 
-            # Handle custom routing lists
-            if routing.mode == RoutingMode.CUSTOM:
+            if routing.mode == RoutingMode.PROXY_ALL:
+                if routing.bypass_local_networks:
+                    local_networks = [
+                        "127.0.0.0/8",
+                        "10.0.0.0/8",
+                        "172.16.0.0/12",
+                        "192.168.0.0/16",
+                        "169.254.0.0/16",
+                        "::1/128",
+                        "fc00::/7",
+                        "fe80::/10",
+                    ]
+                    route_rules.append(
+                        {
+                            "type": "field",
+                            "ip": local_networks,
+                            "outboundTag": "direct",
+                        }
+                    )
+                    logger.debug("Added local networks bypass rule for PROXY_ALL mode")
+            elif routing.mode == RoutingMode.CUSTOM:
                 direct_list = list(routing.direct_list) if routing.direct_list else []
 
                 if routing.bypass_local_networks:
@@ -501,8 +520,9 @@ class TengaApp:
                         if direct_ips:
                             route_rules.append(
                                 {
-                                    "ip_cidr": direct_ips,
-                                    "outbound": "direct",
+                                    "type": "field",
+                                    "ip": direct_ips,
+                                    "outboundTag": "direct",
                                 }
                             )
                             logger.debug(
@@ -513,8 +533,9 @@ class TengaApp:
                         if direct_domains:
                             route_rules.append(
                                 {
-                                    "domain_suffix": direct_domains,
-                                    "outbound": "direct",
+                                    "type": "field",
+                                    "domain": direct_domains,
+                                    "outboundTag": "direct",
                                 }
                             )
                             logger.debug(
@@ -526,8 +547,9 @@ class TengaApp:
                         if vpn_ips:
                             route_rules.append(
                                 {
-                                    "ip_cidr": vpn_ips,
-                                    "outbound": vpn_tag,
+                                    "type": "field",
+                                    "ip": vpn_ips,
+                                    "outboundTag": vpn_tag,
                                 }
                             )
                             logger.debug(
@@ -538,8 +560,9 @@ class TengaApp:
                         if vpn_domains:
                             route_rules.append(
                                 {
-                                    "domain_suffix": vpn_domains,
-                                    "outbound": vpn_tag,
+                                    "type": "field",
+                                    "domain": vpn_domains,
+                                    "outboundTag": vpn_tag,
                                 }
                             )
                             logger.debug(
@@ -551,8 +574,9 @@ class TengaApp:
                         if proxy_ips:
                             route_rules.append(
                                 {
-                                    "ip_cidr": proxy_ips,
-                                    "outbound": proxy_tag,
+                                    "type": "field",
+                                    "ip": proxy_ips,
+                                    "outboundTag": proxy_tag,
                                 }
                             )
                             logger.debug(
@@ -563,8 +587,9 @@ class TengaApp:
                         if proxy_domains:
                             route_rules.append(
                                 {
-                                    "domain_suffix": proxy_domains,
-                                    "outbound": proxy_tag,
+                                    "type": "field",
+                                    "domain": proxy_domains,
+                                    "outboundTag": proxy_tag,
                                 }
                             )
                             logger.debug(
@@ -573,38 +598,52 @@ class TengaApp:
                                 proxy_domains,
                             )
 
-            final_outbound = proxy_tag
             # Outbounds
-            direct_outbound = {"type": "direct", "tag": "direct"}
+            direct_outbound = {"protocol": "freedom", "tag": "direct"}
             if vpn_tag and vpn_interface and vpn_settings:
                 direct_interface = getattr(vpn_settings, "direct_interface", "") or ""
                 if not direct_interface:
                     direct_interface = get_default_interface(vpn_interface)
 
                 if direct_interface:
-                    direct_outbound["bind_interface"] = direct_interface
+                    direct_outbound["streamSettings"] = {
+                        "sockopt": {
+                            "interface": direct_interface,
+                        },
+                    }
                     logger.info(
                         "Direct outbound bound to interface: %s (bypassing VPN %s)",
                         direct_interface,
                         vpn_interface,
                     )
 
-            outbounds = [
-                direct_outbound,
-                outbound,
-            ]
+            if routing.mode == RoutingMode.PROXY_ALL:
+                outbounds = [
+                    outbound,
+                    direct_outbound,
+                ]
+            else:
+                outbounds = [
+                    outbound,
+                    direct_outbound,
+                ]
 
             if vpn_tag and vpn_interface:
                 vpn_outbound = {
-                    "type": "direct",
+                    "protocol": "freedom",
                     "tag": vpn_tag,
-                    "bind_interface": vpn_interface,
+                    "settings": {
+                        "domainStrategy": "UseIPv4",
+                    },
+                    "streamSettings": {
+                        "sockopt": {
+                            "interface": vpn_interface,
+                        },
+                    },
                 }
-                # Use local-dns for VPN outbound to avoid circular dependency
-                # VPN DNS server uses detour to this outbound, so we use local-dns here
-                vpn_outbound["domain_resolver"] = "local-dns"
+
                 logger.info(
-                    "Added VPN outbound with interface: %s, domain_resolver: local-dns",
+                    "Added VPN outbound with interface: %s",
                     vpn_interface,
                 )
                 outbounds.append(vpn_outbound)
@@ -623,7 +662,7 @@ class TengaApp:
                     )
             else:
                 logger.info("Profile configuration: No VPN settings, proxy only")
-            # DNS (sing-box 1.12.0+ new format)
+            # DNS (xray-core format)
             dns_settings = self._context.config.dns
             dns_url = dns_settings.get_dns_url()
             dns_detour = proxy_tag if dns_settings.use_proxy else "direct"
@@ -842,7 +881,7 @@ class TengaApp:
                     }
                 )
 
-            # Note: Removed deprecated "outbound" rule - use domain_resolver in outbounds instead
+            # Note: xray-core DNS configuration uses servers with optional domains, not separate rules
 
             dns_config = {
                 "servers": dns_servers,
@@ -850,66 +889,122 @@ class TengaApp:
                 "final": "main-dns",
             }
 
-            # Log DNS configuration for debugging
-            logger.info("DNS configuration (sing-box 1.12.0+ format):")
-            logger.info("  Servers: %s", [s.get("tag") for s in dns_servers])
-            for server in dns_servers:
-                server_type = server.get("type", "unknown")
-                server_addr = server.get("server", "N/A")
-                detour = server.get("detour", "N/A")
-                bind_iface = server.get("bind_interface", "N/A")
-                logger.info(
-                    "    - %s: type=%s, server=%s, detour=%s, bind_interface=%s",
-                    server.get("tag"),
-                    server_type,
-                    server_addr,
-                    detour,
-                    bind_iface,
-                )
+            # Log DNS configuration for debugging (before conversion)
+            logger.info("DNS configuration (before xray-core conversion):")
+            logger.info("  Servers: %s", [s.get("tag", "unknown") for s in dns_servers])
             logger.info("  Rules: %s", len(dns_rules))
-            for i, rule in enumerate(dns_rules):
-                if "domain" in rule:
-                    logger.info(
-                        "    Rule %d: domain=%s -> server=%s",
-                        i,
-                        rule.get("domain"),
-                        rule.get("server"),
-                    )
-                elif "domain_suffix" in rule:
-                    logger.info(
-                        "    Rule %d: domain_suffix=%s -> server=%s",
-                        i,
-                        rule.get("domain_suffix"),
-                        rule.get("server"),
-                    )
-                elif "outbound" in rule:
-                    logger.info(
-                        "    Rule %d: outbound=%s -> server=%s",
-                        i,
-                        rule.get("outbound"),
-                        rule.get("server"),
-                    )
-            logger.info("  Final DNS server: %s", dns_config.get("final"))
+
+            # Convert DNS config from sing-box format to xray-core format
+            xray_dns_servers = []
+            
+            # Convert DNS servers
+            for server in dns_servers:
+                server_type = server.get("type", "local")
+                server_tag = server.get("tag", "")
+                
+                if server_type == "local":
+                    xray_dns_servers.append("localhost")
+                elif server_type == "udp":
+                    addr = server.get("server", "8.8.8.8")
+                    port_num = server.get("server_port", 53)
+                    # xray-core expects UDP DNS servers as object with address and port
+                    # or just IP string if port is 53 (default)
+                    server_config = {
+                        "address": addr,
+                        "port": port_num,
+                    }
+                    # Add domains from DNS rules if this server is referenced
+                    domains_for_server = []
+                    for rule in dns_rules:
+                        if rule.get("server") == server_tag:
+                            if "domain" in rule:
+                                domains_for_server.extend(rule["domain"])
+                            elif "domain_suffix" in rule:
+                                domains_for_server.extend(rule["domain_suffix"])
+                    if domains_for_server:
+                        server_config["domains"] = domains_for_server
+                    # Note: xray-core doesn't support detour in DNS config directly
+                    # DNS queries routing through VPN is handled via routing rules
+                    xray_dns_servers.append(server_config)
+                elif server_type == "tls":
+                    addr = server.get("server", "1.1.1.1")
+                    port_num = server.get("server_port", 853)
+                    server_config = {
+                        "address": f"{addr}:{port_num}",
+                    }
+                    # Add domains from DNS rules if this server is referenced
+                    domains_for_server = []
+                    for rule in dns_rules:
+                        if rule.get("server") == server_tag:
+                            if "domain" in rule:
+                                domains_for_server.extend(rule["domain"])
+                            elif "domain_suffix" in rule:
+                                domains_for_server.extend(rule["domain_suffix"])
+                    if domains_for_server:
+                        server_config["domains"] = domains_for_server
+                    xray_dns_servers.append(server_config)
+                elif server_type == "https":
+                    addr = server.get("server", "1.1.1.1")
+                    port_num = server.get("server_port", 443)
+                    path = server.get("path", "/dns-query")
+                    server_config = {
+                        "address": f"{addr}:{port_num}",
+                        "path": path,
+                    }
+                    # Add domains from DNS rules if this server is referenced
+                    domains_for_server = []
+                    for rule in dns_rules:
+                        if rule.get("server") == server_tag:
+                            if "domain" in rule:
+                                domains_for_server.extend(rule["domain"])
+                            elif "domain_suffix" in rule:
+                                domains_for_server.extend(rule["domain_suffix"])
+                    if domains_for_server:
+                        server_config["domains"] = domains_for_server
+                    xray_dns_servers.append(server_config)
+            
+            # Build inbounds for xray-core (separate SOCKS and HTTP)
+            inbounds = [
+                {
+                    "listen": self._context.config.inbound_address,
+                    "port": port,
+                    "protocol": "socks",
+                    "settings": {
+                        "auth": "noauth",
+                        "udp": True,
+                    },
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"],
+                    },
+                },
+                {
+                    "listen": self._context.config.inbound_address,
+                    "port": port + 1,
+                    "protocol": "http",
+                    "settings": {},
+                    "sniffing": {
+                        "enabled": True,
+                        "destOverride": ["http", "tls"],
+                    },
+                },
+            ]
 
             config = {
-                "log": {"level": self._context.config.log_level, "timestamp": True},
-                "dns": dns_config,
-                "inbounds": [
-                    {
-                        "type": "mixed",
-                        "listen": self._context.config.inbound_address,
-                        "listen_port": port,
-                        "sniff": True,
-                    }
-                ],
+                "log": {"loglevel": self._context.config.log_level},
+                "dns": {
+                    "servers": xray_dns_servers if xray_dns_servers else ["localhost"],
+                },
+                "inbounds": inbounds,
                 "outbounds": outbounds,
-                "route": {
+                "routing": {
+                    "domainStrategy": "IPOnDemand",
                     "rules": route_rules,
-                    "final": final_outbound,
-                    "auto_detect_interface": not (vpn_tag and vpn_interface),
-                    "default_domain_resolver": "main-dns",
                 },
             }
+            
+            # Note: xray-core automatically uses the first outbound as default
+            # if no routing rules match. No need to add a catch-all rule.
 
             return config
 

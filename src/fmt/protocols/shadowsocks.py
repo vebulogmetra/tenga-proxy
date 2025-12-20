@@ -165,32 +165,24 @@ class ShadowsocksBean(ProxyBean):
         return url
 
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
-        """Build outbound for sing-box."""
+        """Build outbound for xray-core."""
         outbound: dict[str, Any] = {
-            "type": "shadowsocks",
-            "server": self.server_address,
-            "server_port": self.server_port,
-            "method": self.method,
-            "password": self.password,
+            "protocol": "shadowsocks",
+            "settings": {
+                "servers": [
+                    {
+                        "address": self.server_address,
+                        "port": self.server_port,
+                        "method": self.method,
+                        "password": self.password,
+                    }
+                ]
+            },
         }
 
         if self.name:
             outbound["tag"] = self.name
 
-        # UDP over TCP
-        if self.uot_version > 0:
-            outbound["udp_over_tcp"] = {"enabled": True, "version": self.uot_version}
-        else:
-            outbound["udp_over_tcp"] = False
-
-        # Plugin
-        if self.plugin.strip():
-            plugin_parts = self.plugin.split(";", 1)
-            outbound["plugin"] = plugin_parts[0]
-            if len(plugin_parts) > 1:
-                outbound["plugin_opts"] = plugin_parts[1]
-
-        # Stream settings
         self.stream.apply_to_outbound(outbound, skip_cert)
 
         return outbound

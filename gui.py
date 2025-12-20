@@ -67,7 +67,7 @@ from src import __version__ as APP_VERSION
 from src.core.config import (
     BUNDLE_DIR,
     CORE_DIR,
-    find_singbox_binary,
+    find_xray_binary,
     get_lock_file,
     init_config_files,
 )
@@ -76,7 +76,7 @@ from src.ui.app import run_app
 
 logger.info(f"BUNDLE_DIR: {BUNDLE_DIR}")
 logger.info(f"CORE_DIR: {CORE_DIR}")
-logger.info(f"sing-box path: {find_singbox_binary()}")
+logger.info(f"xray-core path: {find_xray_binary()}")
 
 init_config_files()
 
