@@ -698,7 +698,7 @@ class MainWindow(Gtk.Window):
 
     def _refresh_profiles(self) -> None:
         """Refresh profile list with hierarchical structure (groups -> profiles)."""
-        if not self._profile_store:
+        if not self._profile_store or not self._profile_list:
             return
 
         self._profile_store.clear()
@@ -707,12 +707,10 @@ class MainWindow(Gtk.Window):
         current_profile_id = self._context.proxy_state.started_profile_id
 
         sorted_groups = sorted(
-            groups.values(),
-            key=lambda g: (not g.is_subscription, g.name.lower())
+            groups.values(), key=lambda g: (not g.is_subscription, g.name.lower())
         )
 
         for group in sorted_groups:
-    
             if group.is_subscription:
                 group_icon = "network-server-symbolic"
                 group_prefix = "📡 "
@@ -731,7 +729,7 @@ class MainWindow(Gtk.Window):
                     "",
                     "",  # ping
                     group_icon,
-                ]
+                ],
             )
 
             for profile in group_profiles:
@@ -754,13 +752,28 @@ class MainWindow(Gtk.Window):
                         profile.bean.display_address,
                         ping_text,
                         "preferences-system-symbolic",
-                    ]
+                    ],
                 )
 
-            if group.is_subscription:
-                self._profile_list.expand_row(
-                    self._profile_store.get_path(group_iter), False
-                )
+        # Expand and scroll to active profile
+        if current_profile_id is not None:
+            profile_iter = self._find_profile_iter(self._profile_store, current_profile_id)
+            if profile_iter:
+                path = self._profile_store.get_path(profile_iter)
+                if path:
+                    self._profile_list.expand_to_path(path)
+                    self._profile_list.scroll_to_cell(path, None, True, 0.5, 0.0)
+        else:
+            # Expand subscription groups by default
+            for group in sorted_groups:
+                if group.is_subscription:
+                    group_iter = self._profile_store.iter_children(None)
+                    while group_iter:
+                        if self._profile_store[group_iter][1] == group.id:
+                            path = self._profile_store.get_path(group_iter)
+                            self._profile_list.expand_row(path, False)
+                            break
+                        group_iter = self._profile_store.iter_next(group_iter)
 
     def _refresh_subscriptions(self) -> None:
         """Refresh subscriptions list."""
