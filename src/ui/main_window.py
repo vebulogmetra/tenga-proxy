@@ -1300,63 +1300,121 @@ class MainWindow(Gtk.Window):
     def _on_delete_profile_clicked(self, button: Gtk.Button) -> None:
         """Click on Delete button."""
         profile_id = self._get_selected_profile_id()
+        group_id = self._get_selected_group_id()
 
-        if profile_id is None:
-            group_id = self._get_selected_group_id()
-            if group_id is not None:
+        if profile_id is None and group_id is None:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.WARNING,
+                buttons=Gtk.ButtonsType.OK,
+                text="Выберите профиль или группу",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text("Выберите профиль или группу для удаления.")
+            dialog.run()
+            dialog.destroy()
+            return
+
+        # Check for active connection
+        if self._context.proxy_state.is_running:
+            active_profile_id = self._context.proxy_state.started_profile_id
+            if (profile_id is not None and profile_id == active_profile_id) or (
+                group_id is not None
+                and active_profile_id in [
+                    p.id for p in self._context.profiles.get_profiles_in_group(group_id)
+                ]
+            ):
                 dialog = Gtk.MessageDialog(
                     transient_for=self,
                     flags=0,
-                    message_type=Gtk.MessageType.INFO,
+                    message_type=Gtk.MessageType.ERROR,
                     buttons=Gtk.ButtonsType.OK,
-                    text="Выбрана группа",
+                    text="Нельзя удалить активный профиль или группу",
                 )
                 dialog.set_wmclass("tenga-proxy", "tenga-proxy")
                 dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
                 dialog.set_skip_taskbar_hint(True)
                 dialog.format_secondary_text(
-                    "Выбрана группа. Выберите конкретный профиль для удаления."
+                    "Сначала отключитесь, а затем повторите попытку."
                 )
                 dialog.run()
                 dialog.destroy()
-            else:
+                return
+
+        if group_id is not None:
+            group = self._context.profiles.get_group(group_id)
+            if not group:
+                return
+
+            if group.is_subscription:
                 dialog = Gtk.MessageDialog(
                     transient_for=self,
                     flags=0,
-                    message_type=Gtk.MessageType.WARNING,
+                    message_type=Gtk.MessageType.INFO,
                     buttons=Gtk.ButtonsType.OK,
-                    text="Выберите профиль",
+                    text="Нельзя удалить группу от подписки",
                 )
                 dialog.set_wmclass("tenga-proxy", "tenga-proxy")
                 dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
                 dialog.set_skip_taskbar_hint(True)
-                dialog.format_secondary_text("Выберите профиль для удаления.")
+                dialog.format_secondary_text(
+                    "Для удаления группы, созданной подпиской, удалите саму подписку на вкладке 'Подписки'."
+                )
                 dialog.run()
                 dialog.destroy()
+                return
+
+            profile_count = len(self._context.profiles.get_profiles_in_group(group_id))
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Удалить группу?",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text(
+                f"Удалить группу '{group.name}'?\n\n"
+                f"Будет удалено профилей: {profile_count}\n"
+                f"Это действие нельзя отменить."
+            )
+            response = dialog.run()
+            dialog.destroy()
+
+            if response == Gtk.ResponseType.YES:
+                self._context.profiles.remove_group(group_id, remove_profiles=True)
+                self._context.profiles.save()
+                self._refresh_profiles()
             return
 
-        profile = self._context.profiles.get_profile(profile_id)
-        if not profile:
-            return
+        if profile_id is not None:
+            profile = self._context.profiles.get_profile(profile_id)
+            if not profile:
+                return
 
-        dialog = Gtk.MessageDialog(
-            transient_for=self,
-            flags=0,
-            message_type=Gtk.MessageType.QUESTION,
-            buttons=Gtk.ButtonsType.YES_NO,
-            text="Удалить профиль?",
-        )
-        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        dialog.set_skip_taskbar_hint(True)
-        dialog.format_secondary_text(f"Удалить профиль '{profile.name}'?")
-        response = dialog.run()
-        dialog.destroy()
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Удалить профиль?",
+            )
+            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+            dialog.set_skip_taskbar_hint(True)
+            dialog.format_secondary_text(f"Удалить профиль '{profile.name}'?")
+            response = dialog.run()
+            dialog.destroy()
 
-        if response == Gtk.ResponseType.YES:
-            self._context.profiles.remove_profile(profile_id)
-            self._context.profiles.save()
-            self._refresh_profiles()
+            if response == Gtk.ResponseType.YES:
+                self._context.profiles.remove_profile(profile_id)
+                self._context.profiles.save()
+                self._refresh_profiles()
 
     def _on_edit_profile_clicked(self, button: Gtk.Button) -> None:
         """Click on Edit button."""
