@@ -1,0 +1,121 @@
+site_name: Tenga Proxy
+site_dir: site
+site_url: https://vebulogmetra.github.io/tenga-proxy/
+repo_url: https://github.com/vebulogmetra/tenga-proxy
+edit_uri: edit/main/docs/
+site_author: Artem G.
+copyright: Copyright &copy; 2025 Artem G.
+use_directory_urls: false
+
+theme:
+  name: material
+  language: en
+  palette:
+    - scheme: default
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/lightbulb
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: amber
+      toggle:
+        icon: material/lightbulb-outline
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - toc.integrate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.tabs.link
+    - content.code.annotate
+    - content.code.copy
+
+plugins:
+  - search
+  - i18n:
+      reconfigure_material: true
+      docs_structure: folder
+      languages:
+        - locale: en
+          name: English
+          default: true
+          build: true
+        - locale: ru
+          name: Русский
+          build: true
+          nav:
+            - Обзор: ru/index.md
+            - Общие сведения: ru/overview.md
+            - Установка: ru/installation.md
+            - CLI: ru/cli.md
+            - GUI: ru/gui.md
+            - Протоколы: ru/protocols.md
+            - Профили: ru/profiles.md
+            - VPN: ru/vpn.md
+            - Маршрутизация: ru/routing.md
+            - Разработка: ru/development.md
+            - API: ru/api.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+nav:
+  - Overview: en/index.md
+  - General: en/overview.md
+  - Installation: en/installation.md
+  - CLI: en/cli.md
+  - GUI: en/gui.md
+  - Protocols: en/protocols.md
+  - Profiles: en/profiles.md
+  - VPN: en/vpn.md
+  - Routing: en/routing.md
+  - Development: en/development.md
+  - API: en/api.md
+
+extra:
+  version:
+    provider: mike
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/vebulogmetra/tenga-proxy
+  consent:
+    title: Cookie consent
+    description: >-
+      We use cookies to recognize your repeated visits and preferences, as well
+      as to measure the effectiveness of our documentation and whether users
+      find what they're searching for. With your consent, you're helping us to
+      make our documentation better.
