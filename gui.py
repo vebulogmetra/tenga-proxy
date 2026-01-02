@@ -99,33 +99,19 @@ def main() -> int:
     single_instance = SingleInstance(lock_file)
 
     if single_instance.is_running():
-        logger.warning("Another instance is already running")
-        try:
-            dialog = Gtk.MessageDialog(
-                flags=0,
-                message_type=Gtk.MessageType.INFO,
-                buttons=Gtk.ButtonsType.OK,
-                text="Приложение уже запущено",
-            )
-            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-            from gi.repository import Gdk
-
-            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text(
-                "Tenga Proxy уже запущен.\n"
-                "Проверьте иконку в системном трее или закройте существующий экземпляр перед запуском нового."
-            )
-            dialog.run()
-            dialog.destroy()
-        except Exception as e:
-            logger.error("Error showing dialog: %s", e)
-            print("Приложение уже запущено. Проверьте иконку в системном трее.")
-        return 1
-
-    if not single_instance.acquire():
-        logger.error("Failed to acquire lock")
-        return 1
+        logger.info("Another instance is already running, sending activation signal")
+        if single_instance.send_activation_signal():
+            logger.info("Activation signal sent successfully")
+            return 0
+        else:
+            logger.warning("Could not send activation signal, starting new instance")
+            if not single_instance.acquire():
+                logger.error("Failed to acquire lock")
+                return 1
+    else:
+        if not single_instance.acquire():
+            logger.error("Failed to acquire lock")
+            return 1
 
     try:
         return run_app(config_dir=args.config_dir, lock=single_instance)
