@@ -134,7 +134,7 @@ class DataStore(ConfigBase):
         return self._started_id
 
 
-DEFAULT_CONFIG_DIR = Path.home() / ".config" / "tenga"
+DEFAULT_CONFIG_DIR = Path.home() / ".config" / "tenga-proxy"
 DEFAULT_CONFIG_FILE = DEFAULT_CONFIG_DIR / "settings.json"
 
 

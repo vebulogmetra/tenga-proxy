@@ -122,7 +122,7 @@ class ProfileManager:
     """Profile and group manager."""
 
     def __init__(self, profiles_dir: Path | None = None):
-        self._profiles_dir = profiles_dir or Path.home() / ".config" / "tenga" / "profiles"
+        self._profiles_dir = profiles_dir or Path.home() / ".config" / "tenga-proxy" / "profiles"
         self._profiles: dict[int, ProfileEntry] = {}
         self._groups: dict[int, ProfileGroup] = {}
         self._next_profile_id = 1
