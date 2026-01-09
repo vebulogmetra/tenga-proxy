@@ -6,7 +6,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Gdk, GLib, Gtk
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
@@ -44,6 +44,8 @@ class EditProfileDialog(Gtk.Dialog):
         self._name_entry: Gtk.Entry | None = None
         self._address_entry: Gtk.Entry | None = None
         self._port_entry: Gtk.SpinButton | None = None
+        self._conn_string_entry: Gtk.Entry | None = None
+        self._copy_button: Gtk.Button | None = None
 
         self._setup_ui()
 
@@ -112,7 +114,40 @@ class EditProfileDialog(Gtk.Dialog):
         self._port_entry.set_numeric(True)
         port_box.pack_start(self._port_entry, False, False, 0)
 
+        # Add connection string display with copy button
+        conn_string_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        content.pack_start(conn_string_box, False, False, 5)
+
+        conn_string_label = Gtk.Label(label="Ссылка:")
+        conn_string_label.set_width_chars(10)
+        conn_string_label.set_halign(Gtk.Align.END)
+        conn_string_box.pack_start(conn_string_label, False, False, 0)
+
+        self._conn_string_entry = Gtk.Entry()
+        self._conn_string_entry.set_text(bean.to_share_link())
+        self._conn_string_entry.set_editable(False)  # Make it read-only
+        conn_string_box.pack_start(self._conn_string_entry, True, True, 0)
+
+        self._copy_button = Gtk.Button(label="Копировать")
+        self._copy_button.connect("clicked", self._on_copy_clicked)
+        conn_string_box.pack_start(self._copy_button, False, False, 0)
+
         content.show_all()
+
+    def _on_copy_clicked(self, button: Gtk.Button) -> None:
+        """Handle copy button click."""
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        conn_string = self._profile.bean.to_share_link()
+        clipboard.set_text(conn_string, -1)
+
+        # Show a brief notification that the link was copied
+        self._copy_button.set_label("Скопировано!")
+        GLib.timeout_add(1000, self._reset_copy_button_label)  # Reset after 1 second
+
+    def _reset_copy_button_label(self) -> bool:
+        """Reset the copy button label after a delay."""
+        self._copy_button.set_label("Копировать")
+        return False  # Return False to stop the timeout
 
     def apply_changes(self) -> None:
         """Apply changes to profile."""
