@@ -70,6 +70,11 @@ class MainWindow(Gtk.Window):
         self._saved_width: int = 400
         self._saved_height: int = 500
         self._is_maximized: bool = False
+        # Profile sort state
+        self._profile_sort_key: str | None = None  # "type" | "ping" | None
+        self._profile_sort_ascending: bool = True
+        self._col_type: Gtk.TreeViewColumn | None = None
+        self._col_ping: Gtk.TreeViewColumn | None = None
 
         self._setup_window()
         self._setup_ui()
@@ -263,17 +268,21 @@ class MainWindow(Gtk.Window):
         col_name.set_min_width(100)
         self._profile_list.append_column(col_name)
 
-        col_type = Gtk.TreeViewColumn("Тип", renderer, text=3)
-        col_type.set_min_width(70)
-        self._profile_list.append_column(col_type)
+        self._col_type = Gtk.TreeViewColumn("Тип", renderer, text=3)
+        self._col_type.set_min_width(70)
+        self._col_type.set_clickable(True)
+        self._col_type.connect("clicked", self._on_type_column_clicked)
+        self._profile_list.append_column(self._col_type)
 
         col_addr = Gtk.TreeViewColumn("Сервер", renderer, text=4)
         col_addr.set_min_width(100)
         self._profile_list.append_column(col_addr)
 
-        col_ping = Gtk.TreeViewColumn("Пинг", renderer, text=5)
-        col_ping.set_min_width(80)
-        self._profile_list.append_column(col_ping)
+        self._col_ping = Gtk.TreeViewColumn("Пинг", renderer, text=5)
+        self._col_ping.set_min_width(80)
+        self._col_ping.set_clickable(True)
+        self._col_ping.connect("clicked", self._on_ping_column_clicked)
+        self._profile_list.append_column(self._col_ping)
 
         # Settings icon column
         icon_renderer = Gtk.CellRendererPixbuf()
@@ -286,6 +295,8 @@ class MainWindow(Gtk.Window):
         self._profile_list.connect("button-press-event", self._on_profile_list_button_press)
 
         scrolled.add(self._profile_list)
+        # Ensure headers reflect initial sort state (none)
+        self._update_sort_headers()
         # Profile management buttons
         profile_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         profile_button_box.set_halign(Gtk.Align.CENTER)
@@ -313,6 +324,44 @@ class MainWindow(Gtk.Window):
         profile_button_box.pack_start(test_delay_btn, False, False, 0)
 
         return page_box
+
+    def _update_sort_headers(self) -> None:
+        """Update column titles according to current sort state."""
+        if not self._col_type or not self._col_ping:
+            return
+
+        type_title = "Тип"
+        ping_title = "Пинг"
+
+        if self._profile_sort_key == "type":
+            type_title += " ▲" if self._profile_sort_ascending else " ▼"
+        elif self._profile_sort_key == "ping":
+            ping_title += " ▲" if self._profile_sort_ascending else " ▼"
+
+        self._col_type.set_title(type_title)
+        self._col_ping.set_title(ping_title)
+
+    def _on_type_column_clicked(self, column: Gtk.TreeViewColumn) -> None:
+        """Handle click on 'Тип' header."""
+        if self._profile_sort_key == "type":
+            self._profile_sort_ascending = not self._profile_sort_ascending
+        else:
+            self._profile_sort_key = "type"
+            self._profile_sort_ascending = True
+
+        self._update_sort_headers()
+        self._refresh_profiles()
+
+    def _on_ping_column_clicked(self, column: Gtk.TreeViewColumn) -> None:
+        """Handle click on 'Пинг' header."""
+        if self._profile_sort_key == "ping":
+            self._profile_sort_ascending = not self._profile_sort_ascending
+        else:
+            self._profile_sort_key = "ping"
+            self._profile_sort_ascending = True
+
+        self._update_sort_headers()
+        self._refresh_profiles()
 
     def _create_monitoring_page(self) -> Gtk.Widget:
         """Create monitoring page."""
@@ -718,7 +767,7 @@ class MainWindow(Gtk.Window):
                 group_icon = "folder-symbolic"
                 group_prefix = "📁 "
 
-            group_profiles = self._context.profiles.get_profiles_in_group(group.id)
+            group_profiles = list(self._context.profiles.get_profiles_in_group(group.id))
             group_iter = self._profile_store.append(
                 None,
                 [
@@ -731,6 +780,24 @@ class MainWindow(Gtk.Window):
                     group_icon,
                 ],
             )
+
+            # Apply sorting inside group if needed
+            if self._profile_sort_key == "type":
+                group_profiles.sort(
+                    key=lambda p: (p.proxy_type or "").lower(),
+                    reverse=not self._profile_sort_ascending,
+                )
+            elif self._profile_sort_key == "ping":
+                def _ping_key(profile: object) -> tuple[int, int]:
+                    latency = getattr(profile, "latency_ms", -1)
+                    if latency is None:
+                        latency = -1
+                    return (1 if latency < 0 else 0, latency if latency >= 0 else 0)
+
+                group_profiles.sort(
+                    key=_ping_key,
+                    reverse=not self._profile_sort_ascending,
+                )
 
             for profile in group_profiles:
                 name = profile.name

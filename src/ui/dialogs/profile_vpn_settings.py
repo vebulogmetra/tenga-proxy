@@ -8,7 +8,7 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.sys.vpn import (
@@ -124,10 +124,49 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         self._profile_name_entry.set_tooltip_text("Имя профиля для отображения в списке")
         name_grid.attach(self._profile_name_entry, 1, 0, 1, 1)
 
+        # Add connection string display with copy button
+        conn_string_grid = Gtk.Grid()
+        conn_string_grid.set_row_spacing(8)
+        conn_string_grid.set_column_spacing(10)
+        profile_box.pack_start(conn_string_grid, False, False, 0)
+
+        conn_string_grid.attach(
+            Gtk.Label(label="Ссылка:", halign=Gtk.Align.END), 0, 1, 1, 1
+        )
+
+        conn_string_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self._conn_string_entry = Gtk.Entry()
+        self._conn_string_entry.set_text(self._profile.bean.to_share_link())
+        self._conn_string_entry.set_editable(False)  # Make it read-only
+        self._conn_string_entry.set_tooltip_text("Ссылка подключения к прокси")
+        conn_string_hbox.pack_start(self._conn_string_entry, True, True, 0)
+
+        self._copy_button = Gtk.Button(label="Копировать")
+        self._copy_button.set_tooltip_text("Скопировать ссылку в буфер обмена")
+        self._copy_button.connect("clicked", self._on_copy_clicked)
+        conn_string_hbox.pack_start(self._copy_button, False, False, 0)
+
+        conn_string_grid.attach(conn_string_hbox, 1, 1, 1, 1)
+
         box.pack_start(Gtk.Box(), True, True, 0)
 
         scrolled.add(box)
         return scrolled
+
+    def _on_copy_clicked(self, button: Gtk.Button) -> None:
+        """Handle copy button click."""
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        conn_string = self._profile.bean.to_share_link()
+        clipboard.set_text(conn_string, -1)
+
+        # Show a brief notification that the link was copied
+        self._copy_button.set_label("Скопировано!")
+        GLib.timeout_add(1000, self._reset_copy_button_label)  # Reset after 1 second
+
+    def _reset_copy_button_label(self) -> bool:
+        """Reset the copy button label after a delay."""
+        self._copy_button.set_label("Копировать")
+        return False  # Return False to stop the timeout
 
     def _create_vpn_page(self) -> Gtk.Widget:
         """Create VPN settings page."""
