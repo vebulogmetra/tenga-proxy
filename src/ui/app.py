@@ -688,6 +688,18 @@ class TengaApp:
                         vpn_interface,
                     )
 
+                    # CRITICAL: Proxy outbound must also use direct interface to reach proxy server
+                    # Otherwise it goes through VPN tunnel which may not route to proxy correctly
+                    if "streamSettings" not in outbound:
+                        outbound["streamSettings"] = {}
+                    if "sockopt" not in outbound["streamSettings"]:
+                        outbound["streamSettings"]["sockopt"] = {}
+                    outbound["streamSettings"]["sockopt"]["interface"] = direct_interface
+                    logger.info(
+                        "Proxy outbound bound to interface: %s (bypassing VPN to reach proxy server)",
+                        direct_interface,
+                    )
+
             if routing.mode == RoutingMode.PROXY_ALL:
                 outbounds = [
                     outbound,
@@ -738,7 +750,18 @@ class TengaApp:
             dns_url = dns_settings.get_dns_url()
             dns_detour = proxy_tag if dns_settings.use_proxy else "direct"
 
-            vps_server = outbound.get("server", "")
+            # Extract proxy server address from profile bean (not from outbound config)
+            # For VLESS/VMess/etc the server is in settings.vnext[0].address, not in outbound.server
+            vps_server = profile.bean.server_address if profile.bean else ""
+
+            # IMPORTANT: When VPN is enabled, disable DoH/DoT to avoid circular DNS dependencies
+            # VPN already provides DNS privacy through its tunnel
+            if vpn_tag and vpn_interface:
+                if dns_url.startswith("https://") or dns_url.startswith("tls://"):
+                    logger.info(
+                        "VPN enabled: switching from DoH/DoT to localhost DNS to avoid circular dependencies"
+                    )
+                    dns_url = "local"
 
             # Build DNS servers list (new format: type + server instead of address)
             dns_servers = []
@@ -943,13 +966,16 @@ class TengaApp:
                     "Added DNS rule for over_vpn domains (VPN DNS): %s", over_vpn_domains_for_dns
                 )
 
-            # 2. VPS server domain should use local DNS
+            # 2. VPS server domain should use local DNS (critical for proxy+vpn to avoid bootstrap issues)
             if vps_server and not vps_server[0].isdigit():
                 dns_rules.append(
                     {
                         "domain": [vps_server],
                         "server": "local-dns",
                     }
+                )
+                logger.info(
+                    "Added DNS rule for proxy server domain (local DNS): %s", vps_server
                 )
 
             # Note: xray-core DNS configuration uses servers with optional domains, not separate rules
@@ -972,9 +998,26 @@ class TengaApp:
             for server in dns_servers:
                 server_type = server.get("type", "local")
                 server_tag = server.get("tag", "")
-                
+
                 if server_type == "local":
-                    xray_dns_servers.append("localhost")
+                    # Check if this local DNS server has specific domains from rules
+                    domains_for_server = []
+                    for rule in dns_rules:
+                        if rule.get("server") == server_tag:
+                            if "domain" in rule:
+                                domains_for_server.extend(rule["domain"])
+                            elif "domain_suffix" in rule:
+                                domains_for_server.extend(rule["domain_suffix"])
+
+                    if domains_for_server:
+                        # xray-core format: localhost DNS with specific domains
+                        xray_dns_servers.append({
+                            "address": "localhost",
+                            "domains": domains_for_server,
+                        })
+                    else:
+                        # No specific domains, just use simple localhost string
+                        xray_dns_servers.append("localhost")
                 elif server_type == "udp":
                     addr = server.get("server", "8.8.8.8")
                     port_num = server.get("server_port", 53)
