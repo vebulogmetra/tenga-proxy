@@ -105,11 +105,13 @@ class ConnectionMonitor:
             return False
 
         if not self._context.config.monitoring.enabled:
-            logger.debug("Monitoring disabled, stopping checks")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Monitoring disabled, stopping checks")
             self.stop()
             return False
 
-        logger.debug("Checking connections...")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Checking connections...")
 
         # Run checks in background thread
         threading.Thread(target=self._do_check_async, daemon=True).start()
@@ -183,15 +185,17 @@ class ConnectionMonitor:
         )
 
         proxy_ok, proxy_error = self._check_proxy_status()
-        logger.debug(
-            "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
-        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
+            )
 
         vpn_ok = True
         vpn_error = ""
         if self._context.config.vpn.enabled:
             vpn_ok, vpn_error = self._check_vpn_status()
-            logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")
 
         new_status = ConnectionStatus(
             proxy_ok=proxy_ok,
@@ -220,7 +224,8 @@ class ConnectionMonitor:
         self._previous_status = previous_status
         self._status = new_status
         self._notify_status_changed()
-        logger.debug("Status updated and UI notified")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Status updated and UI notified")
         return False  # Remove from idle queue
 
     def _status_changed(self) -> bool:
