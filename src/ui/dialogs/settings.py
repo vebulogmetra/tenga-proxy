@@ -137,6 +137,33 @@ class SettingsDialog(Gtk.Dialog):
             self._log_combo.append_text(level)
         log_grid.attach(self._log_combo, 1, 0, 1, 1)
 
+        # Add separator
+        box.pack_start(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL), False, False, 0)
+
+        # Log files management
+        log_mgmt_frame = Gtk.Frame()
+        log_mgmt_frame.set_label("Управление логами")
+        box.pack_start(log_mgmt_frame, False, False, 0)
+
+        log_mgmt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        log_mgmt_box.set_margin_start(10)
+        log_mgmt_box.set_margin_end(10)
+        log_mgmt_box.set_margin_top(10)
+        log_mgmt_box.set_margin_bottom(10)
+        log_mgmt_frame.add(log_mgmt_box)
+
+        # Log size info
+        self._log_info_label = Gtk.Label()
+        self._log_info_label.set_halign(Gtk.Align.START)
+        self._update_log_info_label()
+        log_mgmt_box.pack_start(self._log_info_label, False, False, 0)
+
+        # Clear logs button
+        clear_logs_btn = Gtk.Button(label="Очистить все логи")
+        clear_logs_btn.connect("clicked", self._on_clear_logs_clicked)
+        clear_logs_btn.set_tooltip_text("Удалить все файлы логов для освобождения места")
+        log_mgmt_box.pack_start(clear_logs_btn, False, False, 0)
+
         # Empty space
         box.pack_start(Gtk.Box(), True, True, 0)
 
@@ -421,6 +448,80 @@ class SettingsDialog(Gtk.Dialog):
         # Save
         self._context.save_config()
         return True
+
+    def _update_log_info_label(self) -> None:
+        """Update the log info label with current size."""
+        try:
+            log_info = self._context.log_manager.get_logs_info()
+            total_mb = log_info["total_size"] / (1024 * 1024)
+            file_count = len(log_info["files"])
+
+            self._log_info_label.set_markup(
+                f"<b>Текущий размер логов:</b> {total_mb:.2f} МБ ({file_count} файлов)"
+            )
+        except Exception as e:
+            logger.warning("Failed to get log info: %s", e)
+            self._log_info_label.set_text("Не удалось получить информацию о логах")
+
+    def _on_clear_logs_clicked(self, button: Gtk.Button) -> None:
+        """Handle clear logs button click."""
+        try:
+            log_info = self._context.log_manager.get_logs_info()
+            total_mb = log_info["total_size"] / (1024 * 1024)
+            file_count = len(log_info["files"])
+
+            # Show confirmation dialog
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.YES_NO,
+                text="Очистить все логи?"
+            )
+            dialog.format_secondary_text(
+                f"Это удалит {file_count} файлов логов и освободит {total_mb:.2f} МБ места.\n"
+                "Это действие необратимо."
+            )
+
+            response = dialog.run()
+            dialog.destroy()
+
+            if response == Gtk.ResponseType.YES:
+                # Clear logs
+                file_count, bytes_freed = self._context.log_manager.clear_all_logs()
+                mb_freed = bytes_freed / (1024 * 1024)
+
+                # Update label
+                self._update_log_info_label()
+
+                # Show success message
+                success_dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    flags=0,
+                    message_type=Gtk.MessageType.INFO,
+                    buttons=Gtk.ButtonsType.OK,
+                    text="Логи успешно очищены"
+                )
+                success_dialog.format_secondary_text(
+                    f"Удалено {file_count} файлов, освобождено {mb_freed:.2f} МБ"
+                )
+                success_dialog.run()
+                success_dialog.destroy()
+
+                logger.info("Logs cleared via UI: %d files, %.2f MB", file_count, mb_freed)
+
+        except Exception as e:
+            logger.exception("Failed to clear logs: %s", e)
+            error_dialog = Gtk.MessageDialog(
+                transient_for=self,
+                flags=0,
+                message_type=Gtk.MessageType.ERROR,
+                buttons=Gtk.ButtonsType.OK,
+                text="Ошибка при очистке логов"
+            )
+            error_dialog.format_secondary_text(str(e))
+            error_dialog.run()
+            error_dialog.destroy()
 
 
 def show_settings_dialog(
