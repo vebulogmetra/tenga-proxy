@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from src.core.performance import measure_time
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -90,9 +93,10 @@ class ConnectionMonitor:
         self._status = ConnectionStatus()
         self._previous_status = ConnectionStatus()
 
+    @measure_time("ConnectionMonitor._check_connections")
     def _check_connections(self) -> bool:
         """
-        Check proxy and VPN connections.
+        Check proxy and VPN connections asynchronously.
 
         Returns:
             True to continue timer, False to stop
@@ -101,44 +105,20 @@ class ConnectionMonitor:
             return False
 
         if not self._context.config.monitoring.enabled:
-            logger.debug("Monitoring disabled, stopping checks")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Monitoring disabled, stopping checks")
             self.stop()
             return False
 
-        logger.debug("Checking connections...")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Checking connections...")
 
-        # Save previous status
-        self._previous_status = ConnectionStatus(
-            proxy_ok=self._status.proxy_ok,
-            vpn_ok=self._status.vpn_ok,
-            last_check_time=self._status.last_check_time,
-            proxy_error=self._status.proxy_error,
-            vpn_error=self._status.vpn_error,
-        )
-        proxy_ok, proxy_error = self._check_proxy_status()
-        logger.debug(
-            "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
-        )
-
-        vpn_ok = True
-        vpn_error = ""
-        if self._context.config.vpn.enabled:
-            vpn_ok, vpn_error = self._check_vpn_status()
-            logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")
-
-        self._status = ConnectionStatus(
-            proxy_ok=proxy_ok,
-            vpn_ok=vpn_ok,
-            last_check_time=time.time(),
-            proxy_error=proxy_error,
-            vpn_error=vpn_error,
-        )
-
-        self._notify_status_changed()
-        logger.debug("Status updated and UI notified")
+        # Run checks in background thread
+        threading.Thread(target=self._do_check_async, daemon=True).start()
 
         return True
 
+    @measure_time("ConnectionMonitor._check_proxy_status")
     def _check_proxy_status(self) -> tuple[bool, str]:
         """
         Check proxy connection status.
@@ -152,21 +132,19 @@ class ConnectionMonitor:
 
         manager = self._context.xray_manager
 
-        if not manager.is_running:
+        if not manager._check_process_alive():
             logger.warning("Proxy check: xray-core process is not running")
             return False, "Процесс xray-core не запущен"
 
-        try:
-            version_info = manager.get_version()
-            if not version_info:
-                logger.warning("Proxy check: xray-core version check failed")
-                return False, "Не удалось получить версию xray-core"
-            logger.debug(
-                "Proxy check: xray-core OK, version: %s", version_info.get("version", "unknown")
-            )
-        except Exception as e:
-            logger.warning("Proxy check: xray-core check failed: %s", e)
-            return False, f"Ошибка проверки xray-core: {e}"
+        # Use cached version instead of fetching
+        version_info = manager.get_version()
+        if not version_info:
+            logger.warning("Proxy check: xray-core version not available")
+            return False, "Не удалось получить версию xray-core"
+
+        logger.debug(
+            "Proxy check: xray-core OK, version: %s", version_info.get("version", "unknown")
+        )
 
         logger.info("Proxy check: SUCCESS (xray-core running)")
         return True, ""
@@ -191,6 +169,64 @@ class ConnectionMonitor:
         except Exception as e:
             logger.debug("VPN check error: %s", e)
             return False, f"Ошибка проверки VPN: {e}"
+
+    def _do_check_async(self) -> None:
+        """Perform connection checks asynchronously.
+
+        Runs in background thread to avoid blocking GTK main loop.
+        """
+        # Save previous status
+        previous_status = ConnectionStatus(
+            proxy_ok=self._status.proxy_ok,
+            vpn_ok=self._status.vpn_ok,
+            last_check_time=self._status.last_check_time,
+            proxy_error=self._status.proxy_error,
+            vpn_error=self._status.vpn_error,
+        )
+
+        proxy_ok, proxy_error = self._check_proxy_status()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
+            )
+
+        vpn_ok = True
+        vpn_error = ""
+        if self._context.config.vpn.enabled:
+            vpn_ok, vpn_error = self._check_vpn_status()
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")
+
+        new_status = ConnectionStatus(
+            proxy_ok=proxy_ok,
+            vpn_ok=vpn_ok,
+            last_check_time=time.time(),
+            proxy_error=proxy_error,
+            vpn_error=vpn_error,
+        )
+
+        # Update UI in main thread
+        from gi.repository import GLib
+        GLib.idle_add(self._update_status_from_async, previous_status, new_status)
+
+    def _update_status_from_async(
+        self, previous_status: ConnectionStatus, new_status: ConnectionStatus
+    ) -> bool:
+        """Update status from async check (runs in GTK main loop).
+
+        Args:
+            previous_status: Previous status
+            new_status: New status
+
+        Returns:
+            False to remove from idle queue
+        """
+        self._previous_status = previous_status
+        self._status = new_status
+        self._notify_status_changed()
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug("Status updated and UI notified")
+        return False  # Remove from idle queue
 
     def _status_changed(self) -> bool:
         """Check if status changed since last check."""

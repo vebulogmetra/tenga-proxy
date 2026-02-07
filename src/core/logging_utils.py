@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from src.core.config import LOG_DIR
@@ -12,6 +13,7 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
     Basic logging setup for the application.
 
     All loggers will write to the specified file and to stdout.
+    Uses RotatingFileHandler to prevent unlimited log growth.
 
     This function works even if basicConfig was already called earlier.
     It will add handlers to the root logger without replacing existing ones.
@@ -20,7 +22,14 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
 
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
-    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+
+    # Use RotatingFileHandler instead of FileHandler
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,  # 10 MB
+        backupCount=5,
+        encoding="utf-8"
+    )
     console_handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     file_handler.setFormatter(formatter)
@@ -30,7 +39,7 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
 
     log_file_resolved = str(log_file.resolve())
     has_file_handler = any(
-        isinstance(h, logging.FileHandler)
+        isinstance(h, (logging.FileHandler, RotatingFileHandler))
         and hasattr(h, "baseFilename")
         and str(Path(h.baseFilename).resolve()) == log_file_resolved
         for h in root_logger.handlers
