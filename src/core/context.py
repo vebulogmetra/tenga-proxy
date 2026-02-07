@@ -5,9 +5,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from src.core.config import CORE_DIR, find_xray_binary
+from src.core.config import CORE_DIR, LOG_DIR, find_xray_binary
 
 if TYPE_CHECKING:
+    from src.core.log_manager import LogManager
     from src.core.monitor import ConnectionMonitor
     from src.core.xray_manager import XrayManager
     from src.db.data_store import DataStore
@@ -77,6 +78,7 @@ class AppContext:
         self._xray_manager: XrayManager | None = None
         self._proxy_state = ProxyState()
         self._monitor: ConnectionMonitor | None = None
+        self._log_manager: LogManager | None = None
 
         # Ensure config dir exists
         self._config_dir.mkdir(parents=True, exist_ok=True)
@@ -145,6 +147,26 @@ class AppContext:
     def set_monitor(self, monitor: ConnectionMonitor | None) -> None:
         """Set connection monitor."""
         self._monitor = monitor
+
+    @property
+    def log_manager(self) -> LogManager:
+        """Log manager (lazy loading)."""
+        if self._log_manager is None:
+            from src.core.log_manager import LogManager
+
+            self._log_manager = LogManager(LOG_DIR)
+
+            # Auto-cleanup old logs on first access
+            import logging
+            logger = logging.getLogger("tenga.core.context")
+            try:
+                removed = self._log_manager.cleanup_old_logs(days=14)
+                if removed > 0:
+                    logger.info("Auto-cleanup removed %d old log files", removed)
+            except Exception as e:
+                logger.warning("Auto-cleanup failed: %s", e)
+
+        return self._log_manager
 
     def find_xray_binary(self) -> str | None:
         """Find xray-core binary."""
