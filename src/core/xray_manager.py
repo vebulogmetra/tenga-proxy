@@ -17,6 +17,7 @@ from src.core.config import (
     XRAY_LOG_FILE,
     find_xray_binary,
 )
+from src.core.performance import measure_time
 
 logger = logging.getLogger("tenga.xray_manager")
 
@@ -69,6 +70,35 @@ class XrayManager:
         self._config_file: Path | None = None
         self._on_stop_callback: Callable[[], None] | None = None
         self._log_file: IO[bytes] | None = None
+
+        # Cache xray version on initialization
+        self._version_cache = self._fetch_version()
+
+    def _wait_for_process_ready(self, timeout: float = 2.0) -> bool:
+        """Wait for xray process to be ready.
+
+        Uses active polling instead of blocking sleep.
+
+        Args:
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if process is ready, False if it failed
+        """
+        start = time.time()
+        while time.time() - start < timeout:
+            if self._process is None:
+                return False
+
+            # Check if process exited
+            if self._process.poll() is not None:
+                return False
+
+            # Small sleep to avoid busy waiting
+            time.sleep(0.1)
+
+        # Process is still running after timeout
+        return True
 
     @property
     def binary_path(self) -> str:
@@ -184,6 +214,7 @@ class XrayManager:
 
         return config
 
+    @measure_time("XrayManager.start")
     def start(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Start xray-core with configuration.
@@ -236,9 +267,7 @@ class XrayManager:
                     stderr=subprocess.PIPE,
                 )
 
-            time.sleep(0.5)
-
-            if self._process.poll() is not None:
+            if not self._wait_for_process_ready(timeout=2.0):
                 error_msg: str
                 if self._log_file is None and self._process.stderr is not None:
                     _, stderr = self._process.communicate(timeout=5)
@@ -337,11 +366,12 @@ class XrayManager:
                 pass
             self._config_file = None
 
-    def get_version(self) -> dict[str, Any] | None:
-        """Get xray-core version."""
-        if not self.is_running:
-            return None
+    def _fetch_version(self) -> dict[str, Any] | None:
+        """Fetch xray-core version information.
 
+        Returns:
+            Version dict or None if failed
+        """
         try:
             result = subprocess.run(
                 [self._binary_path, "version"],
@@ -355,8 +385,22 @@ class XrayManager:
                 version = parts[1] if len(parts) > 1 else version_str
                 return {"version": version, "full": version_str}
         except Exception as e:
-            logger.debug("get_version error: %s", e)
+            logger.debug("_fetch_version error: %s", e)
         return None
+
+    def get_version(self) -> dict[str, Any] | None:
+        """Get xray-core version (cached)."""
+        return self._version_cache
+
+    def _check_process_alive(self) -> bool:
+        """Check if xray-core process is alive.
+
+        Faster alternative to get_version() for status checks.
+
+        Returns:
+            True if process is running
+        """
+        return self._process is not None and self._process.poll() is None
 
     def _get_stats_via_api(self, name: str, reset: bool = False) -> int:
         """
@@ -377,11 +421,12 @@ class XrayManager:
 
         return TrafficStats(upload=upload, download=download)
 
+    @measure_time("XrayManager.test_delay")
     def test_delay(
         self,
         proxy_address: str | None = None,
         proxy_port: int | None = None,
-        timeout: int = 5000,
+        timeout: int = 3000,
     ) -> int:
         """
         Test proxy latency using HTTP HEAD request through proxy.
