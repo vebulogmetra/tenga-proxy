@@ -8,6 +8,8 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GLib, Gtk
 
+from src.ui.style import style_dialog
+
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
 
@@ -48,6 +50,7 @@ class EditProfileDialog(Gtk.Dialog):
         self._copy_button: Gtk.Button | None = None
 
         self._setup_ui()
+        style_dialog(self)
 
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""

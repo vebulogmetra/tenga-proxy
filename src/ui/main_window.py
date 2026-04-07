@@ -20,6 +20,7 @@ from src.ui.dialogs import (
     show_profile_vpn_settings_dialog,
     show_subscription_dialog,
 )
+from src.ui.style import style_widget_tree, style_window
 from src.sub.updater import SubscriptionUpdater
 
 if TYPE_CHECKING:
@@ -52,8 +53,14 @@ class MainWindow(Gtk.Window):
         # UI elements
         self._profile_list: Gtk.TreeView | None = None
         self._profile_store: Gtk.TreeStore | None = None
+        self._profile_filter_entry: Gtk.SearchEntry | None = None
+        self._profiles_stack: Gtk.Stack | None = None
+        self._profiles_empty_label: Gtk.Label | None = None
         self._subscription_list: Gtk.TreeView | None = None
         self._subscription_store: Gtk.ListStore | None = None
+        self._subscription_filter_entry: Gtk.SearchEntry | None = None
+        self._subscriptions_stack: Gtk.Stack | None = None
+        self._subscriptions_empty_label: Gtk.Label | None = None
         self._connect_button: Gtk.Button | None = None
         self._status_label: Gtk.Label | None = None
         self._header_icon: Gtk.Image | None = None
@@ -111,57 +118,12 @@ class MainWindow(Gtk.Window):
         self.connect("destroy", self._on_destroy)
         self.connect("window-state-event", self._on_window_state_event)
         self.connect("configure-event", self._on_configure_event)
-
-        css = b"""
-        .status-connected {
-            color: #4CAF50;
-            font-weight: bold;
-        }
-        .status-disconnected {
-            color: #9E9E9E;
-        }
-        .connect-button {
-            padding: 10px 20px;
-        }
-        .stats-frame {
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            padding: 8px;
-        }
-        .stats-label {
-            font-family: monospace;
-            font-size: 11px;
-        }
-        .stats-value {
-            font-weight: bold;
-            color: #2196F3;
-        }
-        .stats-upload {
-            color: #FF5722;
-        }
-        .stats-download {
-            color: #4CAF50;
-        }
-        .delay-good {
-            color: #4CAF50;
-        }
-        .delay-medium {
-            color: #FF9800;
-        }
-        .delay-bad {
-            color: #F44336;
-        }
-        """
-
-        style_provider = Gtk.CssProvider()
-        style_provider.load_from_data(css)
-        Gtk.StyleContext.add_provider_for_screen(
-            Gdk.Screen.get_default(), style_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+        style_window(self)
 
     def _setup_ui(self) -> None:
         """Setup UI."""
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        main_box.get_style_context().add_class("tenga-root")
         self.add(main_box)
 
         # Header
@@ -222,19 +184,20 @@ class MainWindow(Gtk.Window):
         button_box.set_halign(Gtk.Align.CENTER)
         main_box.pack_start(button_box, False, False, 10)
 
-        self._connect_button = Gtk.Button(label="⏻ Подключить")
-        self._connect_button.get_style_context().add_class("connect-button")
+        self._connect_button = Gtk.Button(label="Подключить")
         self._connect_button.connect("clicked", self._on_connect_clicked)
         button_box.pack_start(self._connect_button, False, False, 0)
 
-        refresh_button = Gtk.Button(label="🔄 Обновить")
+        refresh_button = Gtk.Button(label="Обновить")
         refresh_button.connect("clicked", self._on_refresh_clicked)
         button_box.pack_start(refresh_button, False, False, 0)
 
-        settings_button = Gtk.Button(label="⚙️ Настройки")
+        settings_button = Gtk.Button(label="Настройки")
         settings_button.set_tooltip_text("Настройки приложения")
         settings_button.connect("clicked", self._on_settings_clicked)
         button_box.pack_start(settings_button, False, False, 0)
+
+        style_widget_tree(main_box)
 
     def _create_profiles_page(self) -> Gtk.Widget:
         """Create profiles page."""
@@ -249,11 +212,39 @@ class MainWindow(Gtk.Window):
         profiles_label.set_markup("<b>Профили</b>")
         profiles_label.set_halign(Gtk.Align.START)
         page_box.pack_start(profiles_label, False, False, 0)
+
+        filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        page_box.pack_start(filter_box, False, False, 0)
+
+        self._profile_filter_entry = Gtk.SearchEntry()
+        self._profile_filter_entry.set_placeholder_text("Быстрый фильтр: имя, тип, сервер, группа")
+        self._profile_filter_entry.connect("search-changed", self._on_profile_filter_changed)
+        filter_box.pack_start(self._profile_filter_entry, True, True, 0)
+
+        clear_filter_btn = Gtk.Button(label="Сброс")
+        clear_filter_btn.set_tooltip_text("Очистить фильтр профилей")
+        clear_filter_btn.connect("clicked", self._on_profile_filter_clear_clicked)
+        filter_box.pack_start(clear_filter_btn, False, False, 0)
+
         # ScrolledWindow for list
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_min_content_height(200)
-        page_box.pack_start(scrolled, True, True, 0)
+        scrolled.set_vexpand(True)
+        self._profiles_stack = Gtk.Stack()
+        self._profiles_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self._profiles_stack.set_transition_duration(180)
+        page_box.pack_start(self._profiles_stack, True, True, 0)
+
+        empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        empty_box.set_valign(Gtk.Align.CENTER)
+        empty_box.set_halign(Gtk.Align.CENTER)
+        self._profiles_empty_label = Gtk.Label(label="Профили не найдены")
+        self._profiles_empty_label.get_style_context().add_class("dim-label")
+        empty_box.pack_start(self._profiles_empty_label, False, False, 0)
+
+        self._profiles_stack.add_named(scrolled, "list")
+        self._profiles_stack.add_named(empty_box, "empty")
+        self._profiles_stack.set_visible_child_name("list")
         self._profile_store = Gtk.TreeStore(bool, int, str, str, str, str, str)
         self._profile_list = Gtk.TreeView(model=self._profile_store)
         self._profile_list.set_headers_visible(True)
@@ -302,23 +293,23 @@ class MainWindow(Gtk.Window):
         profile_button_box.set_halign(Gtk.Align.CENTER)
         page_box.pack_start(profile_button_box, False, False, 0)
 
-        add_button = Gtk.Button(label="➕ Добавить")
+        add_button = Gtk.Button(label="Добавить")
         add_button.set_tooltip_text("Добавить профиль по share link")
         add_button.connect("clicked", self._on_add_clicked)
         profile_button_box.pack_start(add_button, False, False, 0)
 
-        edit_button = Gtk.Button(label="✏️ Редактировать")
+        edit_button = Gtk.Button(label="Редактировать")
         edit_button.set_tooltip_text("Редактировать выбранный профиль")
         edit_button.connect("clicked", self._on_edit_profile_clicked)
         profile_button_box.pack_start(edit_button, False, False, 0)
 
-        delete_button = Gtk.Button(label="🗑️ Удалить")
+        delete_button = Gtk.Button(label="Удалить")
         delete_button.set_tooltip_text("Удалить выбранный профиль")
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
 
         # Test delay button
-        test_delay_btn = Gtk.Button(label="🔍 Тест задержки")
+        test_delay_btn = Gtk.Button(label="Тест задержки")
         test_delay_btn.set_tooltip_text("Проверить задержку до прокси-сервера")
         test_delay_btn.connect("clicked", self._on_test_delay_clicked)
         profile_button_box.pack_start(test_delay_btn, False, False, 0)
@@ -437,7 +428,7 @@ class MainWindow(Gtk.Window):
         page_box.pack_start(last_check_box, False, False, 10)
 
         # Refresh button
-        refresh_monitoring_btn = Gtk.Button(label="🔄 Обновить сейчас")
+        refresh_monitoring_btn = Gtk.Button(label="Обновить сейчас")
         refresh_monitoring_btn.set_tooltip_text("Выполнить проверку соединений сейчас")
         refresh_monitoring_btn.connect("clicked", self._on_refresh_monitoring_clicked)
         page_box.pack_start(refresh_monitoring_btn, False, False, 0)
@@ -475,10 +466,37 @@ class MainWindow(Gtk.Window):
         subscriptions_label.set_halign(Gtk.Align.START)
         page_box.pack_start(subscriptions_label, False, False, 0)
 
+        filter_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        page_box.pack_start(filter_box, False, False, 0)
+
+        self._subscription_filter_entry = Gtk.SearchEntry()
+        self._subscription_filter_entry.set_placeholder_text("Быстрый фильтр: название, URL, дата")
+        self._subscription_filter_entry.connect("search-changed", self._on_subscription_filter_changed)
+        filter_box.pack_start(self._subscription_filter_entry, True, True, 0)
+
+        clear_filter_btn = Gtk.Button(label="Сброс")
+        clear_filter_btn.set_tooltip_text("Очистить фильтр подписок")
+        clear_filter_btn.connect("clicked", self._on_subscription_filter_clear_clicked)
+        filter_box.pack_start(clear_filter_btn, False, False, 0)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_min_content_height(200)
-        page_box.pack_start(scrolled, True, True, 0)
+        scrolled.set_vexpand(True)
+        self._subscriptions_stack = Gtk.Stack()
+        self._subscriptions_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self._subscriptions_stack.set_transition_duration(180)
+        page_box.pack_start(self._subscriptions_stack, True, True, 0)
+
+        empty_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        empty_box.set_valign(Gtk.Align.CENTER)
+        empty_box.set_halign(Gtk.Align.CENTER)
+        self._subscriptions_empty_label = Gtk.Label(label="Подписки не найдены")
+        self._subscriptions_empty_label.get_style_context().add_class("dim-label")
+        empty_box.pack_start(self._subscriptions_empty_label, False, False, 0)
+
+        self._subscriptions_stack.add_named(scrolled, "list")
+        self._subscriptions_stack.add_named(empty_box, "empty")
+        self._subscriptions_stack.set_visible_child_name("list")
 
         self._subscription_store = Gtk.ListStore(int, str, str, str, int)
         self._subscription_list = Gtk.TreeView(model=self._subscription_store)
@@ -515,22 +533,22 @@ class MainWindow(Gtk.Window):
         sub_button_box.set_halign(Gtk.Align.CENTER)
         page_box.pack_start(sub_button_box, False, False, 0)
 
-        add_sub_button = Gtk.Button(label="➕ Добавить подписку")
+        add_sub_button = Gtk.Button(label="Добавить подписку")
         add_sub_button.set_tooltip_text("Добавить новую подписку")
         add_sub_button.connect("clicked", self._on_add_subscription_clicked)
         sub_button_box.pack_start(add_sub_button, False, False, 0)
 
-        update_sub_button = Gtk.Button(label="🔄 Обновить")
+        update_sub_button = Gtk.Button(label="Обновить")
         update_sub_button.set_tooltip_text("Обновить выбранную подписку")
         update_sub_button.connect("clicked", self._on_update_subscription_clicked)
         sub_button_box.pack_start(update_sub_button, False, False, 0)
 
-        edit_sub_button = Gtk.Button(label="✏️ Редактировать")
+        edit_sub_button = Gtk.Button(label="Редактировать")
         edit_sub_button.set_tooltip_text("Редактировать выбранную подписку")
         edit_sub_button.connect("clicked", self._on_edit_subscription_clicked)
         sub_button_box.pack_start(edit_sub_button, False, False, 0)
 
-        delete_sub_button = Gtk.Button(label="🗑️ Удалить")
+        delete_sub_button = Gtk.Button(label="Удалить")
         delete_sub_button.set_tooltip_text("Удалить выбранную подписку")
         delete_sub_button.connect("clicked", self._on_delete_subscription_clicked)
         sub_button_box.pack_start(delete_sub_button, False, False, 0)
@@ -631,7 +649,7 @@ class MainWindow(Gtk.Window):
             ping_text = self._format_ping_text(latency_ms)
             self._profile_store[iter][5] = ping_text
 
-    def _on_test_delay_clicked(self, button: Gtk.Button) -> None:
+    def _on_test_delay_clicked(self, button: Gtk.Button | None) -> None:
         """Test profile or group latency."""
         profile_id = self._get_selected_profile_id()
         group_id = self._get_selected_group_id()
@@ -745,12 +763,64 @@ class MainWindow(Gtk.Window):
             else:
                 ctx.add_class("delay-bad")
 
+    def _on_profile_filter_changed(self, entry: Gtk.SearchEntry) -> None:
+        """Handle live filtering of profile tree."""
+        self._refresh_profiles()
+
+    def _on_profile_filter_clear_clicked(self, button: Gtk.Button) -> None:
+        """Clear profile filter text."""
+        if self._profile_filter_entry:
+            self._profile_filter_entry.set_text("")
+            self._profile_filter_entry.grab_focus()
+
+    def _on_subscription_filter_changed(self, entry: Gtk.SearchEntry) -> None:
+        """Handle live filtering of subscriptions list."""
+        self._refresh_subscriptions()
+
+    def _on_subscription_filter_clear_clicked(self, button: Gtk.Button) -> None:
+        """Clear subscription filter text."""
+        if self._subscription_filter_entry:
+            self._subscription_filter_entry.set_text("")
+            self._subscription_filter_entry.grab_focus()
+
+    def _update_profiles_empty_state(self, has_rows: bool, query: str) -> None:
+        """Toggle profiles list placeholder."""
+        if not self._profiles_stack or not self._profiles_empty_label:
+            return
+        if has_rows:
+            self._profiles_stack.set_visible_child_name("list")
+            return
+
+        if query:
+            self._profiles_empty_label.set_text("Ничего не найдено по фильтру профилей")
+        else:
+            self._profiles_empty_label.set_text("Профилей пока нет. Добавьте первый профиль.")
+        self._profiles_stack.set_visible_child_name("empty")
+
+    def _update_subscriptions_empty_state(self, has_rows: bool, query: str) -> None:
+        """Toggle subscriptions list placeholder."""
+        if not self._subscriptions_stack or not self._subscriptions_empty_label:
+            return
+        if has_rows:
+            self._subscriptions_stack.set_visible_child_name("list")
+            return
+
+        if query:
+            self._subscriptions_empty_label.set_text("Ничего не найдено по фильтру подписок")
+        else:
+            self._subscriptions_empty_label.set_text("Подписок пока нет. Добавьте первую подписку.")
+        self._subscriptions_stack.set_visible_child_name("empty")
+
     def _refresh_profiles(self) -> None:
         """Refresh profile list with hierarchical structure (groups -> profiles)."""
         if not self._profile_store or not self._profile_list:
             return
 
         self._profile_store.clear()
+        query = ""
+        if self._profile_filter_entry:
+            query = self._profile_filter_entry.get_text().strip().lower()
+        has_visible_rows = False
 
         groups = self._context.profiles.groups
         current_profile_id = self._context.proxy_state.started_profile_id
@@ -768,22 +838,42 @@ class MainWindow(Gtk.Window):
                 group_prefix = "📁 "
 
             group_profiles = list(self._context.profiles.get_profiles_in_group(group.id))
+
+            if query:
+                group_match = query in group.name.lower()
+                if group_match:
+                    visible_profiles = list(group_profiles)
+                else:
+                    visible_profiles = []
+                    for profile in group_profiles:
+                        if (
+                            query in profile.name.lower()
+                            or query in (profile.proxy_type or "").lower()
+                            or query in profile.bean.display_address.lower()
+                        ):
+                            visible_profiles.append(profile)
+                if not visible_profiles:
+                    continue
+            else:
+                visible_profiles = list(group_profiles)
+
             group_iter = self._profile_store.append(
                 None,
                 [
                     True,  # is_group
                     group.id,
-                    f"{group_prefix}{group.name} ({len(group_profiles)})",  # name
+                    f"{group_prefix}{group.name} ({len(visible_profiles)})",  # name
                     "Группа",
                     "",
                     "",  # ping
                     group_icon,
                 ],
             )
+            has_visible_rows = True
 
             # Apply sorting inside group if needed
             if self._profile_sort_key == "type":
-                group_profiles.sort(
+                visible_profiles.sort(
                     key=lambda p: (p.proxy_type or "").lower(),
                     reverse=not self._profile_sort_ascending,
                 )
@@ -794,12 +884,12 @@ class MainWindow(Gtk.Window):
                         latency = -1
                     return (1 if latency < 0 else 0, latency if latency >= 0 else 0)
 
-                group_profiles.sort(
+                visible_profiles.sort(
                     key=_ping_key,
                     reverse=not self._profile_sort_ascending,
                 )
 
-            for profile in group_profiles:
+            for profile in visible_profiles:
                 name = profile.name
                 if profile.id == current_profile_id:
                     name = f"✓ {name}"
@@ -821,6 +911,7 @@ class MainWindow(Gtk.Window):
                         "preferences-system-symbolic",
                     ],
                 )
+                has_visible_rows = True
 
         # Expand and scroll to active profile
         if current_profile_id is not None:
@@ -842,12 +933,18 @@ class MainWindow(Gtk.Window):
                             break
                         group_iter = self._profile_store.iter_next(group_iter)
 
+        self._update_profiles_empty_state(has_visible_rows, query)
+
     def _refresh_subscriptions(self) -> None:
         """Refresh subscriptions list."""
         if not self._subscription_store:
             return
 
         self._subscription_store.clear()
+        query = ""
+        if self._subscription_filter_entry:
+            query = self._subscription_filter_entry.get_text().strip().lower()
+        has_visible_rows = False
 
         groups = self._context.profiles.groups
         for group in groups.values():
@@ -867,6 +964,13 @@ class MainWindow(Gtk.Window):
             if len(url_display) > 50:
                 url_display = url_display[:47] + "..."
 
+            if query and (
+                query not in group.name.lower()
+                and query not in group.subscription_url.lower()
+                and query not in updated_str.lower()
+            ):
+                continue
+
             self._subscription_store.append(
                 [
                     group.id,
@@ -876,6 +980,9 @@ class MainWindow(Gtk.Window):
                     profile_count,
                 ]
             )
+            has_visible_rows = True
+
+        self._update_subscriptions_empty_state(has_visible_rows, query)
 
     def _get_selected_subscription_id(self) -> int | None:
         """Get selected subscription group ID."""
@@ -897,6 +1004,35 @@ class MainWindow(Gtk.Window):
         self, tree_view: Gtk.TreeView, event: Gdk.EventButton
     ) -> bool:
         """Handle button press on subscription list."""
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
+            path_info = tree_view.get_path_at_pos(int(event.x), int(event.y))
+            if not path_info:
+                return False
+
+            path, _column, _cell_x, _cell_y = path_info
+            selection = tree_view.get_selection()
+            selection.unselect_all()
+            selection.select_path(path)
+            tree_view.grab_focus()
+
+            menu = Gtk.Menu()
+
+            update_item = Gtk.MenuItem(label="Обновить")
+            update_item.connect("activate", lambda *_: self._on_update_subscription_clicked(None))
+            menu.append(update_item)
+
+            edit_item = Gtk.MenuItem(label="Редактировать")
+            edit_item.connect("activate", lambda *_: self._on_edit_subscription_clicked(None))
+            menu.append(edit_item)
+
+            delete_item = Gtk.MenuItem(label="Удалить")
+            delete_item.connect("activate", lambda *_: self._on_delete_subscription_clicked(None))
+            menu.append(delete_item)
+
+            menu.show_all()
+            menu.popup(None, None, None, None, event.button, event.time)
+            return True
+
         return False
 
     def _on_add_subscription_clicked(self, button: Gtk.Button) -> None:
@@ -1021,7 +1157,7 @@ class MainWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
 
-    def _on_edit_subscription_clicked(self, button: Gtk.Button) -> None:
+    def _on_edit_subscription_clicked(self, button: Gtk.Button | None) -> None:
         """Click on Edit Subscription button."""
         group_id = self._get_selected_subscription_id()
 
@@ -1054,7 +1190,7 @@ class MainWindow(Gtk.Window):
             self._context.profiles.save()
             self._refresh_subscriptions()
 
-    def _on_delete_subscription_clicked(self, button: Gtk.Button) -> None:
+    def _on_delete_subscription_clicked(self, button: Gtk.Button | None) -> None:
         """Click on Delete Subscription button."""
         group_id = self._get_selected_subscription_id()
 
@@ -1200,7 +1336,7 @@ class MainWindow(Gtk.Window):
             if self._header_icon:
                 self._update_icon_color("#4CAF50")
 
-            self._connect_button.set_label("⏻ Отключить")
+            self._connect_button.set_label("Отключить")
         else:
             self._status_label.set_text("Отключено")
             self._status_label.get_style_context().remove_class("status-connected")
@@ -1209,7 +1345,7 @@ class MainWindow(Gtk.Window):
             if self._header_icon:
                 self._update_icon_color("#9E9E9E")
 
-            self._connect_button.set_label("⏻ Подключить")
+            self._connect_button.set_label("Подключить")
             if self._delay_label:
                 self._delay_label.set_text("—")
                 ctx = self._delay_label.get_style_context()
@@ -1263,6 +1399,63 @@ class MainWindow(Gtk.Window):
         self, tree_view: Gtk.TreeView, event: Gdk.EventButton
     ) -> bool:
         """Handle button press on profile list."""
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 3:
+            path_info = tree_view.get_path_at_pos(int(event.x), int(event.y))
+            if not path_info:
+                return False
+
+            path, _column, _cell_x, _cell_y = path_info
+            selection = tree_view.get_selection()
+            selection.unselect_all()
+            selection.select_path(path)
+            tree_view.grab_focus()
+
+            model = tree_view.get_model()
+            treeiter = model.get_iter(path)
+            is_group = model[treeiter][0]
+            item_id = model[treeiter][1]
+
+            menu = Gtk.Menu()
+
+            if is_group:
+                if tree_view.row_expanded(path):
+                    expand_item = Gtk.MenuItem(label="Свернуть группу")
+                    expand_item.connect("activate", lambda *_: tree_view.collapse_row(path))
+                else:
+                    expand_item = Gtk.MenuItem(label="Развернуть группу")
+                    expand_item.connect("activate", lambda *_: tree_view.expand_row(path, False))
+                menu.append(expand_item)
+
+                test_item = Gtk.MenuItem(label="Тест задержки")
+                test_item.connect("activate", lambda *_: self._on_test_delay_clicked(None))
+                menu.append(test_item)
+            else:
+                connect_item = Gtk.MenuItem(label="Подключить")
+                connect_item.connect("activate", lambda *_: self._on_connect and self._on_connect(item_id))
+                menu.append(connect_item)
+
+                vpn_item = Gtk.MenuItem(label="VPN и маршруты...")
+                vpn_item.connect("activate", lambda *_: self._open_profile_vpn_settings(item_id))
+                menu.append(vpn_item)
+
+                test_item = Gtk.MenuItem(label="Тест задержки")
+                test_item.connect("activate", lambda *_: self._on_test_delay_clicked(None))
+                menu.append(test_item)
+
+            menu.append(Gtk.SeparatorMenuItem())
+
+            edit_item = Gtk.MenuItem(label="Редактировать")
+            edit_item.connect("activate", lambda *_: self._on_edit_profile_clicked(None))
+            menu.append(edit_item)
+
+            delete_item = Gtk.MenuItem(label="Удалить")
+            delete_item.connect("activate", lambda *_: self._on_delete_profile_clicked(None))
+            menu.append(delete_item)
+
+            menu.show_all()
+            menu.popup(None, None, None, None, event.button, event.time)
+            return True
+
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 1:
             return False
 
@@ -1280,29 +1473,32 @@ class MainWindow(Gtk.Window):
             item_id = model[treeiter][1]
 
             if not is_group:
-                profile = self._context.profiles.get_profile(item_id)
-                if profile:
-                    # Callback to reload config if this profile is currently active
-                    def on_settings_applied(edited_profile_id: int) -> None:
-                        """Reload configuration if edited profile is currently active."""
-                        if (
-                            self._context.proxy_state.is_running
-                            and self._context.proxy_state.started_profile_id == edited_profile_id
-                            and self._on_config_reload
-                        ):
-                            try:
-                                self._on_config_reload()
-                            except Exception:
-                                pass
-
-                    show_profile_vpn_settings_dialog(
-                        profile, self, on_settings_applied=on_settings_applied
-                    )
-                    self._context.profiles.save()
-                    self._refresh_profiles()
-                    return True
+                self._open_profile_vpn_settings(item_id)
+                return True
 
         return False
+
+    def _open_profile_vpn_settings(self, profile_id: int) -> None:
+        """Open VPN settings dialog for profile and refresh list."""
+        profile = self._context.profiles.get_profile(profile_id)
+        if not profile:
+            return
+
+        def on_settings_applied(edited_profile_id: int) -> None:
+            """Reload configuration if edited profile is currently active."""
+            if (
+                self._context.proxy_state.is_running
+                and self._context.proxy_state.started_profile_id == edited_profile_id
+                and self._on_config_reload
+            ):
+                try:
+                    self._on_config_reload()
+                except Exception:
+                    pass
+
+        show_profile_vpn_settings_dialog(profile, self, on_settings_applied=on_settings_applied)
+        self._context.profiles.save()
+        self._refresh_profiles()
 
     def _on_connect_clicked(self, button: Gtk.Button) -> None:
         """Click on Connect/Disconnect button."""
@@ -1377,7 +1573,7 @@ class MainWindow(Gtk.Window):
             dialog.run()
             dialog.destroy()
 
-    def _on_delete_profile_clicked(self, button: Gtk.Button) -> None:
+    def _on_delete_profile_clicked(self, button: Gtk.Button | None) -> None:
         """Click on Delete button."""
         profile_id = self._get_selected_profile_id()
         group_id = self._get_selected_group_id()
@@ -1496,7 +1692,7 @@ class MainWindow(Gtk.Window):
                 self._context.profiles.save()
                 self._refresh_profiles()
 
-    def _on_edit_profile_clicked(self, button: Gtk.Button) -> None:
+    def _on_edit_profile_clicked(self, button: Gtk.Button | None) -> None:
         """Click on Edit button."""
         profile_id = self._get_selected_profile_id()
 
@@ -1562,6 +1758,39 @@ class MainWindow(Gtk.Window):
                 window.set_wmclass("tenga-proxy", "tenga-proxy")
             except Exception:
                 pass
+
+            # Fit and center inside monitor workarea (excludes top panels/docks).
+            GLib.idle_add(self._fit_to_workarea)
+
+    def _fit_to_workarea(self) -> bool:
+        """Resize and center window within monitor workarea."""
+        gdk_window = self.get_window()
+        if not gdk_window:
+            return False
+
+        try:
+            screen = gdk_window.get_screen()
+            monitor_index = screen.get_monitor_at_window(gdk_window)
+            workarea = screen.get_monitor_workarea(monitor_index)
+
+            max_width = max(360, workarea.width - 24)
+            max_height = max(420, workarea.height - 24)
+
+            width, height = self.get_size()
+            target_width = min(width, max_width)
+            target_height = min(height, max_height)
+            self.resize(target_width, target_height)
+
+            x = workarea.x + max(0, (workarea.width - target_width) // 2)
+            y = workarea.y + max(0, (workarea.height - target_height) // 2)
+            self.move(x, y)
+
+            self._saved_width = target_width
+            self._saved_height = target_height
+        except Exception:
+            pass
+
+        return False
 
     def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
         """Handle window state changes (maximize/restore)."""
