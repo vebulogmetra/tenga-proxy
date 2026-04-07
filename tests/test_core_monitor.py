@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from src.core.context import AppContext
@@ -213,6 +214,46 @@ def test_connection_monitor_check_vpn_exception(tmp_path):
         assert ok is False
         assert "Ошибка проверки VPN" in error
         mock_is_active.assert_called_once_with("my-vpn")
+
+
+def test_connection_monitor_check_vpn_uses_active_profile_connection_name(tmp_path):
+    context = AppContext(config_dir=tmp_path)
+    context.config.vpn.enabled = True
+    context.config.vpn.connection_name = "global-vpn"
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 42
+
+    profile_vpn = SimpleNamespace(enabled=True, connection_name="profile-vpn")
+    profile = SimpleNamespace(vpn_settings=profile_vpn)
+    context._profiles = MagicMock()
+    context._profiles.get_profile.return_value = profile
+
+    monitor = ConnectionMonitor(context)
+
+    with patch("src.sys.vpn.is_vpn_active") as mock_is_active:
+        mock_is_active.return_value = True
+        ok, error = monitor._check_vpn_status()
+
+        assert ok is True
+        assert error == ""
+        mock_is_active.assert_called_once_with("profile-vpn")
+
+
+def test_connection_monitor_should_check_vpn_for_active_profile_when_global_disabled(tmp_path):
+    context = AppContext(config_dir=tmp_path)
+    context.config.vpn.enabled = False
+    context.config.vpn.connection_name = ""
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 7
+
+    profile_vpn = SimpleNamespace(enabled=True, connection_name="aiso")
+    profile = SimpleNamespace(vpn_settings=profile_vpn)
+    context._profiles = MagicMock()
+    context._profiles.get_profile.return_value = profile
+
+    monitor = ConnectionMonitor(context)
+
+    assert monitor._should_check_vpn() is True
 
 
 def test_connection_monitor_status_changed(tmp_path):
