@@ -158,7 +158,7 @@ class ConnectionMonitor:
         """
         from src.sys.vpn import is_vpn_active
 
-        connection_name = self._context.config.vpn.connection_name
+        connection_name = self._get_effective_vpn_connection_name()
         if not connection_name:
             return True, ""
 
@@ -169,6 +169,28 @@ class ConnectionMonitor:
         except Exception as e:
             logger.debug("VPN check error: %s", e)
             return False, f"Ошибка проверки VPN: {e}"
+
+    def _get_effective_vpn_connection_name(self) -> str:
+        """Resolve VPN connection name from active profile first, then global config."""
+        profile_id = self._context.proxy_state.started_profile_id
+        if self._context.proxy_state.is_running and profile_id >= 0:
+            try:
+                profile = self._context.profiles.get_profile(profile_id)
+            except Exception:
+                profile = None
+
+            if profile and getattr(profile, "vpn_settings", None):
+                vpn_settings = profile.vpn_settings
+                if getattr(vpn_settings, "enabled", False):
+                    profile_name = (getattr(vpn_settings, "connection_name", "") or "").strip()
+                    if profile_name:
+                        return profile_name
+
+        return (self._context.config.vpn.connection_name or "").strip()
+
+    def _should_check_vpn(self) -> bool:
+        """Return True when VPN should be checked in monitoring."""
+        return bool(self._get_effective_vpn_connection_name()) or self._context.config.vpn.enabled
 
     def _do_check_async(self) -> None:
         """Perform connection checks asynchronously.
@@ -192,7 +214,7 @@ class ConnectionMonitor:
 
         vpn_ok = True
         vpn_error = ""
-        if self._context.config.vpn.enabled:
+        if self._should_check_vpn():
             vpn_ok, vpn_error = self._check_vpn_status()
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")

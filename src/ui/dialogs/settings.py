@@ -15,6 +15,7 @@ from src import __app_author__, __app_description__, __app_website__
 from src import __app_name__ as APP_NAME
 from src import __version__ as APP_VERSION
 from src.db.config import DnsProvider
+from src.ui.style import style_dialog
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -52,6 +53,7 @@ class SettingsDialog(Gtk.Dialog):
 
         self._setup_ui()
         self._load_settings()
+        style_dialog(self)
 
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""
