@@ -18,6 +18,7 @@ from src.sys.vpn import (
     list_vpn_connections,
 )
 from src.db.config import DEFAULT_ROUTING_ORDER
+from src.ui.style import style_dialog
 
 
 if TYPE_CHECKING:
@@ -56,6 +57,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
 
         self._setup_ui()
         self._load_settings()
+        style_dialog(self)
 
     def _on_realize(self, widget: Gtk.Widget) -> None:
         """Handle window realization - set WM_CLASS via Gdk.Window."""
