@@ -8,7 +8,6 @@ import threading
 from pathlib import Path
 
 import gi
-from src.db.config import RoutingMode
 
 gi.require_version("Gtk", "3.0")
 
@@ -18,9 +17,15 @@ from src.core.config import GUI_LOG_FILE
 from src.core.context import AppContext, get_context, init_context
 from src.core.logging_utils import setup_logging as setup_core_logging
 from src.core.monitor import ConnectionMonitor, ConnectionStatus
-from src.db.config import RoutingMode
+from src.core.proxy_mode import (
+    build_inbounds_for_mode,
+    normalize_proxy_mode,
+    should_manage_system_proxy,
+)
+from src.db.config import ProxyMode, RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.tun_route import TunRouteState, apply_tun_routes, restore_tun_routes
 from src.sys.vpn import (
     connect_vpn,
     disconnect_vpn,
@@ -60,6 +65,7 @@ class TengaApp:
         # Connection monitor
         self._monitor: ConnectionMonitor | None = None
         self._setup_monitor()
+        self._tun_route_state: TunRouteState | None = None
 
         # Initialize socket listener stop flag
         self._stop_socket_listener = False
@@ -340,6 +346,7 @@ class TengaApp:
                         pass
 
         self._last_profile_id = profile_id
+        runtime_mode = normalize_proxy_mode(getattr(self._context.config, "proxy_mode", None))
         config = self._create_config(profile)
         if not config:
             return False
@@ -356,11 +363,24 @@ class TengaApp:
                     self._tray.show_notification("Error", f"Failed to start: {error}")
                 return False
             # Set state as running
-            self._context.proxy_state.set_running(profile_id)
+            self._context.proxy_state.set_running(profile_id, mode=runtime_mode)
 
-            # Configure system proxy
-            port = self._context.config.inbound_socks_port
-            set_system_proxy(http_port=port, socks_port=port)
+            if should_manage_system_proxy(runtime_mode):
+                port = self._context.config.inbound_socks_port
+                set_system_proxy(http_port=port, socks_port=port)
+            else:
+                logger.info("Runtime mode '%s': skip system proxy configuration", runtime_mode)
+                tun_name = getattr(self._context.config, "tun_name", "xray0")
+                proxy_host = getattr(profile.bean, "server_address", "") if profile else ""
+                route_ok, route_state, route_err = apply_tun_routes(tun_name, proxy_host)
+                if not route_ok:
+                    logger.error("Failed to apply TUN routes: %s", route_err)
+                    self._context.xray_manager.stop()
+                    self._context.proxy_state.set_stopped()
+                    if self._tray:
+                        self._tray.show_notification("Error", f"TUN route error: {route_err}")
+                    return False
+                self._tun_route_state = route_state
 
             profile = self._context.profiles.get_profile(profile_id)
             name = profile.name if profile else "Unknown"
@@ -465,7 +485,14 @@ class TengaApp:
             except Exception:
                 pass
 
-        clear_system_proxy()
+        started_mode = getattr(self._context.proxy_state, "started_mode", ProxyMode.TUN)
+        if started_mode == ProxyMode.TUN:
+            ok, err = restore_tun_routes(self._tun_route_state)
+            if not ok:
+                logger.warning("Failed to restore TUN routes: %s", err)
+            self._tun_route_state = None
+        if should_manage_system_proxy(started_mode):
+            clear_system_proxy()
         # Update state
         self._context.proxy_state.set_stopped()
 
@@ -1077,32 +1104,13 @@ class TengaApp:
                         server_config["domains"] = domains_for_server
                     xray_dns_servers.append(server_config)
             
-            # Build inbounds for xray-core (separate SOCKS and HTTP)
-            inbounds = [
-                {
-                    "listen": self._context.config.inbound_address,
-                    "port": port,
-                    "protocol": "socks",
-                    "settings": {
-                        "auth": "noauth",
-                        "udp": True,
-                    },
-                    "sniffing": {
-                        "enabled": True,
-                        "destOverride": ["http", "tls"],
-                    },
-                },
-                {
-                    "listen": self._context.config.inbound_address,
-                    "port": port + 1,
-                    "protocol": "http",
-                    "settings": {},
-                    "sniffing": {
-                        "enabled": True,
-                        "destOverride": ["http", "tls"],
-                    },
-                },
-            ]
+            inbounds = build_inbounds_for_mode(
+                mode=getattr(self._context.config, "proxy_mode", None),
+                address=self._context.config.inbound_address,
+                socks_port=port,
+                tun_name=getattr(self._context.config, "tun_name", "xray0"),
+                tun_mtu=getattr(self._context.config, "tun_mtu", 1500),
+            )
 
             config = {
                 "log": {"loglevel": self._context.config.log_level},

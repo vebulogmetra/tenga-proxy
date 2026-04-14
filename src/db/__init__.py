@@ -4,6 +4,7 @@ from src.db.config import (
     DnsSettings,
     ExtraCores,
     InboundAuth,
+    ProxyMode,
     RoutingMode,
     RoutingSettings,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "DnsSettings",
     "ExtraCores",
     "InboundAuth",
+    "ProxyMode",
     "ProfileEntry",
     "ProfileGroup",
     "ProfileManager",

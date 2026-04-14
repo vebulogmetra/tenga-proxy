@@ -14,6 +14,8 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
+from src.db.config import RoutingMode
+from src.sys.vpn import is_vpn_active
 from src.ui.dialogs import (
     show_edit_group_dialog,
     show_edit_profile_dialog,
@@ -66,6 +68,10 @@ class MainWindow(Gtk.Window):
         self._header_icon: Gtk.Image | None = None
         # Delay label
         self._delay_label: Gtk.Label | None = None
+        self._routing_mode_label: Gtk.Label | None = None
+        self._routing_direct_status: Gtk.Label | None = None
+        self._routing_proxy_status: Gtk.Label | None = None
+        self._routing_vpn_status: Gtk.Label | None = None
         # Monitoring UI elements
         self._monitoring_proxy_status: Gtk.Label | None = None
         self._monitoring_vpn_status: Gtk.Label | None = None
@@ -96,10 +102,10 @@ class MainWindow(Gtk.Window):
 
     def _setup_window(self) -> None:
         """Setup window."""
-        self.set_default_size(400, 500)
+        self.set_default_size(400, 390)
         self._saved_width = 400
-        self._saved_height = 500
-        self.set_size_request(350, 400)
+        self._saved_height = 390
+        self.set_size_request(350, 340)
         self.set_resizable(True)
         self.set_position(Gtk.WindowPosition.CENTER)
         self.set_border_width(10)
@@ -230,6 +236,8 @@ class MainWindow(Gtk.Window):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(145)
+        scrolled.set_max_content_height(235)
         self._profiles_stack = Gtk.Stack()
         self._profiles_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._profiles_stack.set_transition_duration(180)
@@ -286,9 +294,8 @@ class MainWindow(Gtk.Window):
         self._profile_list.connect("button-press-event", self._on_profile_list_button_press)
 
         scrolled.add(self._profile_list)
-        # Ensure headers reflect initial sort state (none)
-        self._update_sort_headers()
-        # Profile management buttons
+
+        # Profile management buttons (original placement: below list)
         profile_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
         profile_button_box.set_halign(Gtk.Align.CENTER)
         page_box.pack_start(profile_button_box, False, False, 0)
@@ -308,12 +315,13 @@ class MainWindow(Gtk.Window):
         delete_button.connect("clicked", self._on_delete_profile_clicked)
         profile_button_box.pack_start(delete_button, False, False, 0)
 
-        # Test delay button
         test_delay_btn = Gtk.Button(label="Тест задержки")
         test_delay_btn.set_tooltip_text("Проверить задержку до прокси-сервера")
         test_delay_btn.connect("clicked", self._on_test_delay_clicked)
         profile_button_box.pack_start(test_delay_btn, False, False, 0)
 
+        # Ensure headers reflect initial sort state (none)
+        self._update_sort_headers()
         return page_box
 
     def _update_sort_headers(self) -> None:
@@ -356,6 +364,12 @@ class MainWindow(Gtk.Window):
 
     def _create_monitoring_page(self) -> Gtk.Widget:
         """Create monitoring page."""
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(120)
+        scrolled.set_max_content_height(190)
+
         page_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
         page_box.set_margin_start(15)
         page_box.set_margin_end(15)
@@ -416,6 +430,40 @@ class MainWindow(Gtk.Window):
         vpn_status_box.pack_start(self._monitoring_vpn_status, False, False, 0)
         vpn_box.pack_start(vpn_status_box, False, False, 0)
 
+        routing_frame = Gtk.Frame()
+        routing_frame.set_label("Маршрутизация (активный профиль)")
+        routing_frame.set_margin_top(10)
+        page_box.pack_start(routing_frame, False, False, 0)
+
+        routing_grid = Gtk.Grid()
+        routing_grid.set_row_spacing(4)
+        routing_grid.set_column_spacing(10)
+        routing_grid.set_margin_start(8)
+        routing_grid.set_margin_end(8)
+        routing_grid.set_margin_top(8)
+        routing_grid.set_margin_bottom(8)
+        routing_frame.add(routing_grid)
+
+        routing_grid.attach(Gtk.Label(label="Режим:", halign=Gtk.Align.END), 0, 0, 1, 1)
+        self._routing_mode_label = Gtk.Label(label="—")
+        self._routing_mode_label.set_halign(Gtk.Align.START)
+        routing_grid.attach(self._routing_mode_label, 1, 0, 1, 1)
+
+        routing_grid.attach(Gtk.Label(label="DIRECT:", halign=Gtk.Align.END), 0, 1, 1, 1)
+        self._routing_direct_status = Gtk.Label(label="—")
+        self._routing_direct_status.set_halign(Gtk.Align.START)
+        routing_grid.attach(self._routing_direct_status, 1, 1, 1, 1)
+
+        routing_grid.attach(Gtk.Label(label="PROXY:", halign=Gtk.Align.END), 0, 2, 1, 1)
+        self._routing_proxy_status = Gtk.Label(label="—")
+        self._routing_proxy_status.set_halign(Gtk.Align.START)
+        routing_grid.attach(self._routing_proxy_status, 1, 2, 1, 1)
+
+        routing_grid.attach(Gtk.Label(label="VPN:", halign=Gtk.Align.END), 0, 3, 1, 1)
+        self._routing_vpn_status = Gtk.Label(label="—")
+        self._routing_vpn_status.set_halign(Gtk.Align.START)
+        routing_grid.attach(self._routing_vpn_status, 1, 3, 1, 1)
+
         # Last check time
         last_check_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         last_check_label = Gtk.Label(label="Последняя проверка:")
@@ -444,7 +492,8 @@ class MainWindow(Gtk.Window):
         info_label.set_margin_top(10)
         page_box.pack_start(info_label, False, False, 0)
 
-        return page_box
+        scrolled.add(page_box)
+        return scrolled
 
     def _on_refresh_monitoring_clicked(self, button: Gtk.Button) -> None:
         """Refresh monitoring status manually."""
@@ -479,9 +528,35 @@ class MainWindow(Gtk.Window):
         clear_filter_btn.connect("clicked", self._on_subscription_filter_clear_clicked)
         filter_box.pack_start(clear_filter_btn, False, False, 0)
 
+        sub_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        sub_button_box.set_halign(Gtk.Align.CENTER)
+        page_box.pack_start(sub_button_box, False, False, 0)
+
+        add_sub_button = Gtk.Button(label="Добавить подписку")
+        add_sub_button.set_tooltip_text("Добавить новую подписку")
+        add_sub_button.connect("clicked", self._on_add_subscription_clicked)
+        sub_button_box.pack_start(add_sub_button, False, False, 0)
+
+        update_sub_button = Gtk.Button(label="Обновить")
+        update_sub_button.set_tooltip_text("Обновить выбранную подписку")
+        update_sub_button.connect("clicked", self._on_update_subscription_clicked)
+        sub_button_box.pack_start(update_sub_button, False, False, 0)
+
+        edit_sub_button = Gtk.Button(label="Редактировать")
+        edit_sub_button.set_tooltip_text("Редактировать выбранную подписку")
+        edit_sub_button.connect("clicked", self._on_edit_subscription_clicked)
+        sub_button_box.pack_start(edit_sub_button, False, False, 0)
+
+        delete_sub_button = Gtk.Button(label="Удалить")
+        delete_sub_button.set_tooltip_text("Удалить выбранную подписку")
+        delete_sub_button.connect("clicked", self._on_delete_subscription_clicked)
+        sub_button_box.pack_start(delete_sub_button, False, False, 0)
+
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_vexpand(True)
+        scrolled.set_min_content_height(110)
+        scrolled.set_max_content_height(170)
         self._subscriptions_stack = Gtk.Stack()
         self._subscriptions_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self._subscriptions_stack.set_transition_duration(180)
@@ -528,30 +603,6 @@ class MainWindow(Gtk.Window):
         )
 
         scrolled.add(self._subscription_list)
-
-        sub_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        sub_button_box.set_halign(Gtk.Align.CENTER)
-        page_box.pack_start(sub_button_box, False, False, 0)
-
-        add_sub_button = Gtk.Button(label="Добавить подписку")
-        add_sub_button.set_tooltip_text("Добавить новую подписку")
-        add_sub_button.connect("clicked", self._on_add_subscription_clicked)
-        sub_button_box.pack_start(add_sub_button, False, False, 0)
-
-        update_sub_button = Gtk.Button(label="Обновить")
-        update_sub_button.set_tooltip_text("Обновить выбранную подписку")
-        update_sub_button.connect("clicked", self._on_update_subscription_clicked)
-        sub_button_box.pack_start(update_sub_button, False, False, 0)
-
-        edit_sub_button = Gtk.Button(label="Редактировать")
-        edit_sub_button.set_tooltip_text("Редактировать выбранную подписку")
-        edit_sub_button.connect("clicked", self._on_edit_subscription_clicked)
-        sub_button_box.pack_start(edit_sub_button, False, False, 0)
-
-        delete_sub_button = Gtk.Button(label="Удалить")
-        delete_sub_button.set_tooltip_text("Удалить выбранную подписку")
-        delete_sub_button.connect("clicked", self._on_delete_subscription_clicked)
-        sub_button_box.pack_start(delete_sub_button, False, False, 0)
 
         return page_box
 
@@ -1353,7 +1404,93 @@ class MainWindow(Gtk.Window):
                 ctx.remove_class("delay-medium")
                 ctx.remove_class("delay-bad")
 
+        self._update_routing_indicators(state)
         self._refresh_profiles()
+
+    def _update_routing_indicators(self, state: ProxyState) -> None:
+        """Update routing indicators for active profile."""
+        if (
+            not self._routing_mode_label
+            or not self._routing_direct_status
+            or not self._routing_proxy_status
+            or not self._routing_vpn_status
+        ):
+            return
+
+        if not state.is_running:
+            self._routing_mode_label.set_text("—")
+            self._routing_direct_status.set_text("—")
+            self._routing_proxy_status.set_text("—")
+            self._routing_vpn_status.set_text("—")
+            return
+
+        profile = self._context.profiles.get_profile(state.started_profile_id)
+        if not profile:
+            self._routing_mode_label.set_text("Профиль не найден")
+            self._routing_direct_status.set_text("—")
+            self._routing_proxy_status.set_text("—")
+            self._routing_vpn_status.set_text("—")
+            return
+
+        routing = profile.routing_settings
+        if routing is None:
+            routing = self._context.config.routing
+            if routing.mode == RoutingMode.CUSTOM:
+                routing.load_lists_from_files(self._context.config_dir)
+
+        mode_text = (
+            "PROXY_ALL"
+            if routing.mode == RoutingMode.PROXY_ALL
+            else "CUSTOM"
+        )
+        self._routing_mode_label.set_text(mode_text)
+
+        if routing.mode == RoutingMode.PROXY_ALL:
+            direct_status = (
+                "активен (bypass local)"
+                if routing.bypass_local_networks
+                else "не задан"
+            )
+            proxy_status = "активен (весь трафик)"
+            vpn_status = "не задан"
+        else:
+            direct_rules_count = len(routing.direct_list or [])
+            if routing.bypass_local_networks:
+                direct_rules_count += 1
+
+            direct_status = (
+                f"активен ({direct_rules_count} правил)"
+                if direct_rules_count > 0
+                else "не задан"
+            )
+
+            proxy_rules_count = len(routing.proxy_list or [])
+            if proxy_rules_count > 0:
+                proxy_status = f"активен ({proxy_rules_count} правил + default)"
+            else:
+                proxy_status = "активен (default)"
+
+            vpn_rules_count = len(routing.vpn_list or [])
+            vpn_settings = profile.vpn_settings
+            vpn_enabled = bool(vpn_settings and vpn_settings.enabled and vpn_settings.connection_name)
+            vpn_is_up = bool(
+                vpn_enabled
+                and vpn_settings is not None
+                and is_vpn_active(vpn_settings.connection_name)
+            )
+
+            if vpn_rules_count == 0:
+                vpn_status = "не задан"
+            elif vpn_is_up:
+                vpn_status = f"активен ({vpn_rules_count} правил)"
+            elif vpn_enabled:
+                vpn_status = f"правила есть ({vpn_rules_count}), VPN не активен"
+            else:
+                vpn_status = f"правила есть ({vpn_rules_count}), VPN выключен"
+
+        self._routing_direct_status.set_text(direct_status)
+        self._routing_proxy_status.set_text(proxy_status)
+        self._routing_vpn_status.set_text(vpn_status)
 
     def _get_selected_profile_id(self) -> int | None:
         """Get selected profile ID (returns None if group is selected)."""
@@ -1774,7 +1911,7 @@ class MainWindow(Gtk.Window):
             workarea = screen.get_monitor_workarea(monitor_index)
 
             max_width = max(360, workarea.width - 24)
-            max_height = max(420, workarea.height - 24)
+            max_height = max(340, workarea.height - 24)
 
             width, height = self.get_size()
             target_width = min(width, max_width)
@@ -1786,7 +1923,7 @@ class MainWindow(Gtk.Window):
             self.move(x, y)
 
             self._saved_width = target_width
-            self._saved_height = target_height
+            self._saved_height = max(340, target_height)
         except Exception:
             pass
 

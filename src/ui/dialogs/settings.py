@@ -14,7 +14,7 @@ from gi.repository import Gdk, Gtk
 from src import __app_author__, __app_description__, __app_website__
 from src import __app_name__ as APP_NAME
 from src import __version__ as APP_VERSION
-from src.db.config import DnsProvider
+from src.db.config import DnsProvider, ProxyMode
 from src.ui.style import style_dialog
 
 if TYPE_CHECKING:
@@ -118,6 +118,39 @@ class SettingsDialog(Gtk.Dialog):
         proxy_grid.attach(Gtk.Label(label="Порт:", halign=Gtk.Align.END), 2, 0, 1, 1)
         self._port_spin = Gtk.SpinButton.new_with_range(1024, 65535, 1)
         proxy_grid.attach(self._port_spin, 3, 0, 1, 1)
+
+        runtime_frame = Gtk.Frame()
+        runtime_frame.set_label("Режим работы")
+        box.pack_start(runtime_frame, False, False, 0)
+
+        runtime_grid = Gtk.Grid()
+        runtime_grid.set_row_spacing(8)
+        runtime_grid.set_column_spacing(10)
+        runtime_grid.set_margin_start(10)
+        runtime_grid.set_margin_end(10)
+        runtime_grid.set_margin_top(10)
+        runtime_grid.set_margin_bottom(10)
+        runtime_frame.add(runtime_grid)
+
+        runtime_grid.attach(Gtk.Label(label="Режим:", halign=Gtk.Align.END), 0, 0, 1, 1)
+        self._proxy_mode_combo = Gtk.ComboBoxText()
+        self._proxy_mode_keys = [ProxyMode.TUN, ProxyMode.SYSTEM_PROXY]
+        for mode in self._proxy_mode_keys:
+            self._proxy_mode_combo.append_text(ProxyMode.LABELS[mode])
+        self._proxy_mode_combo.set_active(0)
+        self._proxy_mode_combo.connect("changed", self._on_proxy_mode_changed)
+        runtime_grid.attach(self._proxy_mode_combo, 1, 0, 3, 1)
+
+        runtime_grid.attach(
+            Gtk.Label(label="TUN интерфейс:", halign=Gtk.Align.END), 0, 1, 1, 1
+        )
+        self._tun_name_entry = Gtk.Entry()
+        self._tun_name_entry.set_placeholder_text("xray0")
+        runtime_grid.attach(self._tun_name_entry, 1, 1, 1, 1)
+
+        runtime_grid.attach(Gtk.Label(label="TUN MTU:", halign=Gtk.Align.END), 2, 1, 1, 1)
+        self._tun_mtu_spin = Gtk.SpinButton.new_with_range(576, 9000, 1)
+        runtime_grid.attach(self._tun_mtu_spin, 3, 1, 1, 1)
 
         # Logging
         log_frame = Gtk.Frame()
@@ -391,6 +424,18 @@ class SettingsDialog(Gtk.Dialog):
         """DNS provider change handler."""
         # Do nothing for now
 
+    def _on_proxy_mode_changed(self, combo: Gtk.ComboBoxText | None = None) -> None:
+        """Toggle TUN-specific controls by selected proxy mode."""
+        active_idx = self._proxy_mode_combo.get_active()
+        mode = (
+            self._proxy_mode_keys[active_idx]
+            if active_idx is not None and 0 <= active_idx < len(self._proxy_mode_keys)
+            else ProxyMode.TUN
+        )
+        tun_enabled = mode == ProxyMode.TUN
+        self._tun_name_entry.set_sensitive(tun_enabled)
+        self._tun_mtu_spin.set_sensitive(tun_enabled)
+
     def _load_settings(self) -> None:
         """Load current settings."""
         config = self._context.config
@@ -399,6 +444,14 @@ class SettingsDialog(Gtk.Dialog):
         # General settings
         self._address_entry.set_text(config.inbound_address)
         self._port_spin.set_value(config.inbound_socks_port)
+        config_mode = getattr(config, "proxy_mode", ProxyMode.TUN)
+        if config_mode in self._proxy_mode_keys:
+            self._proxy_mode_combo.set_active(self._proxy_mode_keys.index(config_mode))
+        else:
+            self._proxy_mode_combo.set_active(0)
+        self._tun_name_entry.set_text(getattr(config, "tun_name", "xray0"))
+        self._tun_mtu_spin.set_value(getattr(config, "tun_mtu", 1500))
+        self._on_proxy_mode_changed()
 
         # Log level
         log_levels = ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
@@ -430,6 +483,13 @@ class SettingsDialog(Gtk.Dialog):
         # General settings
         config.inbound_address = self._address_entry.get_text().strip()
         config.inbound_socks_port = int(self._port_spin.get_value())
+        mode_idx = self._proxy_mode_combo.get_active()
+        if mode_idx is not None and 0 <= mode_idx < len(self._proxy_mode_keys):
+            config.proxy_mode = self._proxy_mode_keys[mode_idx]
+        else:
+            config.proxy_mode = ProxyMode.TUN
+        config.tun_name = self._tun_name_entry.get_text().strip() or "xray0"
+        config.tun_mtu = int(self._tun_mtu_spin.get_value())
 
         log_levels = ["trace", "debug", "info", "warn", "error", "fatal", "panic"]
         config.log_level = log_levels[self._log_combo.get_active()]

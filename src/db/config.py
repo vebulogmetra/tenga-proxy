@@ -283,6 +283,25 @@ class RoutingMode:
     }
 
 
+class ProxyMode:
+    """Proxy runtime mode."""
+
+    SYSTEM_PROXY = "system_proxy"
+    TUN = "tun"
+
+    ALL = [SYSTEM_PROXY, TUN]
+
+    LABELS = {
+        SYSTEM_PROXY: "Системный прокси (SOCKS/HTTP)",
+        TUN: "TUN (VPN-подобный режим)",
+    }
+
+    DESCRIPTIONS = {
+        SYSTEM_PROXY: "Использует локальные SOCKS/HTTP порты и настройки системного прокси",
+        TUN: "Создаёт TUN интерфейс через xray-core для маршрутизации как VPN",
+    }
+
+
 ROUTING_GROUPS = ["direct", "vpn", "proxy"]
 DEFAULT_ROUTING_ORDER = ["direct", "vpn", "proxy"]
 

@@ -9,6 +9,7 @@ from src.db.config import (
     ExtraCores,
     InboundAuth,
     MonitoringSettings,
+    ProxyMode,
     RoutingSettings,
     VpnSettings,
 )
@@ -23,6 +24,10 @@ class DataStore(ConfigBase):
     inbound_socks_port: int = 2080
     inbound_auth: InboundAuth = field(default_factory=InboundAuth)
     custom_inbound: str = '{"inbounds": []}'
+    # Runtime mode
+    proxy_mode: str = ProxyMode.TUN
+    tun_name: str = "xray0"
+    tun_mtu: int = 1500
     # Logging
     log_level: str = "info"
     log_ignore: list[str] = field(default_factory=list)
