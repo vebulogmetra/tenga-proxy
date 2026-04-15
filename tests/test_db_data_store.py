@@ -6,6 +6,11 @@ from src.db.data_store import (
 )
 
 
+def test_data_store_default_proxy_mode_is_tun():
+    store = DataStore()
+    assert store.proxy_mode == "tun"
+
+
 def test_to_dict_excludes_runtime_fields():
     store = DataStore()
     store._core_token = "secret"
@@ -65,3 +70,21 @@ def test_load_and_save_data_store_roundtrip(tmp_path, monkeypatch):
     assert isinstance(loaded, DataStore)
     assert loaded.inbound_address == "10.0.0.1"
     assert loaded.inbound_socks_port == 9999
+
+
+def test_load_and_save_data_store_roundtrip_with_proxy_mode(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+    cfg_path = get_default_config_path()
+
+    store = DataStore()
+    store.proxy_mode = "tun"
+    store.tun_name = "xray0"
+    store.tun_mtu = 1450
+
+    assert save_data_store(store, cfg_path) is True
+
+    loaded = load_data_store(cfg_path)
+    assert loaded.proxy_mode == "tun"
+    assert loaded.tun_name == "xray0"
+    assert loaded.tun_mtu == 1450

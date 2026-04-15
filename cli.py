@@ -12,6 +12,8 @@ from src import __version__
 from src.core import init_context
 from src.core.config import CLI_LOG_FILE, CORE_BIN_DIR, XRAY_BINARY_NAME, find_xray_binary
 from src.core.logging_utils import setup_logging as setup_core_logging
+from src.core.proxy_mode import build_inbounds_for_mode, should_manage_system_proxy
+from src.db.config import ProxyMode
 from src.fmt import parse_link, parse_subscription_content
 from src.sys.proxy import clear_system_proxy, set_system_proxy
 
@@ -600,6 +602,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     """Run the proxy."""
     context = init_context()
     bean = None
+    runtime_mode = args.mode.replace("-", "_")
 
     # Get profile or link
     if args.link:
@@ -670,27 +673,13 @@ def cmd_run(args: argparse.Namespace) -> int:
 
         config = {
             "log": {"loglevel": "info"},
-            "inbounds": [
-                {
-                    "listen": "127.0.0.1",
-                    "port": args.port,
-                    "protocol": "socks",
-                    "settings": {
-                        "auth": "noauth",
-                        "udp": True,
-                    },
-                    "sniffing": {
-                        "enabled": True,
-                        "destOverride": ["http", "tls"],
-                    },
-                },
-                {
-                    "listen": "127.0.0.1",
-                    "port": args.port + 1,
-                    "protocol": "http",
-                    "settings": {},
-                },
-            ],
+            "inbounds": build_inbounds_for_mode(
+                mode=runtime_mode,
+                address="127.0.0.1",
+                socks_port=args.port,
+                tun_name="xray0",
+                tun_mtu=1500,
+            ),
             "outbounds": [
                 {"protocol": "freedom", "tag": "direct"},
                 outbound,
@@ -730,7 +719,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             print("3. Или установите системно")
             return 1
 
-        if not args.no_system_proxy:
+        if should_manage_system_proxy(runtime_mode) and not args.no_system_proxy:
             print(f"\n[INFO] Настройка системного прокси на порт {args.port}...")
             if set_system_proxy(http_port=args.port, socks_port=args.port):
                 print("[OK] Системный прокси настроен")
@@ -746,7 +735,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         # Signal handling
         def signal_handler(_sig, _frame):
             print("\n\n[STOP] Остановка...")
-            if not args.no_system_proxy:
+            if should_manage_system_proxy(runtime_mode) and not args.no_system_proxy:
                 clear_system_proxy()
             sys.exit(0)
 
@@ -773,7 +762,7 @@ def cmd_run(args: argparse.Namespace) -> int:
             process.wait()
             print("[OK] xray-core остановлен")
         finally:
-            if not args.no_system_proxy:
+            if should_manage_system_proxy(runtime_mode) and not args.no_system_proxy:
                 clear_system_proxy()
 
         return 0
@@ -844,6 +833,12 @@ def main() -> int:
         help="ID профиля, порядковый номер (из list), имя профиля или share link (или путь к файлу)",
     )
     run_parser.add_argument("-p", "--port", type=int, default=2080, help="Порт прокси")
+    run_parser.add_argument(
+        "--mode",
+        choices=[ProxyMode.SYSTEM_PROXY, ProxyMode.TUN, "system-proxy"],
+        default=ProxyMode.TUN,
+        help="Режим запуска: system_proxy/system-proxy или tun",
+    )
     run_parser.add_argument(
         "--no-system-proxy", action="store_true", help="Не настраивать системный прокси"
     )

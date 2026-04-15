@@ -42,10 +42,18 @@ find_appimage() {
 
 install_appimage() {
     local appimage=$(find_appimage)
+    local current_user
+    current_user="$(id -un)"
     local install_dir="$HOME/.local/bin"
     local apps_dir="$HOME/.local/share/applications"
     local icons_dir="$HOME/.local/share/icons/hicolor"
+    local config_bin_dir="$HOME/.config/tenga-proxy/bin"
+    local user_xray_path="$config_bin_dir/xray"
     local installed_path="$install_dir/$APP_NAME.AppImage"
+    local helper_src="$PROJECT_ROOT/core/scripts/tun_route_helper.sh"
+    local helper_dir="/usr/local/libexec/tenga-proxy"
+    local helper_path="$helper_dir/tun-route-helper"
+    local sudoers_path="/etc/sudoers.d/tenga-proxy-tun-helper-$current_user"
     
     info "Найден AppImage: $appimage"
 
@@ -57,6 +65,66 @@ install_appimage() {
     info "Копирование AppImage в $install_dir..."
     cp "$appimage" "$installed_path"
     chmod +x "$installed_path"
+
+    # Install privileged helper and sudoers rule for passwordless TUN route switch.
+    if [ -f "$helper_src" ]; then
+        if ! echo "$current_user" | grep -Eq '^[a-zA-Z0-9._-]+$'; then
+            warning "Небезопасное имя пользователя '$current_user', пропуск настройки sudoers."
+            current_user=""
+        fi
+        info "Установка helper для маршрутизации TUN..."
+        if sudo install -d -m 0755 "$helper_dir" \
+            && sudo install -o root -g root -m 0755 "$helper_src" "$helper_path"; then
+            success "Helper установлен: $helper_path"
+        else
+            warning "Не удалось установить helper маршрутизации TUN"
+        fi
+
+        if [ -n "$current_user" ]; then
+            info "Настройка sudoers (NOPASSWD только для helper)..."
+            tmp_sudoers="$(mktemp)"
+            printf "%s ALL=(root) NOPASSWD: %s\n" "$current_user" "$helper_path" > "$tmp_sudoers"
+            if command -v visudo >/dev/null 2>&1 \
+                && visudo -cf "$tmp_sudoers" >/dev/null 2>&1 \
+                && sudo install -o root -g root -m 0440 "$tmp_sudoers" "$sudoers_path"; then
+                success "Sudoers правило установлено: $sudoers_path"
+            else
+                warning "Не удалось установить sudoers правило. Будет запрашиваться пароль."
+            fi
+            rm -f "$tmp_sudoers"
+        fi
+    else
+        warning "Helper скрипт не найден: $helper_src"
+    fi
+
+    # Install xray binary into user config dir so AppImage runtime can use it
+    # and apply capabilities required for TUN mode.
+    if [ -f "$PROJECT_ROOT/core/bin/xray" ]; then
+        mkdir -p "$config_bin_dir"
+        cp "$PROJECT_ROOT/core/bin/xray" "$user_xray_path"
+        chmod +x "$user_xray_path"
+        info "Установлен xray: $user_xray_path"
+
+        if command -v setcap &>/dev/null; then
+            info "Выдача прав для TUN режимa (cap_net_admin, cap_net_raw)..."
+            if sudo setcap cap_net_admin,cap_net_raw+ep "$user_xray_path"; then
+                success "Права выданы: $user_xray_path"
+                if command -v getcap &>/dev/null; then
+                    getcap "$user_xray_path" || true
+                fi
+            else
+                warning "Не удалось выдать права setcap. TUN режим может не работать."
+                warning "Выполните вручную:"
+                echo "  sudo setcap cap_net_admin,cap_net_raw+ep $user_xray_path"
+            fi
+        else
+            warning "Утилита setcap не найдена. Установите libcap и выполните:"
+            echo "  sudo setcap cap_net_admin,cap_net_raw+ep $user_xray_path"
+        fi
+    else
+        warning "Локальный xray не найден: $PROJECT_ROOT/core/bin/xray"
+        warning "Пропускаю настройку TUN прав."
+    fi
 
     if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
         info "Установка иконки..."
@@ -120,9 +188,13 @@ EOF
 }
 
 uninstall_appimage() {
+    local current_user
+    current_user="$(id -un)"
     local install_dir="$HOME/.local/bin"
     local apps_dir="$HOME/.local/share/applications"
     local icons_dir="$HOME/.local/share/icons/hicolor"
+    local helper_path="/usr/local/libexec/tenga-proxy/tun-route-helper"
+    local sudoers_path="/etc/sudoers.d/tenga-proxy-tun-helper-$current_user"
     
     info "Удаление Tenga Proxy..."
     
@@ -130,6 +202,7 @@ uninstall_appimage() {
     rm -f "$apps_dir/tenga-proxy.desktop"
     rm -f "$icons_dir/scalable/apps/tenga-proxy.svg"
     rm -f "$icons_dir/256x256/apps/tenga-proxy.png"
+    sudo rm -f "$helper_path" "$sudoers_path" 2>/dev/null || true
 
     if command -v update-desktop-database &>/dev/null; then
         update-desktop-database "$apps_dir" 2>/dev/null || true

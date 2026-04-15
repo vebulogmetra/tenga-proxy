@@ -24,6 +24,7 @@ class ProxyState:
     upload_bytes: int = 0
     download_bytes: int = 0
     vpn_auto_connected: bool = False
+    started_mode: str = "tun"
 
     # Listeners
     _state_listeners: list[Callable[[ProxyState], None]] = field(default_factory=list)
@@ -46,10 +47,11 @@ class ProxyState:
             except Exception as e:
                 print(f"Error in state listener: {e}")
 
-    def set_running(self, profile_id: int) -> None:
+    def set_running(self, profile_id: int, mode: str = "tun") -> None:
         """Set state to running."""
         self.is_running = True
         self.started_profile_id = profile_id
+        self.started_mode = mode
         self.notify_listeners()
 
     def set_stopped(self) -> None:
@@ -58,6 +60,7 @@ class ProxyState:
         self.started_profile_id = -1
         self.upload_bytes = 0
         self.download_bytes = 0
+        self.started_mode = "tun"
         self.notify_listeners()
 
 
