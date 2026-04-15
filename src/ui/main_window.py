@@ -81,7 +81,9 @@ class MainWindow(Gtk.Window):
         self._monitoring_page_index: int = -1
         # Window state tracking
         self._saved_width: int = 400
-        self._saved_height: int = 500
+        self._saved_height: int = 390
+        self._saved_x: int | None = None
+        self._saved_y: int | None = None
         self._is_maximized: bool = False
         # Profile sort state
         self._profile_sort_key: str | None = None  # "type" | "ping" | None
@@ -102,12 +104,14 @@ class MainWindow(Gtk.Window):
 
     def _setup_window(self) -> None:
         """Setup window."""
-        self.set_default_size(400, 390)
-        self._saved_width = 400
-        self._saved_height = 390
+        self._load_window_geometry()
+        self.set_default_size(self._saved_width, self._saved_height)
         self.set_size_request(350, 340)
         self.set_resizable(True)
-        self.set_position(Gtk.WindowPosition.CENTER)
+        if self._saved_x is None or self._saved_y is None:
+            self.set_position(Gtk.WindowPosition.CENTER)
+        else:
+            self.set_position(Gtk.WindowPosition.NONE)
         self.set_border_width(10)
         self.set_icon_name("network-transmit-receive")
         # Icon from file file:
@@ -1896,11 +1900,10 @@ class MainWindow(Gtk.Window):
             except Exception:
                 pass
 
-            # Fit and center inside monitor workarea (excludes top panels/docks).
-            GLib.idle_add(self._fit_to_workarea)
+            GLib.idle_add(self._restore_or_fit_to_workarea)
 
-    def _fit_to_workarea(self) -> bool:
-        """Resize and center window within monitor workarea."""
+    def _restore_or_fit_to_workarea(self) -> bool:
+        """Restore saved geometry or fit and center window within monitor workarea."""
         gdk_window = self.get_window()
         if not gdk_window:
             return False
@@ -1913,21 +1916,75 @@ class MainWindow(Gtk.Window):
             max_width = max(360, workarea.width - 24)
             max_height = max(340, workarea.height - 24)
 
-            width, height = self.get_size()
-            target_width = min(width, max_width)
-            target_height = min(height, max_height)
+            target_width = min(max(350, self._saved_width), max_width)
+            target_height = min(max(340, self._saved_height), max_height)
             self.resize(target_width, target_height)
 
-            x = workarea.x + max(0, (workarea.width - target_width) // 2)
-            y = workarea.y + max(0, (workarea.height - target_height) // 2)
-            self.move(x, y)
+            if self._saved_x is not None and self._saved_y is not None:
+                min_x = workarea.x
+                max_x = workarea.x + max(0, workarea.width - target_width)
+                min_y = workarea.y
+                max_y = workarea.y + max(0, workarea.height - target_height)
+                target_x = min(max(self._saved_x, min_x), max_x)
+                target_y = min(max(self._saved_y, min_y), max_y)
+                self.move(target_x, target_y)
+                self._saved_x = target_x
+                self._saved_y = target_y
+            else:
+                x = workarea.x + max(0, (workarea.width - target_width) // 2)
+                y = workarea.y + max(0, (workarea.height - target_height) // 2)
+                self.move(x, y)
+                self._saved_x = x
+                self._saved_y = y
 
             self._saved_width = target_width
-            self._saved_height = max(340, target_height)
+            self._saved_height = target_height
+            if self._is_maximized:
+                self.maximize()
         except Exception:
             pass
 
         return False
+
+    def _load_window_geometry(self) -> None:
+        """Load window geometry from persisted config."""
+        raw = getattr(self._context.config, "window_size", "")
+        if not raw:
+            return
+
+        parts = [part.strip() for part in raw.split(",")]
+        if len(parts) < 4:
+            return
+
+        try:
+            width = int(parts[0])
+            height = int(parts[1])
+            x = int(parts[2])
+            y = int(parts[3])
+            maximized = bool(int(parts[4])) if len(parts) > 4 else False
+        except Exception:
+            return
+
+        if width > 0:
+            self._saved_width = width
+        if height > 0:
+            self._saved_height = height
+        if x >= 0 and y >= 0:
+            self._saved_x = x
+            self._saved_y = y
+        self._is_maximized = maximized
+
+    def _save_window_geometry(self) -> None:
+        """Persist current window geometry to config."""
+        if self._saved_x is None:
+            self._saved_x = 0
+        if self._saved_y is None:
+            self._saved_y = 0
+
+        self._context.config.window_size = (
+            f"{self._saved_width},{self._saved_height},{self._saved_x},"
+            f"{self._saved_y},{1 if self._is_maximized else 0}"
+        )
 
     def _on_window_state_event(self, widget: Gtk.Widget, event: Gdk.EventWindowState) -> None:
         """Handle window state changes (maximize/restore)."""
@@ -1937,6 +1994,7 @@ class MainWindow(Gtk.Window):
             self.resize(self._saved_width, self._saved_height)
 
         self._is_maximized = is_maximized
+        self._save_window_geometry()
 
     def _on_configure_event(self, widget: Gtk.Widget, event: Gdk.EventConfigure) -> None:
         """Handle window configuration changes (size/position)."""
@@ -1945,15 +2003,23 @@ class MainWindow(Gtk.Window):
             if width > 0 and height > 0:
                 self._saved_width = width
                 self._saved_height = height
+            if event.x >= 0 and event.y >= 0:
+                self._saved_x = event.x
+                self._saved_y = event.y
+        self._save_window_geometry()
         return False
 
     def _on_delete(self, widget: Gtk.Widget, event: Gdk.Event) -> bool:
         """Handle window close - hide instead of closing."""
+        self._save_window_geometry()
+        self._context.save_config()
         self.hide()
         return True
 
     def _on_destroy(self, widget: Gtk.Widget) -> None:
         """Handle window destruction - cleanup resources."""
+        self._save_window_geometry()
+        self._context.save_config()
         # Remove state listener to prevent memory leak
         try:
             self._context.proxy_state.remove_listener(self._on_state_changed)

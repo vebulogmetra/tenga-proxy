@@ -42,11 +42,8 @@ def _run_ip_privileged(args: list[str], timeout: int = 15) -> tuple[bool, str]:
     """Run `ip` command with best-effort privilege escalation."""
     attempts: list[list[str]] = [["ip", *args]]
 
-    if shutil.which("pkexec"):
-        attempts.append(["pkexec", "ip", *args])
-
     if shutil.which("sudo"):
-        attempts.append(["sudo", "ip", *args])
+        attempts.append(["sudo", "-n", "ip", *args])
 
     last_err = "unknown error"
     for cmd in attempts:
@@ -79,10 +76,8 @@ def _run_ip_batch_privileged(commands: list[list[str]], timeout: int = 20) -> tu
     )
 
     attempts: list[list[str]] = []
-    if shutil.which("pkexec"):
-        attempts.append(["pkexec", "/bin/sh", "-lc", chain])
     if shutil.which("sudo"):
-        attempts.append(["sudo", "/bin/sh", "-lc", chain])
+        attempts.append(["sudo", "-n", "/bin/sh", "-lc", chain])
 
     last_err = "unknown error"
     for cmd in attempts:
