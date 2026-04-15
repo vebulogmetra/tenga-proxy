@@ -1,4 +1,4 @@
-__version__ = "0.10.2"
+__version__ = "0.10.3"
 __app_name__ = "Tenga Proxy"
 __app_description__ = (
     "Клиент прокси с бекэндом <a href='https://github.com/XTLS/Xray-core'>xray-core</a>"
