@@ -136,6 +136,35 @@ def init_ui_theme() -> None:
     .delay-bad {
         color: #f44336;
     }
+
+    .tenga-logo-button {
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        margin: 0;
+        min-height: 192px;
+        min-width: 192px;
+    }
+
+    .tenga-logo-button:hover {
+        background: alpha(#ffffff, 0.06);
+        border-radius: 12px;
+    }
+
+    .tenga-logo-button:disabled {
+        background: transparent;
+    }
+
+    @keyframes tenga-logo-pulse {
+        0%   { opacity: 1.0; }
+        50%  { opacity: 0.45; }
+        100% { opacity: 1.0; }
+    }
+
+    .tenga-logo-button.tenga-logo-pulse image {
+        animation: tenga-logo-pulse 1.2s ease-in-out infinite;
+    }
     """
 
     provider = Gtk.CssProvider()

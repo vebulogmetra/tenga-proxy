@@ -66,6 +66,10 @@ class MainWindow(Gtk.Window):
         self._connect_button: Gtk.Button | None = None
         self._status_label: Gtk.Label | None = None
         self._header_icon: Gtk.Image | None = None
+        self._header_button: Gtk.Button | None = None
+        self._logo_color: GdkPixbuf.Pixbuf | None = None
+        self._logo_gray: GdkPixbuf.Pixbuf | None = None
+        self._connecting: bool = False
         # Delay label
         self._delay_label: Gtk.Label | None = None
         self._routing_mode_label: Gtk.Label | None = None
@@ -113,11 +117,16 @@ class MainWindow(Gtk.Window):
         else:
             self.set_position(Gtk.WindowPosition.NONE)
         self.set_border_width(10)
-        self.set_icon_name("network-transmit-receive")
-        # Icon from file file:
-        # icon_path = Path(__file__).parent.parent.parent / "res" / "icon.png"
-        # if icon_path.exists():
-        #     self.set_icon_from_file(str(icon_path))
+        from src.core.config import get_asset_path
+
+        app_icon_path = get_asset_path("tenga-proxy.png")
+        if app_icon_path.exists():
+            try:
+                self.set_icon_from_file(str(app_icon_path))
+            except Exception:
+                self.set_icon_name("network-transmit-receive")
+        else:
+            self.set_icon_name("network-transmit-receive")
 
         self.set_wmclass("tenga-proxy", "tenga-proxy")
         self.set_role("tenga-proxy")
@@ -139,9 +148,20 @@ class MainWindow(Gtk.Window):
         # Header
         header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         header_box.set_halign(Gtk.Align.CENTER)
-        self._header_icon = Gtk.Image.new_from_icon_name("tenga-proxy", Gtk.IconSize.DIALOG)
-        self._header_icon.set_pixel_size(64)
-        header_box.pack_start(self._header_icon, False, False, 0)
+        self._load_logo_pixbufs()
+        self._header_icon = Gtk.Image()
+        if self._logo_gray is not None:
+            self._header_icon.set_from_pixbuf(self._logo_gray)
+        else:
+            self._header_icon.set_from_icon_name("tenga-proxy", Gtk.IconSize.DIALOG)
+            self._header_icon.set_pixel_size(64)
+        self._header_button = Gtk.Button()
+        self._header_button.set_relief(Gtk.ReliefStyle.NONE)
+        self._header_button.set_focus_on_click(False)
+        self._header_button.get_style_context().add_class("tenga-logo-button")
+        self._header_button.add(self._header_icon)
+        self._header_button.connect("clicked", self._on_logo_clicked)
+        header_box.pack_start(self._header_button, False, False, 0)
         main_box.pack_start(header_box, False, False, 5)
 
         # Status container
@@ -1269,106 +1289,86 @@ class MainWindow(Gtk.Window):
         """State change handler."""
         GLib.idle_add(self._update_ui, state)
 
-    def _update_icon_color(self, color: str) -> None:
-        """Update header icon color."""
-        if not self._header_icon:
+    def _load_logo_pixbufs(self) -> None:
+        """Load color and grayscale versions of the inner logo."""
+        from src.core.config import get_asset_path
+
+        logo_path = get_asset_path("logo_inner.png")
+        if not logo_path.exists():
+            return
+        try:
+            color = GdkPixbuf.Pixbuf.new_from_file_at_size(str(logo_path), 192, 192)
+            gray = color.copy()
+            color.saturate_and_pixelate(gray, 0.0, False)
+            self._logo_color = color
+            self._logo_gray = gray
+        except Exception:
+            self._logo_color = None
+            self._logo_gray = None
+
+    def _update_logo_state(self, state: ProxyState) -> None:
+        """Update logo button image, sensitivity and tooltip based on state."""
+        if not self._header_button or not self._header_icon:
             return
 
-        try:
-            icon_theme = Gtk.IconTheme.get_default()
-            icon_info = icon_theme.lookup_icon("tenga-proxy", 64, 0)
-            if icon_info:
-                filename = icon_info.get_filename()
-                if filename:
-                    pixbuf = GdkPixbuf.Pixbuf.new_from_file(filename)
-                    if color.startswith("#"):
-                        r = int(color[1:3], 16)
-                        g = int(color[3:5], 16)
-                        b = int(color[5:7], 16)
-                    else:
-                        r, g, b = 128, 128, 128
+        ctx = self._header_button.get_style_context()
 
-                    width = pixbuf.get_width()
-                    height = pixbuf.get_height()
-                    has_alpha = pixbuf.get_has_alpha()
-                    n_channels = pixbuf.get_n_channels()
-                    rowstride = pixbuf.get_rowstride()
-                    pixels = pixbuf.get_pixels()
+        if self._connecting:
+            if self._logo_gray is not None:
+                self._header_icon.set_from_pixbuf(self._logo_gray)
+            self._header_button.set_sensitive(False)
+            ctx.add_class("tenga-logo-pulse")
+            self._header_button.set_tooltip_text("Подключение...")
+            return
 
-                    new_pixbuf = GdkPixbuf.Pixbuf.new(
-                        GdkPixbuf.Colorspace.RGB, has_alpha, 8, width, height
-                    )
-                    pixels_array = array.array("B", pixels)
-                    new_pixels_array = array.array("B", [0] * (height * new_pixbuf.get_rowstride()))
+        ctx.remove_class("tenga-logo-pulse")
 
-                    for y in range(height):
-                        for x in range(width):
-                            idx = y * rowstride + x * n_channels
-                            new_idx = y * new_pixbuf.get_rowstride() + x * n_channels
+        if state.is_running:
+            if self._logo_color is not None:
+                self._header_icon.set_from_pixbuf(self._logo_color)
+            self._header_button.set_sensitive(True)
+            profile = self._context.profiles.get_profile(state.started_profile_id)
+            name = profile.name if profile else "..."
+            self._header_button.set_tooltip_text(f"Отключиться от: {name}")
+        else:
+            if self._logo_gray is not None:
+                self._header_icon.set_from_pixbuf(self._logo_gray)
+            self._header_button.set_sensitive(True)
+            sel_id = self._get_selected_profile_id()
+            if sel_id is not None:
+                profile = self._context.profiles.get_profile(sel_id)
+                name = profile.name if profile else "..."
+                self._header_button.set_tooltip_text(f"Подключиться к: {name}")
+            else:
+                self._header_button.set_tooltip_text("Выберите профиль")
 
-                            if has_alpha and n_channels == 4:
-                                alpha = (
-                                    pixels_array[idx + 3] if idx + 3 < len(pixels_array) else 255
-                                )
-                                gray = int(
-                                    (
-                                        pixels_array[idx]
-                                        + pixels_array[idx + 1]
-                                        + pixels_array[idx + 2]
-                                    )
-                                    / 3
-                                )
-                                new_pixels_array[new_idx] = int(gray * r / 255)
-                                new_pixels_array[new_idx + 1] = int(gray * g / 255)
-                                new_pixels_array[new_idx + 2] = int(gray * b / 255)
-                                new_pixels_array[new_idx + 3] = alpha
-                            elif n_channels == 3:
-                                gray = int(
-                                    (
-                                        pixels_array[idx]
-                                        + pixels_array[idx + 1]
-                                        + pixels_array[idx + 2]
-                                    )
-                                    / 3
-                                )
-                                new_pixels_array[new_idx] = int(gray * r / 255)
-                                new_pixels_array[new_idx + 1] = int(gray * g / 255)
-                                new_pixels_array[new_idx + 2] = int(gray * b / 255)
-
-                    new_pixbuf = GdkPixbuf.Pixbuf.new_from_bytes(
-                        GLib.Bytes.new(new_pixels_array.tobytes()),
-                        GdkPixbuf.Colorspace.RGB,
-                        has_alpha,
-                        8,
-                        width,
-                        height,
-                        new_pixbuf.get_rowstride(),
-                    )
-                    self._header_icon.set_from_pixbuf(new_pixbuf)
-        except Exception:
-            pass
+    def _on_logo_clicked(self, button: Gtk.Button) -> None:
+        """Click on logo - same as connect/disconnect button."""
+        was_running = self._context.proxy_state.is_running
+        will_act = was_running or self._get_selected_profile_id() is not None
+        if will_act:
+            self._connecting = True
+            self._update_logo_state(self._context.proxy_state)
+        self._on_connect_clicked(button)
 
     def _update_ui(self, state: ProxyState) -> None:
         """Update UI."""
+        # State change ends any in-progress connecting animation
+        self._connecting = False
         if state.is_running:
             profile = self._context.profiles.get_profile(state.started_profile_id)
             name = profile.name if profile else "Unknown"
 
-            self._status_label.set_text(f"Подключено ({name})")
+            self._status_label.set_justify(Gtk.Justification.CENTER)
+            self._status_label.set_text(f"Подключено\n{name}")
             self._status_label.get_style_context().remove_class("status-disconnected")
             self._status_label.get_style_context().add_class("status-connected")
-
-            if self._header_icon:
-                self._update_icon_color("#4CAF50")
 
             self._connect_button.set_label("Отключить")
         else:
             self._status_label.set_text("Отключено")
             self._status_label.get_style_context().remove_class("status-connected")
             self._status_label.get_style_context().add_class("status-disconnected")
-
-            if self._header_icon:
-                self._update_icon_color("#9E9E9E")
 
             self._connect_button.set_label("Подключить")
             if self._delay_label:
@@ -1378,6 +1378,7 @@ class MainWindow(Gtk.Window):
                 ctx.remove_class("delay-medium")
                 ctx.remove_class("delay-bad")
 
+        self._update_logo_state(state)
         self._update_routing_indicators(state)
         self._refresh_profiles()
 

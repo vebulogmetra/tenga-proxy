@@ -67,6 +67,14 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 CORE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def get_asset_path(name: str) -> Path:
+    """Get path to a bundled asset file (icons, images).
+
+    Resolves to <bundle>/assets/<name>. Works in both dev and frozen modes.
+    """
+    return BUNDLE_DIR / "assets" / name
+
+
 def get_lock_file(config_dir: Path | None = None) -> Path:
     """Get lock file path.
 

@@ -16,17 +16,27 @@ except ValueError:
 
 from gi.repository import GLib, Gtk
 
+from src.core.config import get_asset_path
+
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
+
+
+def _resolve_tray_icon() -> str:
+    """Return absolute path to tray icon if bundled, else theme name."""
+    path = get_asset_path("tenga-proxy.png")
+    if path.exists():
+        return str(path)
+    return "tenga-proxy"
 
 
 class TrayIcon:
     """System tray icon."""
 
     APP_ID = "tenga-proxy"
-    ICON_DISCONNECTED = "tenga-proxy"
-    ICON_CONNECTED = "tenga-proxy"
-    ICON_CONNECTING = "tenga-proxy"
+    ICON_DISCONNECTED = _resolve_tray_icon()
+    ICON_CONNECTED = _resolve_tray_icon()
+    ICON_CONNECTING = _resolve_tray_icon()
 
     def __init__(self, context: AppContext):
         self._context = context
