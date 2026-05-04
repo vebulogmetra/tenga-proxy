@@ -5,6 +5,7 @@ import logging
 import subprocess
 import tempfile
 import time
+from statistics import median
 import requests
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -429,7 +430,7 @@ class XrayManager:
         timeout: int = 3000,
     ) -> int:
         """
-        Test proxy latency using HTTP HEAD request through proxy.
+        Backward-compatible single-probe latency test.
 
         Args:
             proxy_address: Proxy address
@@ -439,6 +440,35 @@ class XrayManager:
         Returns:
             Latency in milliseconds, or -1 on error
         """
+        return self.test_delay_realistic(
+            proxy_address=proxy_address,
+            proxy_port=proxy_port,
+            timeout=timeout,
+            probes=1,
+        )
+
+    @measure_time("XrayManager.test_delay_realistic")
+    def test_delay_realistic(
+        self,
+        proxy_address: str | None = None,
+        proxy_port: int | None = None,
+        timeout: int = 3000,
+        probes: int = 3,
+        test_url: str = "http://www.google.com/generate_204",
+    ) -> int:
+        """
+        Test proxy latency with multiple probes and median aggregation.
+
+        Args:
+            proxy_address: Proxy address
+            proxy_port: Proxy SOCKS5 port
+            timeout: Timeout in milliseconds
+            probes: Number of probes to run (minimum 1)
+            test_url: Target URL for probe
+
+        Returns:
+            Median latency in milliseconds, or -1 on error
+        """
         if not self.is_running:
             logger.debug("xray-core is not running, cannot test delay")
             return -1
@@ -447,37 +477,71 @@ class XrayManager:
             logger.debug("Proxy address or port not provided, cannot test delay")
             return -1
 
+        probes = max(1, probes)
+
         try:
             timeout_sec = timeout / 1000.0
             http_port = proxy_port + 1
             proxy_url = f"http://{proxy_address}:{http_port}"
-            test_url = "http://www.google.com/generate_204"
+            successful_samples: list[int] = []
 
-            start_time = time.time()
-            response = requests.head(
-                test_url,
-                proxies={"http": proxy_url, "https": proxy_url},
-                timeout=timeout_sec,
-                allow_redirects=False,
-            )
-            elapsed_ms = int((time.time() - start_time) * 1000)
+            for probe_index in range(probes):
+                start_ns = time.perf_counter_ns()
+                cache_buster = f"cb={start_ns}_{probe_index}"
+                probe_url = (
+                    f"{test_url}&{cache_buster}" if "?" in test_url else f"{test_url}?{cache_buster}"
+                )
 
-            # Accept 2xx, 3xx, and some 4xx (like 403) as success
-            if 200 <= response.status_code < 500:
-                logger.debug("Delay test successful: %d ms", elapsed_ms)
-                return elapsed_ms
-            else:
-                logger.debug("Request failed with status %d", response.status_code)
+                try:
+                    response = requests.head(
+                        probe_url,
+                        proxies={"http": proxy_url, "https": proxy_url},
+                        timeout=timeout_sec,
+                        allow_redirects=False,
+                    )
+                    elapsed_ms = int((time.perf_counter_ns() - start_ns) / 1_000_000)
+
+                    # Accept 2xx, 3xx, and some 4xx (like 403) as success
+                    if 200 <= response.status_code < 500:
+                        successful_samples.append(elapsed_ms)
+                        logger.debug(
+                            "Delay probe successful: %d ms (probe %d/%d)",
+                            elapsed_ms,
+                            probe_index + 1,
+                            probes,
+                        )
+                    else:
+                        logger.debug(
+                            "Delay probe failed with status %d (probe %d/%d)",
+                            response.status_code,
+                            probe_index + 1,
+                            probes,
+                        )
+                except requests.exceptions.Timeout:
+                    logger.debug(
+                        "Delay probe timed out after %d ms (probe %d/%d)",
+                        timeout,
+                        probe_index + 1,
+                        probes,
+                    )
+                except requests.exceptions.RequestException as e:
+                    logger.debug(
+                        "Delay probe request error (probe %d/%d): %s",
+                        probe_index + 1,
+                        probes,
+                        e,
+                    )
+
+            if not successful_samples:
+                logger.debug("No successful delay probes")
                 return -1
 
-        except requests.exceptions.Timeout:
-            logger.debug("Delay test timed out after %d ms", timeout)
-            return -1
-        except requests.exceptions.RequestException as e:
-            logger.debug("Delay test error: %s", e)
-            return -1
+            result = int(median(successful_samples))
+            logger.debug("Delay test realistic result (median): %d ms", result)
+            return result
+
         except Exception as e:
-            logger.debug("Unexpected error in delay test: %s", e)
+            logger.debug("Unexpected error in realistic delay test: %s", e)
             return -1
 
     def __enter__(self) -> XrayManager:

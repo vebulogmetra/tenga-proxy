@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import array
-import socket
 import threading
 import time
 import datetime
@@ -52,6 +51,7 @@ class MainWindow(Gtk.Window):
         self._on_connect: Callable[[int], None] | None = None
         self._on_disconnect: Callable[[], None] | None = None
         self._on_config_reload: Callable[[], None] | None = None
+        self._on_test_latency: Callable[[int], int] | None = None
         # UI elements
         self._profile_list: Gtk.TreeView | None = None
         self._profile_store: Gtk.TreeStore | None = None
@@ -610,48 +610,18 @@ class MainWindow(Gtk.Window):
 
         return page_box
 
-    def _test_profile_latency(self, profile_id: int, timeout: float = 5.0) -> int:
+    def _run_profile_latency_test(self, profile_id: int) -> int:
         """
-        Test latency to profile server directly via TCP connection.
-
-        Args:
-            profile_id: Profile ID
-            timeout: Connection timeout in seconds
+        Run profile latency test via app-level callback.
 
         Returns:
-            Latency in milliseconds, or -1 on error
+            Latency in milliseconds, or -1 on error.
         """
-        profile = self._context.profiles.get_profile(profile_id)
-        if not profile:
+        if self._on_test_latency is None:
             return -1
 
         try:
-            server_address = profile.bean.server_address
-            server_port = profile.bean.server_port
-            try:
-                # Try IPv6 first if address contains colons
-                if ":" in server_address and not server_address.count(":") == 1:
-                    # Likely IPv6 address
-                    sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
-                else:
-                    # IPv4 address
-                    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            except (socket.error, OSError):
-                # IPv4
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-            sock.settimeout(timeout)
-
-            start_time = time.time()
-            sock.connect((server_address, server_port))
-            elapsed_ms = int((time.time() - start_time) * 1000)
-
-            sock.close()
-            return elapsed_ms
-        except socket.timeout:
-            return -1
-        except (socket.error, OSError, ValueError):
-            return -1
+            return int(self._on_test_latency(profile_id))
         except Exception:
             return -1
 
@@ -718,7 +688,7 @@ class MainWindow(Gtk.Window):
             self._update_profile_ping_in_ui(profile_id, -2)
 
             def do_test():
-                latency_ms = self._test_profile_latency(profile_id)
+                latency_ms = self._run_profile_latency_test(profile_id)
                 profile.latency_ms = latency_ms
                 self._context.profiles.save()
 
@@ -757,7 +727,7 @@ class MainWindow(Gtk.Window):
 
             def test_profile(profile_id: int) -> None:
                 """Test single profile and update UI."""
-                latency_ms = self._test_profile_latency(profile_id)
+                latency_ms = self._run_profile_latency_test(profile_id)
                 profile = self._context.profiles.get_profile(profile_id)
                 if profile:
                     profile.latency_ms = latency_ms
@@ -2041,6 +2011,10 @@ class MainWindow(Gtk.Window):
     def set_on_config_reload(self, callback: Callable[[], None]) -> None:
         """Set callback for configuration reload."""
         self._on_config_reload = callback
+
+    def set_on_test_latency(self, callback: Callable[[int], int] | None) -> None:
+        """Set callback for profile latency test."""
+        self._on_test_latency = callback
 
     def refresh(self) -> None:
         """Refresh UI."""
