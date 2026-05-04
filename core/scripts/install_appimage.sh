@@ -126,17 +126,13 @@ install_appimage() {
         warning "Пропускаю настройку TUN прав."
     fi
 
-    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
+    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.png" ]; then
         info "Установка иконки..."
-        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$icons_dir/scalable/apps/"
+        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$icons_dir/256x256/apps/tenga-proxy.png"
+    fi
 
-        if command -v rsvg-convert &>/dev/null; then
-            rsvg-convert -w 256 -h 256 "$PROJECT_ROOT/assets/tenga-proxy.svg" \
-                -o "$icons_dir/256x256/apps/tenga-proxy.png"
-        elif command -v convert &>/dev/null; then
-            convert -background none "$PROJECT_ROOT/assets/tenga-proxy.svg" \
-                -resize 256x256 "$icons_dir/256x256/apps/tenga-proxy.png"
-        fi
+    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
+        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$icons_dir/scalable/apps/"
     fi
 
     info "Создание .desktop файла..."

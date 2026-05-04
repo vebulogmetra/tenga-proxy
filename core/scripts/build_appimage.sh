@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="0.10.3"
+APP_VERSION="0.10.5"
 BUILD_DIR="$PROJECT_ROOT/build"
 APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
 
@@ -89,12 +89,14 @@ create_appdir() {
     # Desktop and icons
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/usr/share/applications/"
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/"
-    cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
-    cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/tenga-proxy.svg"
-    
-    if command -v rsvg-convert &>/dev/null; then
-        rsvg-convert -w 256 -h 256 "$PROJECT_ROOT/assets/tenga-proxy.svg" \
-            -o "$APPDIR/usr/share/icons/hicolor/256x256/apps/tenga-proxy.png"
+
+    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.png" ]; then
+        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/tenga-proxy.png"
+        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$APPDIR/tenga-proxy.png"
+    fi
+
+    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
+        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
     fi
     
     # Create launcher script

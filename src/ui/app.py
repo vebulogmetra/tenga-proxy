@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import signal
 import socket
 import threading
@@ -209,6 +210,7 @@ class TengaApp:
             self._window.set_on_connect(self._on_connect)
             self._window.set_on_disconnect(self._on_disconnect)
             self._window.set_on_config_reload(self._reload_config)
+            self._window.set_on_test_latency(self.test_profile_latency)
             # Show window on startup
             self._window.show_all()
 
@@ -1137,6 +1139,109 @@ class TengaApp:
                 e,
             )
             return None
+
+    def _reserve_latency_port_pair(self, host: str) -> int:
+        """
+        Reserve a free consecutive TCP port pair (socks, http=socks+1).
+
+        Args:
+            host: Listen host for xray inbounds
+
+        Returns:
+            Base SOCKS port
+        """
+        start_port = random.randint(20000, 50000)
+
+        for offset in range(15000):
+            port = start_port + offset
+            if port >= 65000:
+                break
+
+            sock_one = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock_two = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            try:
+                sock_one.bind((host, port))
+                sock_two.bind((host, port + 1))
+                return port
+            except OSError:
+                continue
+            finally:
+                sock_one.close()
+                sock_two.close()
+
+        raise RuntimeError("No free consecutive port pair found for latency test")
+
+    def _create_latency_test_config(self, profile: ProfileEntry) -> tuple[dict, int] | None:
+        """
+        Create temporary xray config for latency test.
+
+        Uses profile outbound/routing/dns from normal config but forces
+        SYSTEM_PROXY inbounds to avoid TUN conflicts with active session.
+        """
+        config = self._create_config(profile)
+        if not config:
+            return None
+
+        listen_host = self._context.config.inbound_address
+        socks_port = self._reserve_latency_port_pair(listen_host)
+        inbounds = build_inbounds_for_mode(
+            mode=ProxyMode.SYSTEM_PROXY,
+            address=listen_host,
+            socks_port=socks_port,
+            tun_name=getattr(self._context.config, "tun_name", "xray0"),
+            tun_mtu=getattr(self._context.config, "tun_mtu", 1500),
+        )
+        config["inbounds"] = inbounds
+        return config, socks_port
+
+    def test_profile_latency(self, profile_id: int, timeout_ms: int = 3000, probes: int = 3) -> int:
+        """
+        Run realistic latency test for profile through temporary xray instance.
+
+        Args:
+            profile_id: Profile id to test
+            timeout_ms: Probe timeout in milliseconds
+            probes: Number of probes
+
+        Returns:
+            Median latency in milliseconds or -1 on failure.
+        """
+        profile = self._context.profiles.get_profile(profile_id)
+        if not profile:
+            logger.error("Latency test: profile %s not found", profile_id)
+            return -1
+
+        config_with_port = self._create_latency_test_config(profile)
+        if not config_with_port:
+            logger.error("Latency test: failed to build config for profile %s", profile_id)
+            return -1
+
+        config, socks_port = config_with_port
+        probe_manager = None
+        try:
+            from src.core.xray_manager import XrayManager
+
+            probe_manager = XrayManager(binary_path=self._context.xray_manager.binary_path)
+            success, error = probe_manager.start(config)
+            if not success:
+                logger.error("Latency test: temp xray start failed for profile %s: %s", profile_id, error)
+                return -1
+
+            return probe_manager.test_delay_realistic(
+                proxy_address=self._context.config.inbound_address,
+                proxy_port=socks_port,
+                timeout=timeout_ms,
+                probes=probes,
+            )
+        except Exception as e:
+            logger.exception("Latency test failed for profile %s: %s", profile_id, e)
+            return -1
+        finally:
+            if probe_manager is not None:
+                try:
+                    probe_manager.stop()
+                except Exception:
+                    pass
 
 
 def run_app(config_dir: Path | None = None, lock=None) -> int:
