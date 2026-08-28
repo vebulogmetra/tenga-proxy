@@ -206,11 +206,11 @@ def show_subscription_dialog(
         Tuple of (name, url) if subscription added, None if cancelled
     """
     dialog = SubscriptionDialog(parent, group)
-    response = dialog.run()
-
     result = None
-    if response == Gtk.ResponseType.OK:
+    while dialog.run() == Gtk.ResponseType.OK:
         result = dialog.get_subscription_data()
+        if result is not None:
+            break
 
     dialog.destroy()
     return result

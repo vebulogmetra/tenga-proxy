@@ -1152,8 +1152,9 @@ class MainWindow(Gtk.Window):
                     )
                 )
             except Exception as e:
+                error = str(e)
                 GLib.idle_add(
-                    lambda: self._show_update_result(progress_dialog, False, 0, group.name, str(e))
+                    lambda: self._show_update_result(progress_dialog, False, 0, group.name, error)
                 )
 
         thread = threading.Thread(target=do_update, daemon=True)

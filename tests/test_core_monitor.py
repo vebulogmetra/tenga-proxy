@@ -310,7 +310,9 @@ def test_connection_monitor_check_connections_enabled(tmp_path):
     context = AppContext(config_dir=tmp_path)
     context.config.monitoring.enabled = True
     context.config.vpn.enabled = False
+    context.config.vpn.connection_name = ""
     context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = -1
 
     mock_manager = MagicMock()
     mock_manager.is_running = True
@@ -324,7 +326,12 @@ def test_connection_monitor_check_connections_enabled(tmp_path):
     # Устанавливаем _timer_id, чтобы _check_connections() не вернул False сразу
     monitor._timer_id = 123
 
-    result = monitor._check_connections()
+    with (
+        patch("src.core.monitor.threading.Thread") as mock_thread,
+        patch("gi.repository.GLib.idle_add", side_effect=lambda callback, *args: callback(*args)),
+    ):
+        mock_thread.return_value.start.side_effect = monitor._do_check_async
+        result = monitor._check_connections()
 
     assert result is True
     assert monitor._status.proxy_ok is True

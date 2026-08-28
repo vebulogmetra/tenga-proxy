@@ -336,7 +336,13 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
     # Update pyproject.toml
     if pyproject_file.exists():
         content = pyproject_file.read_text(encoding="utf-8")
-        content = re.sub(r'version = ".*"', f'version = "{new_version}"', content)
+        content = re.sub(
+            r'^version = "[^"]+"$',
+            f'version = "{new_version}"',
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
         pyproject_file.write_text(content, encoding="utf-8")
         print(f"[OK] Версия обновлена в {pyproject_file}")
 
