@@ -12,6 +12,7 @@ from src.ui.style import style_dialog
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileEntry
+    from src.fmt.base import ProxyBean
 
 
 class EditProfileDialog(Gtk.Dialog):
@@ -48,6 +49,11 @@ class EditProfileDialog(Gtk.Dialog):
         self._port_entry: Gtk.SpinButton | None = None
         self._conn_string_entry: Gtk.Entry | None = None
         self._copy_button: Gtk.Button | None = None
+        self._edit_link_entry: Gtk.Entry | None = None
+        self._edit_apply_button: Gtk.Button | None = None
+        self._edit_status_label: Gtk.Label | None = None
+        # Bean из отредактированной ссылки, ожидающий подтверждения по OK.
+        self._pending_bean: ProxyBean | None = None
 
         self._setup_ui()
         style_dialog(self)
@@ -135,7 +141,94 @@ class EditProfileDialog(Gtk.Dialog):
         self._copy_button.connect("clicked", self._on_copy_clicked)
         conn_string_box.pack_start(self._copy_button, False, False, 0)
 
+        # Edit connection string
+        edit_frame = Gtk.Frame()
+        edit_frame.set_label("Редактировать")
+        content.pack_start(edit_frame, False, False, 5)
+
+        edit_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        edit_box.set_margin_start(10)
+        edit_box.set_margin_end(10)
+        edit_box.set_margin_top(10)
+        edit_box.set_margin_bottom(10)
+        edit_frame.add(edit_box)
+
+        edit_hint = Gtk.Label()
+        edit_hint.set_markup(
+            "<small>Вставьте новую строку подключения, чтобы заменить параметры профиля.\n"
+            "Поддерживаются vless://, trojan://, vmess://, ss://, hysteria2://, socks://, http://</small>"
+        )
+        edit_hint.set_halign(Gtk.Align.START)
+        edit_hint.set_line_wrap(True)
+        edit_hint.get_style_context().add_class("dim-label")
+        edit_box.pack_start(edit_hint, False, False, 0)
+
+        edit_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        self._edit_link_entry = Gtk.Entry()
+        self._edit_link_entry.set_text(bean.to_share_link())
+        self._edit_link_entry.set_tooltip_text("Новая строка подключения для профиля")
+        edit_hbox.pack_start(self._edit_link_entry, True, True, 0)
+
+        self._edit_apply_button = Gtk.Button(label="Применить")
+        self._edit_apply_button.set_tooltip_text(
+            "Разобрать строку подключения и обновить параметры профиля"
+        )
+        self._edit_apply_button.connect("clicked", self._on_apply_link_clicked)
+        edit_hbox.pack_start(self._edit_apply_button, False, False, 0)
+
+        edit_box.pack_start(edit_hbox, False, False, 0)
+
+        self._edit_status_label = Gtk.Label()
+        self._edit_status_label.set_halign(Gtk.Align.START)
+        edit_box.pack_start(self._edit_status_label, False, False, 0)
+
         content.show_all()
+
+    def _apply_edited_link(self, link: str) -> tuple[bool, str]:
+        """Parse an edited share link and stage a replacement bean.
+
+        Keeps the profile identity and only swaps the bean. Returns
+        (success, status message). On failure the staged bean is untouched.
+
+        Разобранный bean держится в `_pending_bean` и попадает в профиль лишь
+        в `apply_changes()` (по OK): диалог правит живой объект хранилища, и
+        подмена прямо здесь пережила бы Отмену.
+        """
+        from src.fmt.parsers import parse_link
+
+        link = link.strip()
+        if not link:
+            return False, "Введите ссылку"
+
+        bean = parse_link(link)
+        if bean is None:
+            return False, "Не удалось разобрать ссылку"
+
+        self._pending_bean = bean
+        return True, "Применено"
+
+    def _on_apply_link_clicked(self, button: Gtk.Button) -> None:
+        """Parse the edited link, swap the bean and refresh dependent fields."""
+        ok, message = self._apply_edited_link(self._edit_link_entry.get_text())
+
+        if not ok:
+            self._edit_status_label.set_markup(f"<span color='red'>{message}</span>")
+            return
+
+        bean = self._pending_bean
+        share_link = bean.to_share_link()
+
+        if self._name_entry is not None:
+            self._name_entry.set_text(bean.display_name)
+        if self._address_entry is not None:
+            self._address_entry.set_text(str(bean.server_address))
+        if self._port_entry is not None:
+            self._port_entry.set_value(float(bean.server_port))
+        if self._conn_string_entry is not None:
+            self._conn_string_entry.set_text(share_link)
+        self._edit_link_entry.set_text(share_link)
+
+        self._edit_status_label.set_markup(f"<span color='green'>{message}</span>")
 
     def _on_copy_clicked(self, button: Gtk.Button) -> None:
         """Handle copy button click."""
@@ -154,6 +247,11 @@ class EditProfileDialog(Gtk.Dialog):
 
     def apply_changes(self) -> None:
         """Apply changes to profile."""
+        # Отредактированная ссылка применяется только здесь — по OK.
+        if self._pending_bean is not None:
+            self._profile.bean = self._pending_bean
+            self._pending_bean = None
+
         bean = self._profile.bean
 
         if self._name_entry is not None:
