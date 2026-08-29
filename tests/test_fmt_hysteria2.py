@@ -75,7 +75,12 @@ def test_rejects_wrong_scheme_and_missing_auth():
 
 
 def test_outbound_uses_flat_settings_with_version():
-    """Схема сверена с `xray -test`: плоские настройки + обязательный version=2."""
+    """Схема сверена с исходником форка (infra/conf/hysteria.go).
+
+    HysteriaClientConfig = {Version, Address, Port} и ничего больше: auth живёт
+    в транспорте, а obfs/password/congestion/up/down в клиентском конфиге
+    отсутствуют вовсе. Лишние ключи ядро молча игнорирует.
+    """
     bean = Hysteria2Bean()
     bean.try_parse_link(make_link(obfs="salamander") + "&obfs-password=obfspass")
     out = bean.build_outbound()
@@ -83,11 +88,13 @@ def test_outbound_uses_flat_settings_with_version():
     settings = out["settings"]
     assert settings["address"] == "example.com"
     assert settings["port"] == 8443
-    assert settings["auth"] == "pass123"
     # Без version ядро падает с `version != 2`.
     assert settings["version"] == 2
-    assert settings["obfs"] == "salamander"
-    assert settings["password"] == "obfspass"
+    # auth — только в транспорте: в settings это поле HysteriaServerConfig.
+    assert "auth" not in settings
+    # obfs/password не существуют в клиентском конфиге — обфускация только finalmask.
+    assert "obfs" not in settings
+    assert "password" not in settings
 
 
 def test_outbound_sets_hysteria_transport():
@@ -186,3 +193,43 @@ def test_profile_entry_restores_hysteria2():
     assert isinstance(restored.bean, Hysteria2Bean)
     assert restored.bean.auth == "pass123"
     assert json.loads(restored.bean.final_mask) == json.loads(FM)
+
+
+def test_obfs_becomes_salamander_udp_mask():
+    """obfs из ссылки превращается в udp-маску finalmask.
+
+    В клиентском конфиге форка нет полей obfs/password — единственный рабочий
+    путь для salamander это `finalmask.udp[{type,settings}]`. Плоская форма
+    `{"salamander": {...}}` ядром молча игнорируется.
+    """
+    bean = Hysteria2Bean()
+    bean.try_parse_link(make_link(obfs="salamander") + "&obfs-password=obfspass")
+    stream = bean.build_outbound()["streamSettings"]
+
+    assert stream["finalmask"] == {
+        "udp": [{"type": "salamander", "settings": {"password": "obfspass"}}]
+    }
+
+
+def test_obfs_without_password_still_builds_mask():
+    bean = Hysteria2Bean()
+    bean.try_parse_link(make_link(obfs="salamander"))
+    stream = bean.build_outbound()["streamSettings"]
+    assert stream["finalmask"]["udp"][0]["type"] == "salamander"
+    assert stream["finalmask"]["udp"][0]["settings"] == {"password": ""}
+
+
+def test_unknown_obfs_type_is_ignored():
+    """Неизвестный obfs не превращаем в маску: ядро отвергло бы весь конфиг."""
+    bean = Hysteria2Bean()
+    bean.try_parse_link(make_link(obfs="somethingelse") + "&obfs-password=x")
+    stream = bean.build_outbound()["streamSettings"]
+    assert "finalmask" not in stream
+
+
+def test_explicit_fm_wins_over_obfs():
+    """Явный ?fm= авторитетнее — это готовое тело finalmask от провайдера."""
+    bean = Hysteria2Bean()
+    bean.try_parse_link(make_link(obfs="salamander", fm=quote(FM)) + "&obfs-password=obfspass")
+    stream = bean.build_outbound()["streamSettings"]
+    assert stream["finalmask"] == json.loads(FM)

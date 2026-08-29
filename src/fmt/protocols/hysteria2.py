@@ -121,21 +121,23 @@ class Hysteria2Bean(ProxyBean):
     def build_outbound(self, skip_cert: bool = False) -> dict[str, Any]:
         """Build outbound for xray-core.
 
-        Схема сверена с `core/bin/xray -test`: у этого форка настройки клиента
-        плоские (address/port/auth), а не список `servers[]`, и обязателен
-        `version: 2` — без него ядро падает с `version != 2`.
+        Схема сверена с исходником форка (`infra/conf/hysteria.go`,
+        `infra/conf/transport_method.go`):
+
+        - `HysteriaClientConfig{Version, Address, Port}` — адрес плоский, без
+          `servers[]`: со списком `Address` остаётся nil и `Address.Build()`
+          роняет процесс нативной паникой, а не возвращает ошибку конфига;
+        - `auth` живёт в `streamSettings.hysteriaSettings`; в `settings` это
+          поле принадлежит `HysteriaServerConfig` и клиентом не читается;
+        - `obfs`/`password`/`congestion`/`up`/`down` в клиентском конфиге
+          отсутствуют — обфускация задаётся только через `finalmask`;
+        - `version: 2` обязателен в обоих блоках, иначе `version != 2`.
         """
         settings: dict[str, Any] = {
+            "version": self.HYSTERIA_VERSION,
             "address": self.server_address,
             "port": self.server_port,
-            "auth": self.auth,
-            "version": self.HYSTERIA_VERSION,
         }
-
-        if self.obfs:
-            settings["obfs"] = self.obfs
-            if self.obfs_password:
-                settings["password"] = self.obfs_password
 
         outbound: dict[str, Any] = {
             "protocol": "hysteria",
@@ -154,10 +156,39 @@ class Hysteria2Bean(ProxyBean):
             "auth": self.auth,
         }
 
-        # fm из share-ссылки — готовое тело finalmask. Кладём как есть: разбирать
-        # по полям нельзя, набор масок у форка открытый.
-        final_mask = parse_json_object(self.final_mask)
+        final_mask = self._build_final_mask()
         if final_mask:
             stream_settings["finalmask"] = final_mask
 
         return outbound
+
+    def _build_final_mask(self) -> dict[str, Any]:
+        """Собрать тело `streamSettings.finalmask`.
+
+        Явный `?fm=` авторитетнее: это готовое тело от провайдера, кладём как
+        есть — набор масок у форка открытый и разбирать его по полям нельзя.
+
+        Иначе разворачиваем `?obfs=` в udp-маску. Формат именно
+        `{"udp": [{"type": ..., "settings": {...}}]}` (conf.FinalMask →
+        `Tcp`/`Udp []Mask`, Mask = {type, settings}); плоскую форму
+        `{"salamander": {...}}` ядро молча игнорирует — обфускации не будет,
+        а ошибки в конфиге не увидишь.
+        """
+        explicit = parse_json_object(self.final_mask)
+        if explicit:
+            return explicit
+
+        # Только salamander: остальные udp-маски форка не описываются парой
+        # obfs/obfs-password, а неизвестный type ядро отвергает вместе со всем
+        # конфигом — молча пропускаем, как и любой неразобранный параметр.
+        if self.obfs == "salamander":
+            return {
+                "udp": [
+                    {
+                        "type": "salamander",
+                        "settings": {"password": self.obfs_password},
+                    }
+                ]
+            }
+
+        return {}

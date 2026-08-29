@@ -31,6 +31,10 @@ LINKS = {
         f"?sni=cdn.example.com&alpn=h3&obfs=salamander&obfs-password=obfspass&fm={FM}#H2"
     ),
     "hysteria2_plain": "hysteria2://pass123@127.0.0.1:8443#H2",
+    # obfs разворачивается в udp-маску finalmask — ядро проверяет тип маски.
+    "hysteria2_obfs": (
+        "hysteria2://pass123@127.0.0.1:8443?obfs=salamander&obfs-password=obfspass#H2O"
+    ),
     "xhttp": (
         "vless://11111111-1111-1111-1111-111111111111@127.0.0.1:443"
         f"?type=xhttp&security=tls&sni=a.example.com&mode=stream-one"
