@@ -83,7 +83,9 @@ class AddProfileDialog(Gtk.Dialog):
         link_box.pack_start(link_label, False, False, 0)
 
         self._link_entry = Gtk.Entry()
-        self._link_entry.set_placeholder_text("vless://... или trojan://... или vmess://...")
+        self._link_entry.set_placeholder_text(
+            "vless://... или trojan://... или hysteria2://..."
+        )
         self._link_entry.connect("changed", self._on_link_changed)
         self._link_entry.connect("activate", self._on_link_activate)
         link_box.pack_start(self._link_entry, True, True, 0)

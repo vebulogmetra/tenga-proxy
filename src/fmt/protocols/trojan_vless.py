@@ -5,11 +5,40 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 from src.fmt.base import ProxyBean
-from src.fmt.stream import StreamSettings
+from src.fmt.stream import StreamSettings, parse_json_object
+
+
+class XhttpParamsMixin:
+    """Разбор и сборка xhttp-параметров share-ссылки (общее у VLESS и Trojan)."""
+
+    stream: StreamSettings
+
+    def _parse_xhttp_params(self, query: dict[str, list]) -> None:
+        """Считать xhttp-параметры из query share-ссылки."""
+        if "mode" in query:
+            self.stream.xhttp_mode = query["mode"][0]
+        padding = query.get("xPaddingBytes", query.get("x_padding_bytes", [""]))[0]
+        if padding:
+            self.stream.xhttp_padding_bytes = padding
+        # extra сохраняем как есть — это тело настроек транспорта. Невалидный JSON
+        # отбрасываем, чтобы битая ссылка не роняла разбор всего профиля.
+        extra = query.get("extra", [""])[0]
+        if extra and parse_json_object(extra):
+            self.stream.xhttp_extra = extra
+
+    def _add_xhttp_params(self, params: dict[str, str]) -> None:
+        """Добавить xhttp-параметры в собираемую share-ссылку."""
+        if self.stream.xhttp_mode:
+            params["mode"] = self.stream.xhttp_mode
+        if self.stream.xhttp_padding_bytes:
+            params["xPaddingBytes"] = self.stream.xhttp_padding_bytes
+        # Без extra пересобранная ссылка теряет обфускацию и профиль перестаёт работать.
+        if self.stream.xhttp_extra:
+            params["extra"] = self.stream.xhttp_extra
 
 
 @dataclass
-class VLESSBean(ProxyBean):
+class VLESSBean(XhttpParamsMixin, ProxyBean):
     """VLESS profile."""
 
     uuid: str = ""
@@ -107,6 +136,8 @@ class VLESSBean(ProxyBean):
                 self.stream.path = query["path"][0]
             if "host" in query:
                 self.stream.host = query["host"][0].replace("|", ",")
+            if self.stream.network == "xhttp":
+                self._parse_xhttp_params(query)
         elif self.stream.network == "httpupgrade":
             if "path" in query:
                 self.stream.path = query["path"][0]
@@ -177,6 +208,8 @@ class VLESSBean(ProxyBean):
                 params["path"] = self.stream.path
             if self.stream.host:
                 params["host"] = self.stream.host
+            if self.stream.network == "xhttp":
+                self._add_xhttp_params(params)
         elif self.stream.network == "grpc":
             if self.stream.path:
                 params["serviceName"] = self.stream.path
@@ -226,7 +259,7 @@ class VLESSBean(ProxyBean):
 
 
 @dataclass
-class TrojanBean(ProxyBean):
+class TrojanBean(XhttpParamsMixin, ProxyBean):
     """Trojan profile."""
 
     password: str = ""
@@ -300,11 +333,13 @@ class TrojanBean(ProxyBean):
                 self.stream.path = query["path"][0]
             if "host" in query:
                 self.stream.host = query["host"][0]
-        elif self.stream.network == "http":
+        elif self.stream.network in ("http", "xhttp"):
             if "path" in query:
                 self.stream.path = query["path"][0]
             if "host" in query:
                 self.stream.host = query["host"][0].replace("|", ",")
+            if self.stream.network == "xhttp":
+                self._parse_xhttp_params(query)
         elif self.stream.network == "httpupgrade":
             if "path" in query:
                 self.stream.path = query["path"][0]
@@ -351,11 +386,13 @@ class TrojanBean(ProxyBean):
         # Network type
         query_params["type"] = self.stream.network
         # Transport params
-        if self.stream.network in ("ws", "http", "httpupgrade"):
+        if self.stream.network in ("ws", "http", "xhttp", "httpupgrade"):
             if self.stream.path:
                 query_params["path"] = self.stream.path
             if self.stream.host:
                 query_params["host"] = self.stream.host
+            if self.stream.network == "xhttp":
+                self._add_xhttp_params(query_params)
         elif self.stream.network == "grpc":
             if self.stream.path:
                 query_params["serviceName"] = self.stream.path

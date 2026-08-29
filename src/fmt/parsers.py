@@ -130,6 +130,8 @@ def detect_link_type(link: str) -> str | None:
         return "vless"
     if link_lower.startswith("trojan://"):
         return "trojan"
+    if link_lower.startswith(("hysteria2://", "hy2://")):
+        return "hysteria2"
     if link_lower.startswith("vmess://"):
         return "vmess"
     if link_lower.startswith("ss://"):
@@ -147,6 +149,7 @@ def detect_link_type(link: str) -> str | None:
 def parse_link(link: str) -> ProxyBean | None:
     from src.fmt.protocols import (
         HttpBean,
+        Hysteria2Bean,
         ShadowsocksBean,
         SocksBean,
         TrojanBean,
@@ -166,6 +169,8 @@ def parse_link(link: str) -> ProxyBean | None:
         bean = TrojanBean()
     elif link_type == "vmess":
         bean = VMessBean()
+    elif link_type == "hysteria2":
+        bean = Hysteria2Bean()
     elif link_type == "shadowsocks":
         bean = ShadowsocksBean()
     elif link_type == "socks":
