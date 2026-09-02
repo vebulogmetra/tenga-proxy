@@ -64,6 +64,7 @@ class TengaApplication(Adw.Application):
         self._profile_activation_handler: Callable[[int], None] | None = None
         self._connection_service = None
         self._connection_thread = None
+        self._dialog = None
         self.last_toast_for_test = ""
 
     # Жизненный цикл
@@ -369,6 +370,30 @@ class TengaApplication(Adw.Application):
 
     # Диалоги
 
+    def present_dialog(self, dialog) -> bool:
+        """Show a dialog unless another one is already open.
+
+        Диалоги не складываются стопкой: повторное нажатие Ctrl+N или клик
+        по пункту меню при открытой форме ничего не делает. Слот освобождает
+        сигнал `closed`, а не вызывающий: диалог закрывается и кнопкой, и
+        Esc, и щелчком мимо, и отследить это иначе нельзя.
+        """
+        if self._dialog is not None:
+            return False
+        self._dialog = dialog
+        dialog.connect("closed", self._on_dialog_closed)
+        dialog.present(self._window)
+        return True
+
+    def _on_dialog_closed(self, dialog) -> None:
+        if self._dialog is dialog:
+            self._dialog = None
+
+    @property
+    def current_dialog(self):
+        """The dialog on screen, if any."""
+        return self._dialog
+
     def _open_add_profile(self, link: str = "") -> None:
         from src.ui.dialogs.add_profile import AddProfileDialog
 
@@ -376,7 +401,7 @@ class TengaApplication(Adw.Application):
         if link:
             dialog.link_row.set_text(link)
         dialog.connect("profile-ready", lambda _d, bean: self.add_profile_from_bean(bean))
-        dialog.present(self._window)
+        self.present_dialog(dialog)
 
     def _add_profile_from_clipboard(self) -> None:
         """Open the add dialog with the clipboard already pasted in."""
@@ -389,14 +414,14 @@ class TengaApplication(Adw.Application):
 
         dialog = SubscriptionDialog()
         dialog.connect("subscription-ready", lambda _d, name, url: self.add_subscription(name, url))
-        dialog.present(self._window)
+        self.present_dialog(dialog)
 
     def _open_add_group(self) -> None:
         from src.ui.dialogs.group import GroupDialog
 
         dialog = GroupDialog()
         dialog.connect("group-ready", lambda _d, name: self.add_group(name))
-        dialog.present(self._window)
+        self.present_dialog(dialog)
 
     def _open_settings(self) -> None:
         from src.ui.dialogs.settings import SettingsDialog
@@ -405,7 +430,7 @@ class TengaApplication(Adw.Application):
         # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции
         # GNOME настройки применяются при закрытии.
         dialog.connect("closed", lambda _d: self._save_and_apply(dialog))
-        dialog.present(self._window)
+        self.present_dialog(dialog)
 
     def _save_and_apply(self, dialog) -> None:
         dialog.save()
@@ -420,12 +445,12 @@ class TengaApplication(Adw.Application):
             comments="Клиент прокси для Linux на базе xray-core",
             license_type=Gtk.License.MIT_X11,
         )
-        dialog.present(self._window)
+        self.present_dialog(dialog)
 
     def _open_shortcuts(self) -> None:
         from src.ui.shortcuts import ShortcutsDialog
 
-        ShortcutsDialog().present(self._window)
+        self.present_dialog(ShortcutsDialog())
 
     def wait_for_connection_for_test(self, timeout: float = 10.0) -> None:
         if self._connection_thread is not None:
@@ -692,6 +717,7 @@ class TengaApplication(Adw.Application):
         self._profile_activation_handler = None
         self._connection_service = None
         self._connection_thread = None
+        self._dialog = None
         self.last_toast_for_test = ""
 
     def toast(self, text: str) -> None:

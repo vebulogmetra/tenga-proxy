@@ -15,15 +15,18 @@ DELETE = "delete"
 CANCEL = "cancel"
 
 
-def confirm_delete(
-    parent,
+def build_delete_confirmation(
     heading: str,
     body: str,
     on_confirm: Callable[[], None],
     *,
     confirm_label: str = "Удалить",
 ) -> Adw.AlertDialog:
-    """Ask before deleting something, then run the callback."""
+    """Build a confirmation dialog; the caller decides when to show it.
+
+    Показ отдан вызывающему: окно проводит все диалоги через один слот
+    приложения, чтобы они не открывались друг поверх друга.
+    """
     dialog = Adw.AlertDialog(heading=heading, body=body)
     dialog.add_response(CANCEL, "Отмена")
     dialog.add_response(DELETE, confirm_label)
@@ -38,5 +41,4 @@ def confirm_delete(
             on_confirm()
 
     dialog.connect("response", responded)
-    dialog.present(parent)
     return dialog

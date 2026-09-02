@@ -599,3 +599,100 @@ def test_default_latency_probe_stops_xray_when_the_probe_raises(adw_app, monkeyp
     with pytest.raises(RuntimeError):
         adw_app._default_latency_probe(entry.id)
     assert _probe_manager().stopped is True
+
+
+def _simulate_close(app, dialog) -> None:
+    """Release the slot the way the `closed` signal would.
+
+    Настоящее закрытие в тестах недостижимо: `Adw.Dialog` уходит с экрана
+    анимацией, а она не проигрывается, пока окно не отрисовано композитором,
+    и `close()` вместе с `force_close()` остаются без эффекта. Проверяется
+    поэтому сам механизм слота, а не анимация libadwaita.
+    """
+    app._on_dialog_closed(dialog)
+
+
+def test_a_second_dialog_does_not_stack_on_the_first(adw_app):
+    """Повторное действие не кладёт второй диалог поверх первого."""
+    adw_app.activate()
+
+    adw_app.activate_action("add-profile")
+    first = adw_app.current_dialog
+    assert first is not None
+
+    adw_app.activate_action("add-profile")
+
+    assert adw_app.current_dialog is first
+    _simulate_close(adw_app, first)
+
+
+def test_a_different_action_does_not_open_over_an_open_dialog(adw_app):
+    adw_app.activate()
+
+    adw_app.activate_action("add-profile")
+    first = adw_app.current_dialog
+    adw_app.activate_action("settings")
+
+    assert adw_app.current_dialog is first
+    _simulate_close(adw_app, first)
+
+
+def test_closing_a_dialog_frees_the_slot(adw_app):
+    adw_app.activate()
+
+    adw_app.activate_action("add-profile")
+    first = adw_app.current_dialog
+    _simulate_close(adw_app, first)
+
+    assert adw_app.current_dialog is None
+
+    adw_app.activate_action("add-subscription")
+    second = adw_app.current_dialog
+
+    assert second is not None
+    assert second is not first
+    _simulate_close(adw_app, second)
+
+
+def test_present_dialog_reports_whether_it_showed(adw_app):
+    from src.ui.dialogs.group import GroupDialog
+
+    adw_app.activate()
+    first = GroupDialog()
+
+    assert adw_app.present_dialog(first) is True
+    assert adw_app.present_dialog(GroupDialog()) is False
+
+    _simulate_close(adw_app, first)
+
+    assert adw_app.present_dialog(GroupDialog()) is True
+    _simulate_close(adw_app, adw_app.current_dialog)
+
+
+def test_a_stale_close_does_not_free_a_newer_dialog(adw_app):
+    """Сигнал от уже закрытого диалога не выбивает следующий из слота."""
+    from src.ui.dialogs.group import GroupDialog
+
+    adw_app.activate()
+    first = GroupDialog()
+    adw_app.present_dialog(first)
+    _simulate_close(adw_app, first)
+
+    second = GroupDialog()
+    adw_app.present_dialog(second)
+    _simulate_close(adw_app, first)
+
+    assert adw_app.current_dialog is second
+    _simulate_close(adw_app, second)
+
+
+def test_the_dialog_slot_is_cleared_between_tests(adw_app):
+    """reset_for_tests обязан отпускать слот: иначе он течёт между тестами."""
+    from src.ui.dialogs.group import GroupDialog
+
+    adw_app.activate()
+    adw_app.present_dialog(GroupDialog())
+
+    adw_app.reset_for_tests(adw_app.context)
+
+    assert adw_app.current_dialog is None

@@ -217,6 +217,18 @@ class MainWindow(Adw.ApplicationWindow):
         handler = getattr(self, f"_row_{name.replace('-', '_')}")
         handler(parameter.get_int32())
 
+    def _present_dialog(self, dialog) -> None:
+        """Show a dialog through the application's single slot.
+
+        Окно не показывает диалоги само: приложение держит их по одному,
+        иначе повторное действие клало бы форму поверх формы.
+        """
+        app = self.get_application()
+        if app is None:
+            dialog.present(self)
+            return
+        app.present_dialog(dialog)
+
     # профиль
 
     def _row_connect_profile(self, profile_id: int) -> None:
@@ -234,10 +246,10 @@ class MainWindow(Adw.ApplicationWindow):
 
         dialog = EditProfileDialog(profile)
         dialog.connect("profile-saved", lambda _d: self._save_profiles())
-        dialog.present(self)
+        self._present_dialog(dialog)
 
     def _row_delete_profile(self, profile_id: int) -> None:
-        from src.ui.dialogs.confirm import confirm_delete
+        from src.ui.dialogs.confirm import build_delete_confirmation
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
@@ -245,11 +257,12 @@ class MainWindow(Adw.ApplicationWindow):
             return
 
         app = self.get_application()
-        confirm_delete(
-            self,
-            "Удалить профиль?",
-            f"«{profile.name}» будет удалён безвозвратно.",
-            lambda: app.delete_profile(profile_id) if app is not None else None,
+        self._present_dialog(
+            build_delete_confirmation(
+                "Удалить профиль?",
+                f"«{profile.name}» будет удалён безвозвратно.",
+                lambda: app.delete_profile(profile_id) if app is not None else None,
+            )
         )
 
     def _row_profile_routing(self, profile_id: int) -> None:
@@ -264,7 +277,7 @@ class MainWindow(Adw.ApplicationWindow):
         # У `Adw.PreferencesDialog` нет кнопки подтверждения: как и настройки
         # приложения, эти правки применяются при закрытии.
         dialog.connect("closed", lambda _d: self._save_routing(dialog))
-        dialog.present(self)
+        self._present_dialog(dialog)
 
     def _save_routing(self, dialog) -> None:
         dialog.save()
@@ -298,10 +311,10 @@ class MainWindow(Adw.ApplicationWindow):
             "group-ready",
             lambda _d, name: app.update_group(group_id, name=name) if app else None,
         )
-        dialog.present(self)
+        self._present_dialog(dialog)
 
     def _row_delete_group(self, group_id: int) -> None:
-        from src.ui.dialogs.confirm import confirm_delete
+        from src.ui.dialogs.confirm import build_delete_confirmation
 
         group = self._context.profiles.get_group(group_id)
         if group is None:
@@ -310,11 +323,12 @@ class MainWindow(Adw.ApplicationWindow):
 
         app = self.get_application()
         count = len(self._context.profiles.get_profiles_in_group(group_id))
-        confirm_delete(
-            self,
-            "Удалить группу?",
-            f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
-            lambda: app.delete_group(group_id) if app is not None else None,
+        self._present_dialog(
+            build_delete_confirmation(
+                "Удалить группу?",
+                f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
+                lambda: app.delete_group(group_id) if app is not None else None,
+            )
         )
 
     # подписка
@@ -336,7 +350,7 @@ class MainWindow(Adw.ApplicationWindow):
             "subscription-ready",
             lambda _d, name, url: (app.update_group(group_id, name=name, url=url) if app else None),
         )
-        dialog.present(self)
+        self._present_dialog(dialog)
 
     def _row_delete_subscription(self, group_id: int) -> None:
         self._row_delete_group(group_id)
