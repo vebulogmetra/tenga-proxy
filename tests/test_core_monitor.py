@@ -423,11 +423,12 @@ def test_check_skipped_while_previous_check_running(tmp_path, monkeypatch):
     started: list[object] = []
 
     class FakeThread:
-        def __init__(self, target, daemon):
+        def __init__(self, target, args=(), daemon=False):
             self._target = target
+            self._args = args
 
         def start(self):
-            started.append(self._target)
+            started.append(self._args)
 
     monkeypatch.setattr("src.core.monitor.threading.Thread", FakeThread)
 
@@ -436,7 +437,7 @@ def test_check_skipped_while_previous_check_running(tmp_path, monkeypatch):
     assert len(started) == 1
     assert monitor._check_in_progress is True
 
-    monitor._finish_check()
+    monitor._finish_check(monitor._check_generation)
     assert monitor._check_in_progress is False
     assert monitor._check_connections() is True
     assert len(started) == 2
@@ -453,3 +454,40 @@ def test_stop_clears_check_in_progress_flag(tmp_path, monkeypatch):
 
     assert monitor._check_in_progress is False
     assert monitor._timer_id is None
+
+
+def test_stale_check_completion_does_not_unblock_the_current_check(tmp_path, monkeypatch):
+    """A check superseded by stop()/start() must not clear the new check's flag."""
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = 1
+
+    started: list[object] = []
+
+    class FakeThread:
+        def __init__(self, target, args=(), daemon=False):
+            self._args = args
+
+        def start(self):
+            started.append(self._args)
+
+    monkeypatch.setattr("src.core.monitor.threading.Thread", FakeThread)
+    monkeypatch.setattr("gi.repository.GLib.source_remove", lambda _id: True)
+
+    monitor._check_connections()  # проверка A
+    stale_generation = monitor._check_generation
+    monitor.stop()
+    monitor._timer_id = 2
+    monitor._check_connections()  # проверка B
+    assert len(started) == 2
+    assert monitor._check_in_progress is True
+
+    monitor._finish_check(stale_generation)  # запоздавший колбэк от A
+    assert monitor._check_in_progress is True, "устаревший колбэк снял флаг текущей проверки"
+
+    assert monitor._check_connections() is True
+    assert len(started) == 2, "лишний параллельный запуск проверки"
+
+    monitor._finish_check(monitor._check_generation)
+    assert monitor._check_in_progress is False
