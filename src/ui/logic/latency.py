@@ -65,11 +65,22 @@ class LatencyRunner:
             self._busy = True
 
         def _safe_probe(profile_id: int) -> int:
+            # BaseException too: anything escaping here would propagate out of
+            # pool.map and abort the delivery of every remaining result, leaving
+            # those profiles stuck on the "testing" placeholder forever.
             try:
                 return int(self._probe(profile_id))
-            except Exception as e:
+            except BaseException as e:
                 logger.exception("Latency probe failed for profile %s: %s", profile_id, e)
                 return -1
+
+        def _finished() -> None:
+            # Released here rather than in the worker: until this runs, on_done
+            # of this run is still queued, and accepting another run would let
+            # the two interleave on the shared UI state.
+            with self._lock:
+                self._busy = False
+            on_done()
 
         def _worker() -> None:
             try:
@@ -78,9 +89,7 @@ class LatencyRunner:
                     for profile_id, latency in zip(ids, probes, strict=True):
                         self._dispatch(on_result, profile_id, latency)
             finally:
-                with self._lock:
-                    self._busy = False
-                self._dispatch(on_done)
+                self._dispatch(_finished)
 
         self._thread = threading.Thread(target=_worker, name="latency-runner", daemon=True)
         self._thread.start()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import logging
-import random
 import signal
 import socket
 import threading
@@ -27,23 +26,19 @@ from src.core.proxy_mode import (
     normalize_proxy_mode,
     should_manage_system_proxy,
 )
-from src.db.config import LOCAL_NETWORKS, ProxyMode, RoutingMode
+from src.db.config import ProxyMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
 from src.sys.tun_route import TunRouteState, apply_tun_routes, restore_tun_routes
 from src.sys.vpn import (
     connect_vpn,
     disconnect_vpn,
-    get_default_interface,
-    get_vpn_dns_servers,
-    get_vpn_interface,
     is_vpn_active,
 )
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.main_window import MainWindow
 from src.ui.tray import TrayIcon
 
-from src.db.config import DEFAULT_ROUTING_ORDER
 
 logger = logging.getLogger("tenga.ui.app")
 
@@ -119,7 +114,7 @@ class TengaApp:
 
     def _start_socket_listener(self) -> None:
         """Start socket listener thread to handle activation signals."""
-        if not self._lock or not hasattr(self._lock, '_server_socket'):
+        if not self._lock or not hasattr(self._lock, "_server_socket"):
             logger.warning("Socket server not available")
             return
 
@@ -128,7 +123,7 @@ class TengaApp:
             server_socket = self._lock._server_socket
             logger.info("Socket listener started")
 
-            while not getattr(self, '_stop_socket_listener', False):
+            while not getattr(self, "_stop_socket_listener", False):
                 try:
                     # Use socket timeout to allow checking _stop_socket_listener periodically
                     server_socket.settimeout(1.0)  # 1 second timeout
@@ -137,7 +132,7 @@ class TengaApp:
                     try:
                         # Receive activation message
                         data = conn.recv(1024)
-                        if data and data.decode('utf-8').strip() == 'ACTIVATE':
+                        if data and data.decode("utf-8").strip() == "ACTIVATE":
                             logger.info("Received activation signal, bringing window to foreground")
                             # Use GLib.idle_add to safely call GUI methods from another thread
                             GLib.idle_add(self._activate_window)
@@ -152,7 +147,7 @@ class TengaApp:
                     # This is expected, just continue the loop to check _stop_socket_listener
                     continue
                 except Exception as e:
-                    if not getattr(self, '_stop_socket_listener', False):
+                    if not getattr(self, "_stop_socket_listener", False):
                         logger.error("Socket listener error: %s", e)
                     break
 
@@ -238,7 +233,7 @@ class TengaApp:
         finally:
             # Set flag to stop socket listener
             self._stop_socket_listener = True
-            if hasattr(self, '_socket_thread') and self._socket_thread.is_alive():
+            if hasattr(self, "_socket_thread") and self._socket_thread.is_alive():
                 self._socket_thread.join(timeout=1.0)  # Wait up to 1 second for thread to finish
             if self._lock:
                 self._lock.release()
@@ -252,7 +247,7 @@ class TengaApp:
         self._context.save_all()
         # Set flag to stop socket listener
         self._stop_socket_listener = True
-        if hasattr(self, '_socket_thread') and self._socket_thread.is_alive():
+        if hasattr(self, "_socket_thread") and self._socket_thread.is_alive():
             self._socket_thread.join(timeout=1.0)  # Wait up to 1 second for thread to finish
         # Cleanup resources
         if self._tray:

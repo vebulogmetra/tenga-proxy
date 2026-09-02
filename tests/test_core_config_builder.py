@@ -16,6 +16,7 @@ from src.core.config_builder import (
     reserve_latency_port_pair,
 )
 from src.core.context import init_context
+from src.db.config import LOCAL_NETWORKS, ProxyMode, RoutingMode
 from src.db.profiles import ProfileEntry
 from src.fmt import parse_link
 
@@ -81,3 +82,62 @@ def test_reserve_latency_port_pair_returns_free_consecutive_ports():
             sock.bind(("127.0.0.1", candidate))
         finally:
             sock.close()
+
+
+def test_custom_routing_mode_builds_direct_and_proxy_rules(context, profile):
+    """RoutingMode.CUSTOM читает списки из context — путь, наиболее хрупкий при переносе."""
+    context.config.routing.mode = RoutingMode.CUSTOM
+    context.config.routing.direct_list = ["example.org", "1.2.3.0/24"]
+    context.config.routing.proxy_list = ["blocked.example"]
+    # the builder re-reads the lists from disk, as the real app does
+    context.config.routing.save_lists_to_files(context.config_dir)
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    rules = config["routing"]["rules"]
+    assert rules, "CUSTOM режим обязан породить правила маршрутизации"
+    direct_rules = [r for r in rules if r.get("outboundTag") == "direct"]
+    assert direct_rules, "нет правил для прямого соединения"
+    domains = [d for r in direct_rules for d in r.get("domain", [])]
+    ips = [i for r in direct_rules for i in r.get("ip", [])]
+    assert any("example.org" in d for d in domains)
+    assert "1.2.3.0/24" in ips
+
+
+def test_bypass_local_networks_adds_every_local_cidr(context, profile):
+    """bypass_local_networks должен протащить все CIDR из общей константы."""
+    context.config.routing.mode = RoutingMode.PROXY_ALL
+    context.config.routing.bypass_local_networks = True
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    ips = {ip for rule in config["routing"]["rules"] for ip in rule.get("ip", [])}
+    assert set(LOCAL_NETWORKS) <= ips
+
+
+def test_tun_mode_produces_tun_inbound(context, profile):
+    """Режим TUN и системный прокси дают разные inbounds."""
+    context.config.proxy_mode = ProxyMode.TUN
+    tun_config = build_session_config(context, profile)
+
+    context.config.proxy_mode = ProxyMode.SYSTEM_PROXY
+    proxy_config = build_session_config(context, profile)
+
+    assert tun_config is not None and proxy_config is not None
+    tun_protocols = {i["protocol"] for i in tun_config["inbounds"]}
+    proxy_protocols = {i["protocol"] for i in proxy_config["inbounds"]}
+    assert "tun" in tun_protocols
+    assert "tun" not in proxy_protocols
+    assert proxy_protocols <= {"socks", "http"}
+
+
+def test_dns_settings_reach_the_generated_config(context, profile):
+    """DNS settings must reach the generated config, not get lost in the move."""
+    context.config.dns.enabled = True
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    assert "dns" in config
+    assert config["dns"].get("servers"), "список DNS-серверов пуст"

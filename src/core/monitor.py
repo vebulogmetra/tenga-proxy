@@ -82,6 +82,11 @@ class ConnectionMonitor:
 
     def stop(self) -> None:
         """Stop monitoring."""
+        # Cleared before the early return: a check may be in flight even when no
+        # timer is armed, and leaving the flag set would make every later tick
+        # skip forever.
+        self._check_in_progress = False
+
         if self._timer_id is None:
             return
 
@@ -90,7 +95,6 @@ class ConnectionMonitor:
 
         GLib.source_remove(self._timer_id)
         self._timer_id = None
-        self._check_in_progress = False
 
         # Reset status
         self._status = ConnectionStatus()

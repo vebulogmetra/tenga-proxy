@@ -456,6 +456,43 @@ def test_stop_clears_check_in_progress_flag(tmp_path, monkeypatch):
     assert monitor._timer_id is None
 
 
+def test_stop_clears_flag_even_without_an_armed_timer(tmp_path):
+    """stop() без таймера тоже обязан снять флаг, иначе тики залипнут навсегда."""
+    context = AppContext(config_dir=tmp_path)
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = None
+    monitor._check_in_progress = True
+
+    monitor.stop()
+
+    assert monitor._check_in_progress is False
+
+
+def test_monitor_recovers_after_stop_without_timer(tmp_path, monkeypatch):
+    """После stop() без таймера следующий тик должен запустить проверку."""
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    monitor = ConnectionMonitor(context)
+    monitor._check_in_progress = True
+    monitor._timer_id = None
+
+    started: list[object] = []
+
+    class FakeThread:
+        def __init__(self, target, args=(), daemon=False):
+            self._args = args
+
+        def start(self):
+            started.append(self._args)
+
+    monkeypatch.setattr("src.core.monitor.threading.Thread", FakeThread)
+
+    monitor.stop()
+    monitor._timer_id = 3
+    assert monitor._check_connections() is True
+    assert len(started) == 1
+
+
 def test_stale_check_completion_does_not_unblock_the_current_check(tmp_path, monkeypatch):
     """A check superseded by stop()/start() must not clear the new check's flag."""
     context = AppContext(config_dir=tmp_path)

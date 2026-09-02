@@ -7,7 +7,6 @@ AppContext explicitly instead of reading it from `self`.
 
 from __future__ import annotations
 
-import json
 import logging
 import random
 import socket
@@ -503,12 +502,6 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
 
         # Note: xray-core DNS configuration uses servers with optional domains, not separate rules
 
-        dns_config = {
-            "servers": dns_servers,
-            "rules": dns_rules,
-            "final": "main-dns",
-        }
-
         # Log DNS configuration for debugging (before conversion)
         logger.info("DNS configuration (before xray-core conversion):")
         logger.info("  Servers: %s", [s.get("tag", "unknown") for s in dns_servers])
@@ -693,57 +686,3 @@ def build_latency_probe_config(
     )
     config["inbounds"] = inbounds
     return config, socks_port
-
-
-def probe_profile_latency(
-    context: AppContext, profile_id: int, timeout_ms: int = 3000, probes: int = 3
-) -> int:
-    """
-    Run realistic latency test for profile through temporary xray instance.
-
-    Args:
-        profile_id: Profile id to test
-        timeout_ms: Probe timeout in milliseconds
-        probes: Number of probes
-
-    Returns:
-        Median latency in milliseconds or -1 on failure.
-    """
-    profile = context.profiles.get_profile(profile_id)
-    if not profile:
-        logger.error("Latency test: profile %s not found", profile_id)
-        return -1
-
-    config_with_port = build_latency_probe_config(context, profile)
-    if not config_with_port:
-        logger.error("Latency test: failed to build config for profile %s", profile_id)
-        return -1
-
-    config, socks_port = config_with_port
-    probe_manager = None
-    try:
-        from src.core.xray_manager import XrayManager
-
-        probe_manager = XrayManager(binary_path=context.xray_manager.binary_path)
-        success, error = probe_manager.start(config)
-        if not success:
-            logger.error(
-                "Latency test: temp xray start failed for profile %s: %s", profile_id, error
-            )
-            return -1
-
-        return probe_manager.test_delay_realistic(
-            proxy_address=context.config.inbound_address,
-            proxy_port=socks_port,
-            timeout=timeout_ms,
-            probes=probes,
-        )
-    except Exception as e:
-        logger.exception("Latency test failed for profile %s: %s", profile_id, e)
-        return -1
-    finally:
-        if probe_manager is not None:
-            try:
-                probe_manager.stop()
-            except Exception:
-                pass

@@ -26,10 +26,21 @@ def _socket_path_for(lock_file: Path) -> Path:
     if len(str(candidate).encode()) <= _MAX_UNIX_SOCKET_PATH:
         return candidate
 
-    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
     digest = hashlib.sha1(str(lock_file).encode()).hexdigest()[:12]
-    fallback = runtime_dir / f"tenga-proxy-{digest}.sock"
-    logger.debug("Lock path too long for AF_UNIX, using socket at %s", fallback)
+    name = f"tenga-proxy-{digest}.sock"
+
+    for directory in (os.environ.get("XDG_RUNTIME_DIR"), tempfile.gettempdir()):
+        if not directory:
+            continue
+        fallback = Path(directory) / name
+        if len(str(fallback).encode()) <= _MAX_UNIX_SOCKET_PATH:
+            logger.debug("Lock path too long for AF_UNIX, using socket at %s", fallback)
+            return fallback
+
+    # Both candidates overflow too: return the shorter one and let bind() report
+    # the failure rather than pretending a path was found.
+    fallback = Path(tempfile.gettempdir()) / name
+    logger.warning("No socket path fits into sun_path, activation may fail: %s", fallback)
     return fallback
 
 
@@ -98,7 +109,7 @@ class SingleInstance:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 sock.connect(str(self._socket_file))
-                sock.send(b'ACTIVATE')
+                sock.send(b"ACTIVATE")
                 return True
             except socket.error as e:
                 logger.warning("Could not connect to existing instance socket: %s", e)
@@ -133,7 +144,7 @@ class SingleInstance:
     def close_socket_server(self):
         """Close and cleanup socket server."""
         try:
-            if hasattr(self, '_server_socket'):
+            if hasattr(self, "_server_socket"):
                 self._server_socket.close()
         except Exception as e:
             logger.error("Error closing socket server: %s", e)
