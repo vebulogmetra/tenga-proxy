@@ -158,6 +158,10 @@ class AddProfileDialog(Gtk.Dialog):
     def get_profile(self) -> ProxyBean | None:
         """Get parsed profile."""
         if not self._parsed_bean:
+            if not self.get_link():
+                self._error_label.set_markup(
+                    '<span color="red">[ERROR] Введите ссылку подключения</span>'
+                )
             return None
 
         # Update name if set
@@ -180,11 +184,12 @@ def show_add_profile_dialog(parent: Gtk.Window | None = None) -> ProxyBean | Non
         ProxyBean if profile added, None if cancelled
     """
     dialog = AddProfileDialog(parent)
-    response = dialog.run()
 
     profile = None
-    if response == Gtk.ResponseType.OK:
+    while dialog.run() == Gtk.ResponseType.OK:
         profile = dialog.get_profile()
+        if profile is not None:
+            break
 
     dialog.destroy()
     return profile

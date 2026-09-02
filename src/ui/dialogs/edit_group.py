@@ -127,11 +127,12 @@ def show_edit_group_dialog(
         New group name if edited, None if cancelled
     """
     dialog = EditGroupDialog(parent, group)
-    response = dialog.run()
 
     result = None
-    if response == Gtk.ResponseType.OK:
+    while dialog.run() == Gtk.ResponseType.OK:
         result = dialog.get_group_name()
+        if result is not None:
+            break
 
     dialog.destroy()
     return result
