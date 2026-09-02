@@ -1,0 +1,41 @@
+/* Дополнение к системной теме Adwaita: только то, чего в ней нет.
+   Цвета берутся из именованных переменных libadwaita, поэтому светлая и
+   тёмная темы работают без отдельных правил.
+   Синтаксис var() здесь неприменим: он появился только в GTK 4.16. */
+
+.status-card {
+  padding: 12px;
+}
+
+.status-card .status-icon {
+  color: alpha(currentColor, 0.55);
+}
+
+.status-card.status-connected .status-icon {
+  color: @success_color;
+}
+
+.status-card.status-connecting .status-icon {
+  color: @accent_color;
+}
+
+.status-card.status-error .status-icon {
+  color: @error_color;
+}
+
+.metrics {
+  font-size: 0.85em;
+  font-feature-settings: "tnum";
+}
+
+.latency-good {
+  color: @success_color;
+}
+
+.latency-medium {
+  color: @warning_color;
+}
+
+.latency-bad {
+  color: @error_color;
+}
