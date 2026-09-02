@@ -130,29 +130,22 @@ init_config_files()
 def main() -> int:
     args = _ARGS
 
-    # Check for single instance
     lock_file = get_lock_file(args.config_dir)
     single_instance = SingleInstance(lock_file)
-
-    if single_instance.is_running():
-        logger.info("Another instance is already running, sending activation signal")
-        if single_instance.send_activation_signal():
-            logger.info("Activation signal sent successfully")
-            return 0
-
-        logger.warning("Could not send activation signal, starting new instance")
-        if not single_instance.acquire():
-            logger.error("Failed to acquire lock")
-            return 1
-    elif not single_instance.acquire():
-        logger.error("Failed to acquire lock")
-        return 1
+    holds_lock = single_instance.acquire()
+    if not holds_lock:
+        # Приложение всё равно запускается: имя на шине занято первым
+        # процессом, он получит `activate` и поднимет окно, а этот процесс
+        # сразу завершится. Блокировку он не трогает — xray остаётся один.
+        logger.info("Another instance holds the lock, activating its window")
 
     try:
         from src.ui.application import run_app
 
         return run_app(
-            config_dir=args.config_dir, lock=single_instance, with_tray=not args.no_tray
+            config_dir=args.config_dir,
+            lock=single_instance if holds_lock else None,
+            with_tray=not args.no_tray,
         )
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
@@ -167,7 +160,8 @@ def main() -> int:
         traceback.print_exc()
         return 1
     finally:
-        single_instance.release()
+        if holds_lock:
+            single_instance.release()
 
 
 if __name__ == "__main__":

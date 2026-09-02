@@ -181,71 +181,21 @@ def test_release_unlink_error(monkeypatch, tmp_path):
     assert not inst._acquired
 
 
-def test_socket_path_falls_back_to_runtime_dir_when_too_long(tmp_path, monkeypatch):
-    runtime = tmp_path / "run"
-    runtime.mkdir()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-    long_dir = tmp_path / ("x" * 120)
-    long_dir.mkdir()
-
-    instance = SingleInstance(long_dir / "tenga.lock")
-
-    assert instance._socket_file.parent == runtime
-    # sun_path ограничен в БАЙТАХ, не в символах
-    assert len(str(instance._socket_file).encode()) <= 107
-
-
-def test_socket_path_stays_next_to_lock_when_short(tmp_path):
+def test_the_lock_has_no_socket_activation_any_more(tmp_path):
+    """Активация окна — дело Gio.Application, у блокировки её больше нет."""
     instance = SingleInstance(tmp_path / "tenga.lock")
 
-    assert instance._socket_file == tmp_path / "tenga.sock"
+    assert not hasattr(instance, "send_activation_signal")
+    assert not hasattr(instance, "setup_socket_server")
+    assert not hasattr(instance, "close_socket_server")
+    assert not hasattr(instance, "_socket_file")
 
 
-def test_socket_path_uses_bytes_not_characters_for_the_limit(tmp_path, monkeypatch):
-    """Кириллица: путь короче 108 символов, но длиннее 107 байт — лимит считается в байтах."""
-    from src.sys.single_instance import _socket_path_for
+def test_acquiring_and_releasing_leaves_no_socket_behind(tmp_path):
+    """Сокета нет вовсе: раньше он оставался в XDG_RUNTIME_DIR."""
+    instance = SingleInstance(tmp_path / "tenga.lock")
 
-    runtime = tmp_path / "run"
-    runtime.mkdir()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-
-    lock = Path("/tmp") / ("ы" * 50) / "tenga.lock"
-    assert len(str(lock)) < 108, "в символах помещается"
-    assert len(str(lock).encode()) > 107, "в байтах не помещается"
-
-    socket_file = _socket_path_for(lock)
-
-    assert socket_file.parent == runtime, "путь должен считаться в байтах, а не символах"
-    assert len(str(socket_file).encode()) <= 107
-
-
-def test_socket_in_runtime_dir_actually_binds(tmp_path, monkeypatch):
-    """Запасной путь должен реально проходить bind(), иначе смысл фикса теряется."""
-    import socket as socket_module
-
-    runtime = tmp_path / "run"
-    runtime.mkdir()
-    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
-    long_dir = tmp_path / ("x" * 120)
-    long_dir.mkdir()
-
-    instance = SingleInstance(long_dir / "tenga.lock")
-    sock = socket_module.socket(socket_module.AF_UNIX, socket_module.SOCK_STREAM)
-    try:
-        sock.bind(str(instance._socket_file))
-    finally:
-        sock.close()
-
-
-def test_socket_path_skips_runtime_dir_that_is_itself_too_long(tmp_path, monkeypatch):
-    """Если XDG_RUNTIME_DIR сам не помещается в sun_path, берётся временный каталог."""
-    from src.sys.single_instance import _socket_path_for
-
-    monkeypatch.setenv("XDG_RUNTIME_DIR", "/tmp/" + "r" * 100)
-    long_dir = tmp_path / ("x" * 120)
-    long_dir.mkdir()
-
-    socket_file = _socket_path_for(long_dir / "tenga.lock")
-
-    assert len(str(socket_file).encode()) <= 107
-    assert not str(socket_file).startswith("/tmp/rrrr")
+    assert instance.acquire() is True
+    assert list(tmp_path.glob("*.sock")) == []
+    instance.release()
+    assert list(tmp_path.glob("*.sock")) == []
