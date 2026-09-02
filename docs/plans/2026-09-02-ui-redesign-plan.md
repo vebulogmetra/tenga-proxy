@@ -30,11 +30,17 @@
 
 ---
 
-## Этап 0. Исправления логики в `develop`
+## Этап 0. Исправления логики в `develop` — ВЫПОЛНЕН 2026-09-02
 
 Ветка: `develop` (текущая). Старый GTK3 UI продолжает работать.
 
-### Task 0.1: LatencyRunner — ограниченный пул для тестов задержки (B1, B2)
+Коммиты: d5cf372, b98aa67, 4a7f465, 9718976, dbe2122, 812d8b8, 65eb046, f1101da.
+Отклонения от плана: `format_bytes` сохранил два знака после запятой для ГБ
+(план ожидал один — фактическое поведение важнее); тег первого outbound равен
+имени профиля, а не строке `proxy`; в `ConnectionMonitor.stop()` добавлен сброс
+флага, которого в плане не было.
+
+### ✅ Task 0.1: LatencyRunner — ограниченный пул для тестов задержки (B1, B2)
 
 **Files:**
 - Create: `src/ui/logic/__init__.py` (пустой)
@@ -286,7 +292,7 @@ git add src/ui/logic tests/test_ui_logic_latency.py src/ui/main_window.py
 git commit -m "fix: bound latency probes with LatencyRunner and save profiles on main thread"
 ```
 
-### Task 0.2: Сигналы через GLib.unix_signal_add (B3)
+### ✅ Task 0.2: Сигналы через GLib.unix_signal_add (B3)
 
 **Files:**
 - Modify: `src/ui/app.py:100-110`
@@ -374,7 +380,7 @@ git add src/ui/app.py tests/test_ui_app_signals.py
 git commit -m "fix: route SIGINT/SIGTERM through GLib main loop"
 ```
 
-### Task 0.3: Единая константа LOCAL_NETWORKS (B5)
+### ✅ Task 0.3: Единая константа LOCAL_NETWORKS (B5)
 
 **Files:**
 - Modify: `src/db/config.py` (рядом с `ROUTING_GROUPS`, строка ~305)
@@ -436,7 +442,7 @@ git add src/db/config.py src/ui/app.py src/ui/dialogs/profile_vpn_settings.py te
 git commit -m "refactor: share LOCAL_NETWORKS constant between config builder and dialog"
 ```
 
-### Task 0.4: Мёртвый код и неиспользуемые импорты (B6)
+### ✅ Task 0.4: Мёртвый код и неиспользуемые импорты (B6)
 
 **Files:**
 - Modify: `src/ui/app.py:732-741`
@@ -483,7 +489,7 @@ git add src/ui/app.py src/ui/main_window.py src/ui/dialogs/settings.py src/ui/lo
 git commit -m "refactor: drop dead branches and move format_bytes into ui.logic"
 ```
 
-### Task 0.5: Диалоги группы и добавления профиля не закрываются при ошибке (B7)
+### ✅ Task 0.5: Диалоги группы и добавления профиля не закрываются при ошибке (B7)
 
 **Files:**
 - Modify: `src/ui/dialogs/edit_group.py:115-137`
@@ -578,7 +584,7 @@ git add src/ui/dialogs/edit_group.py src/ui/dialogs/add_profile.py tests/test_ui
 git commit -m "fix: keep group and add-profile dialogs open after validation errors"
 ```
 
-### Task 0.6: Монитор не накапливает потоки (B4)
+### ✅ Task 0.6: Монитор не накапливает потоки (B4)
 
 **Files:**
 - Modify: `src/core/monitor.py:38-48, 99-116, 195-233`
@@ -653,7 +659,7 @@ git add src/core/monitor.py tests/test_core_monitor.py
 git commit -m "fix: skip monitor tick while previous check is still running"
 ```
 
-### Task 0.7: Сокет single instance в короткой директории (B20)
+### ✅ Task 0.7: Сокет single instance в короткой директории (B20)
 
 **Files:**
 - Modify: `src/sys/single_instance.py:25`
@@ -709,7 +715,7 @@ git add src/sys/single_instance.py tests/test_sys_single_instance.py
 git commit -m "fix: place single-instance socket in runtime dir when config path is too long"
 ```
 
-### Task 0.8: Вынести сборку конфигурации xray из app.py
+### ✅ Task 0.8: Вынести сборку конфигурации xray из app.py
 
 Подготовка к миграции: `app.py` содержит ~700 строк генерации конфигурации xray (`_create_config`, `_create_latency_test_config`, `_reserve_latency_port_pair`, `test_profile_latency`), которые не зависят от GTK и нужны новому `application.py` в неизменном виде.
 
@@ -735,7 +741,7 @@ git commit -m "fix: place single-instance socket in runtime dir when config path
 git commit -am "refactor: extract xray config building from TengaApp into core.config_builder"
 ```
 
-### Task 0.9: Проверка этапа 0
+### ✅ Task 0.9: Проверка этапа 0
 
 Run: `python cli.py lint-all && uv run pytest -q`
 Expected: 0 ошибок, все тесты проходят.
