@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import signal
 import socket
@@ -18,23 +17,13 @@ from src.core.config_builder import (
     build_session_config,
     reserve_latency_port_pair,
 )
+from src.core.connection import ConnectionService
 from src.core.context import AppContext, get_context, init_context
 from src.core.logging_utils import setup_logging as setup_core_logging
 from src.core.monitor import ConnectionMonitor, ConnectionStatus
-from src.core.proxy_mode import (
-    build_inbounds_for_mode,
-    normalize_proxy_mode,
-    should_manage_system_proxy,
-)
+from src.core.proxy_mode import build_inbounds_for_mode
 from src.db.config import ProxyMode
 from src.db.profiles import ProfileEntry
-from src.sys.proxy import clear_system_proxy, set_system_proxy
-from src.sys.tun_route import TunRouteState, apply_tun_routes, restore_tun_routes
-from src.sys.vpn import (
-    connect_vpn,
-    disconnect_vpn,
-    is_vpn_active,
-)
 from src.ui.dialogs import show_add_profile_dialog, show_settings_dialog
 from src.ui.main_window import MainWindow
 from src.ui.tray import TrayIcon
@@ -65,7 +54,9 @@ class TengaApp:
         # Connection monitor
         self._monitor: ConnectionMonitor | None = None
         self._setup_monitor()
-        self._tun_route_state: TunRouteState | None = None
+        # Запуск и остановка живут в общем сервисе: GTK3-окно и новое
+        # GTK4-приложение должны вести себя одинаково.
+        self._connection = ConnectionService(self._context)
 
         # Initialize socket listener stop flag
         self._stop_socket_listener = False
@@ -313,196 +304,43 @@ class TengaApp:
 
     def _connect(self, profile_id: int) -> bool:
         """Connect to profile."""
-        # If connected - disconnect
-        if self._context.proxy_state.is_running:
-            self._disconnect()
-
         profile = self._context.profiles.get_profile(profile_id)
-        if not profile:
+        if profile is None:
             logger.error("Profile %s not found", profile_id)
             return False
 
-        try:
-            self._context.proxy_state.vpn_auto_connected = False
-        except Exception:
-            pass
-
-        if (
-            profile.vpn_settings
-            and profile.vpn_settings.enabled
-            and getattr(profile.vpn_settings, "auto_connect", False)
-        ):
-            was_active_before = is_vpn_active(profile.vpn_settings.connection_name)
-            if not was_active_before:
-                logger.info(
-                    "Auto-connecting VPN '%s' before starting profile %s",
-                    profile.vpn_settings.connection_name,
-                    profile_id,
-                )
-                if not connect_vpn(profile.vpn_settings.connection_name):
-                    logger.warning(
-                        "Failed to auto-connect VPN '%s', continuing without VPN",
-                        profile.vpn_settings.connection_name,
-                    )
-                else:
-                    try:
-                        self._context.proxy_state.vpn_auto_connected = True
-                    except Exception:
-                        pass
-
         self._last_profile_id = profile_id
-        runtime_mode = normalize_proxy_mode(getattr(self._context.config, "proxy_mode", None))
-        config = self._create_config(profile)
-        if not config:
-            return False
-        # Save configuration for debugging
-        config_path = self._context.config_dir / "current_config.json"
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-        logger.info("Configured profile id=%s, file: %s", profile_id, config_path)
-        # Start xray-core
-        try:
-            success, error = self._context.xray_manager.start(config)
-            if not success:
-                logger.error("Error starting xray-core: %s", error)
-                if self._tray:
-                    self._tray.show_notification("Error", f"Failed to start: {error}")
-                return False
-            # Set state as running
-            self._context.proxy_state.set_running(profile_id, mode=runtime_mode)
+        result = self._connection.connect(profile_id)
 
-            if should_manage_system_proxy(runtime_mode):
-                port = self._context.config.inbound_socks_port
-                set_system_proxy(http_port=port, socks_port=port)
-            else:
-                logger.info("Runtime mode '%s': skip system proxy configuration", runtime_mode)
-                tun_name = getattr(self._context.config, "tun_name", "xray0")
-                proxy_host = getattr(profile.bean, "server_address", "") if profile else ""
-                route_ok, route_state, route_err = apply_tun_routes(tun_name, proxy_host)
-                if not route_ok:
-                    logger.error("Failed to apply TUN routes: %s", route_err)
-                    self._context.xray_manager.stop()
-                    self._context.proxy_state.set_stopped()
-                    if self._tray:
-                        self._tray.show_notification("Error", f"TUN route error: {route_err}")
-                    return False
-                self._tun_route_state = route_state
-
-            profile = self._context.profiles.get_profile(profile_id)
-            name = profile.name if profile else "Unknown"
+        if not result.ok:
             if self._tray:
-                self._tray.show_notification("Connected", f"Profile: {name}")
-
-            if self._monitor:
-                self._monitor.start()
-
-            return True
-
-        except Exception as e:
-            logger.exception("Error starting xray-core: %s", e)
-            if self._tray:
-                self._tray.show_notification("Error", f"Failed to start: {e}")
+                self._tray.show_notification("Error", f"Failed to start: {result.error}")
             return False
+
+        if self._tray:
+            self._tray.show_notification("Connected", f"Profile: {profile.name}")
+        return True
 
     def _reload_config(self) -> bool:
-        """
-        Reload configuration.
+        """Reload configuration into the running core.
 
         Returns:
             True if reload was successful, False otherwise
         """
-        if not self._context.proxy_state.is_running:
-            logger.debug("Proxy is not running, nothing to reload")
+        result = self._connection.reload_config()
+
+        if not result.ok:
+            if self._tray and self._context.proxy_state.is_running:
+                self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {result.error}")
             return False
 
-        profile_id = self._context.proxy_state.started_profile_id
-        profile = self._context.profiles.get_profile(profile_id)
-        if not profile:
-            logger.error("Profile %s not found for reload", profile_id)
-            return False
-
-        logger.info("Reloading configuration for profile %s", profile_id)
-        config = self._create_config(profile)
-        if not config:
-            logger.error("Failed to create configuration for reload")
-            return False
-
-        config_path = self._context.config_dir / "current_config.json"
-        config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-        logger.info("Reloaded configuration for profile id=%s, file: %s", profile_id, config_path)
-
-        # Reload xray-core
-        try:
-            success, error = self._context.xray_manager.reload_config(config)
-            if not success:
-                logger.error("Error reloading xray-core: %s", error)
-                if self._tray:
-                    self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {error}")
-                return False
-
-            logger.info("Configuration reloaded successfully")
-            if self._tray:
-                self._tray.show_notification("Конфигурация обновлена", "Настройки применены")
-            return True
-
-        except Exception as e:
-            logger.exception("Error reloading xray-core: %s", e)
-            if self._tray:
-                self._tray.show_notification("Ошибка", f"Не удалось перезагрузить: {e}")
-            return False
+        if self._tray:
+            self._tray.show_notification("Конфигурация обновлена", "Настройки применены")
+        return True
 
     def _disconnect(self) -> None:
         """Disconnect proxy."""
-        # Stop xray-core
-        try:
-            success, error = self._context.xray_manager.stop()
-            if not success:
-                logger.error("Error stopping xray-core: %s", error)
-        except Exception as e:
-            logger.exception("Exception when stopping xray-core: %s", e)
-
-        try:
-            profile_id = getattr(self._context.proxy_state, "started_profile_id", None)
-            if profile_id:
-                profile = self._context.profiles.get_profile(profile_id)
-                if profile and profile.vpn_settings:
-                    vpn_settings = profile.vpn_settings
-                    auto_flag = getattr(self._context.proxy_state, "vpn_auto_connected", False)
-                    if (
-                        vpn_settings.enabled
-                        and getattr(vpn_settings, "auto_connect", False)
-                        and auto_flag
-                    ):
-                        if disconnect_vpn(vpn_settings.connection_name):
-                            logger.info(
-                                "Auto-disconnected VPN '%s' after stopping profile",
-                                vpn_settings.connection_name,
-                            )
-                        else:
-                            logger.warning(
-                                "Failed to auto-disconnect VPN '%s' after stopping profile",
-                                vpn_settings.connection_name,
-                            )
-        except Exception as e:
-            logger.exception("Error during VPN auto-disconnect: %s", e)
-        finally:
-            try:
-                self._context.proxy_state.vpn_auto_connected = False
-            except Exception:
-                pass
-
-        started_mode = getattr(self._context.proxy_state, "started_mode", ProxyMode.TUN)
-        if started_mode == ProxyMode.TUN:
-            ok, err = restore_tun_routes(self._tun_route_state)
-            if not ok:
-                logger.warning("Failed to restore TUN routes: %s", err)
-            self._tun_route_state = None
-        if should_manage_system_proxy(started_mode):
-            clear_system_proxy()
-        # Update state
-        self._context.proxy_state.set_stopped()
-
-        if self._monitor:
-            self._monitor.stop()
+        self._connection.disconnect()
 
         if self._tray:
             self._tray.show_notification("Disconnected", "Proxy disconnected")
