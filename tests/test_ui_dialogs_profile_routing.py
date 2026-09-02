@@ -24,7 +24,7 @@ def make_profile(vpn=None, routing=None):
 
 
 def make_dialog(profile):
-    from src.ui.dialogs4.profile_routing import ProfileRoutingDialog
+    from src.ui.dialogs.profile_routing import ProfileRoutingDialog
 
     return ProfileRoutingDialog(profile)
 

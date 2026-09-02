@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from gi.repository import Gio, GLib
 
-from src.ui.tray4.dbusmenu import MenuItem, separator
-from src.ui.tray4.sni import StatusNotifierItem
+from src.ui.tray.dbusmenu import MenuItem, separator
+from src.ui.tray.sni import StatusNotifierItem
 
 WATCHER_XML = """
 <node>

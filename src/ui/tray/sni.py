@@ -13,8 +13,8 @@ from collections.abc import Callable
 
 from gi.repository import Gio, GLib
 
-from src.ui.tray4.dbusmenu import MenuItem, MenuModel
-from src.ui.tray4.variants import layout_variant, properties_variant
+from src.ui.tray.dbusmenu import MenuItem, MenuModel
+from src.ui.tray.variants import layout_variant, properties_variant
 
 logger = logging.getLogger("tenga.ui.tray.sni")
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from src.ui.logic.status import ConnectionState
-from src.ui.tray4.dbusmenu import MenuItem, separator
+from src.ui.tray.dbusmenu import MenuItem, separator
 
 # Больше двух десятков пунктов панель растягивает на весь экран; полный список
 # всегда доступен в окне.

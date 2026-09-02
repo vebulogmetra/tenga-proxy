@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from src.ui.logic.status import ConnectionState
-from src.ui.tray4.icons import ICON_NAMES, icon_name_for, icons_directory
+from src.ui.tray.icons import ICON_NAMES, icon_name_for, icons_directory
 
 
 @pytest.mark.parametrize(

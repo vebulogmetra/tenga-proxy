@@ -6,7 +6,7 @@ import pytest
 
 from src.core.context import AppContext
 from src.ui.logic.status import ConnectionState
-from src.ui.tray4.controller import TrayController
+from src.ui.tray.controller import TrayController
 from tests.support.tray import FakeApp, FakeTrayItem, find_item, labels
 
 

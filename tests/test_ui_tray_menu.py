@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.ui.logic.status import ConnectionState
-from src.ui.tray4.menu import MAX_PROFILES, build_menu
+from src.ui.tray.menu import MAX_PROFILES, build_menu
 
 
 @dataclass

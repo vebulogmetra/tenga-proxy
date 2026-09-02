@@ -19,7 +19,7 @@ def make_profile():
 
 
 def make_dialog(profile):
-    from src.ui.dialogs4.edit_profile import EditProfileDialog
+    from src.ui.dialogs.edit_profile import EditProfileDialog
 
     return EditProfileDialog(profile)
 

@@ -140,7 +140,7 @@ class TengaApplication(Adw.Application):
 
     def start_tray(self, item=None) -> None:
         """Publish the tray icon."""
-        from src.ui.tray4.controller import TrayController
+        from src.ui.tray.controller import TrayController
 
         if self.tray is not None:
             return
@@ -370,7 +370,7 @@ class TengaApplication(Adw.Application):
     # Диалоги
 
     def _open_add_profile(self, link: str = "") -> None:
-        from src.ui.dialogs4.add_profile import AddProfileDialog
+        from src.ui.dialogs.add_profile import AddProfileDialog
 
         dialog = AddProfileDialog()
         if link:
@@ -380,26 +380,26 @@ class TengaApplication(Adw.Application):
 
     def _add_profile_from_clipboard(self) -> None:
         """Open the add dialog with the clipboard already pasted in."""
-        from src.ui.dialogs4.base import read_clipboard
+        from src.ui.dialogs.base import read_clipboard
 
         read_clipboard(self._open_add_profile)
 
     def _open_add_subscription(self) -> None:
-        from src.ui.dialogs4.subscription import SubscriptionDialog
+        from src.ui.dialogs.subscription import SubscriptionDialog
 
         dialog = SubscriptionDialog()
         dialog.connect("subscription-ready", lambda _d, name, url: self.add_subscription(name, url))
         dialog.present(self._window)
 
     def _open_add_group(self) -> None:
-        from src.ui.dialogs4.group import GroupDialog
+        from src.ui.dialogs.group import GroupDialog
 
         dialog = GroupDialog()
         dialog.connect("group-ready", lambda _d, name: self.add_group(name))
         dialog.present(self._window)
 
     def _open_settings(self) -> None:
-        from src.ui.dialogs4.settings import SettingsDialog
+        from src.ui.dialogs.settings import SettingsDialog
 
         dialog = SettingsDialog(self.context.config, context=self.context)
         # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции

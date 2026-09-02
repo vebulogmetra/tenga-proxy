@@ -19,7 +19,7 @@ def make_config():
 
 
 def make_dialog(config=None):
-    from src.ui.dialogs4.settings import SettingsDialog
+    from src.ui.dialogs.settings import SettingsDialog
 
     return SettingsDialog(config or make_config())
 

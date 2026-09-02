@@ -10,7 +10,7 @@ pytestmark = pytest.mark.gtk
 
 
 def make_dialog(group=None):
-    from src.ui.dialogs4.group import GroupDialog
+    from src.ui.dialogs.group import GroupDialog
 
     return GroupDialog(group=group)
 

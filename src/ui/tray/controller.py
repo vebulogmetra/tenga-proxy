@@ -12,8 +12,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from src.ui.logic.status import ConnectionState
-from src.ui.tray4.icons import icon_name_for, icons_directory
-from src.ui.tray4.menu import build_menu
+from src.ui.tray.icons import icon_name_for, icons_directory
+from src.ui.tray.menu import build_menu
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -50,7 +50,7 @@ class TrayController:
         self._running = False
 
         if item is None:
-            from src.ui.tray4.sni import StatusNotifierItem
+            from src.ui.tray.sni import StatusNotifierItem
 
             item = StatusNotifierItem()
         self._item = item

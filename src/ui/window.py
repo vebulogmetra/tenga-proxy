@@ -225,7 +225,7 @@ class MainWindow(Adw.ApplicationWindow):
             app.connect_profile(profile_id)
 
     def _row_edit_profile(self, profile_id: int) -> None:
-        from src.ui.dialogs4.edit_profile import EditProfileDialog
+        from src.ui.dialogs.edit_profile import EditProfileDialog
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
@@ -237,7 +237,7 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _row_delete_profile(self, profile_id: int) -> None:
-        from src.ui.dialogs4.confirm import confirm_delete
+        from src.ui.dialogs.confirm import confirm_delete
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
@@ -253,7 +253,7 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
     def _row_profile_routing(self, profile_id: int) -> None:
-        from src.ui.dialogs4.profile_routing import ProfileRoutingDialog
+        from src.ui.dialogs.profile_routing import ProfileRoutingDialog
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
@@ -290,7 +290,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._row_edit_subscription(group_id)
             return
 
-        from src.ui.dialogs4.group import GroupDialog
+        from src.ui.dialogs.group import GroupDialog
 
         app = self.get_application()
         dialog = GroupDialog(group=group)
@@ -301,7 +301,7 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _row_delete_group(self, group_id: int) -> None:
-        from src.ui.dialogs4.confirm import confirm_delete
+        from src.ui.dialogs.confirm import confirm_delete
 
         group = self._context.profiles.get_group(group_id)
         if group is None:
@@ -323,7 +323,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._on_subscription_update(None, group_id)
 
     def _row_edit_subscription(self, group_id: int) -> None:
-        from src.ui.dialogs4.subscription import SubscriptionDialog
+        from src.ui.dialogs.subscription import SubscriptionDialog
 
         group = self._context.profiles.get_group(group_id)
         if group is None:

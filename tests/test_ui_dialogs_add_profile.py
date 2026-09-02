@@ -11,7 +11,7 @@ LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#F
 
 @pytest.fixture
 def dialog(gtk_ready):
-    from src.ui.dialogs4.add_profile import AddProfileDialog
+    from src.ui.dialogs.add_profile import AddProfileDialog
 
     return AddProfileDialog()
 

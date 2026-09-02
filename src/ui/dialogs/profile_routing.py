@@ -10,7 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk
 
 from src.db.config import RoutingMode, RoutingSettings, VpnSettings
-from src.ui.dialogs4.settings import KeyedCombo
+from src.ui.dialogs.settings import KeyedCombo
 from src.ui.logic.forms import parse_host_list
 
 ORDER_PRESETS: dict[str, list[str]] = {

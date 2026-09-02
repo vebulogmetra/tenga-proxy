@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk, Pango
 
-from src.ui.dialogs4.base import FormDialog, copy_to_clipboard
+from src.ui.dialogs.base import FormDialog, copy_to_clipboard
 from src.ui.logic.forms import validate_profile_link
 
 APPLIED = "Параметры обновлены из ссылки"

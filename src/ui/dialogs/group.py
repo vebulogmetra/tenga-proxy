@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk
 
-from src.ui.dialogs4.base import FormDialog
+from src.ui.dialogs.base import FormDialog
 from src.ui.logic.forms import validate_group_name
 
 

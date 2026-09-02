@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from gi.repository import GLib
 
-from src.ui.tray4.dbusmenu import MenuModel
+from src.ui.tray.dbusmenu import MenuModel
 
 ITEM_TYPE = GLib.VariantType.new("(ia{sv}av)")
 AV_TYPE = GLib.VariantType.new("av")

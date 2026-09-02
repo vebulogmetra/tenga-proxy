@@ -510,7 +510,7 @@ def test_stop_tray_without_a_tray_is_safe(adw_app):
 
 def test_a_tray_that_cannot_start_does_not_break_the_application(adw_app, monkeypatch):
     """Без панели с поддержкой SNI приложение обязано запуститься."""
-    from src.ui.tray4 import controller as controller_module
+    from src.ui.tray import controller as controller_module
 
     def explode(*_args, **_kwargs):
         raise RuntimeError("no bus")

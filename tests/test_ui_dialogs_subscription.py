@@ -10,7 +10,7 @@ pytestmark = pytest.mark.gtk
 
 
 def make_dialog(group=None):
-    from src.ui.dialogs4.subscription import SubscriptionDialog
+    from src.ui.dialogs.subscription import SubscriptionDialog
 
     return SubscriptionDialog(group=group)
 
