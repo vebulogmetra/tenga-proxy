@@ -412,3 +412,44 @@ def test_connection_monitor_stop_not_started(tmp_path):
     monitor.stop()
 
     assert monitor._timer_id is None
+
+
+def test_check_skipped_while_previous_check_running(tmp_path, monkeypatch):
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = 1
+
+    started: list[object] = []
+
+    class FakeThread:
+        def __init__(self, target, daemon):
+            self._target = target
+
+        def start(self):
+            started.append(self._target)
+
+    monkeypatch.setattr("src.core.monitor.threading.Thread", FakeThread)
+
+    assert monitor._check_connections() is True
+    assert monitor._check_connections() is True  # второй тик пропускается
+    assert len(started) == 1
+    assert monitor._check_in_progress is True
+
+    monitor._finish_check()
+    assert monitor._check_in_progress is False
+    assert monitor._check_connections() is True
+    assert len(started) == 2
+
+
+def test_stop_clears_check_in_progress_flag(tmp_path, monkeypatch):
+    context = AppContext(config_dir=tmp_path)
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = 7
+    monitor._check_in_progress = True
+
+    monkeypatch.setattr("gi.repository.GLib.source_remove", lambda _id: True)
+    monitor.stop()
+
+    assert monitor._check_in_progress is False
+    assert monitor._timer_id is None

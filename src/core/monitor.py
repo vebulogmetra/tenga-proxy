@@ -44,6 +44,7 @@ class ConnectionMonitor:
         """
         self._context = context
         self._timer_id: int | None = None
+        self._check_in_progress = False
         self._status = ConnectionStatus()
         self._previous_status = ConnectionStatus()
         self._on_status_changed: Callable[[ConnectionStatus, ConnectionStatus], None] | None = None
@@ -88,6 +89,7 @@ class ConnectionMonitor:
 
         GLib.source_remove(self._timer_id)
         self._timer_id = None
+        self._check_in_progress = False
 
         # Reset status
         self._status = ConnectionStatus()
@@ -113,7 +115,13 @@ class ConnectionMonitor:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Checking connections...")
 
+        if self._check_in_progress:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Previous connection check still running, skipping tick")
+            return True
+
         # Run checks in background thread
+        self._check_in_progress = True
         threading.Thread(target=self._do_check_async, daemon=True).start()
 
         return True
@@ -197,6 +205,20 @@ class ConnectionMonitor:
 
         Runs in background thread to avoid blocking GTK main loop.
         """
+        try:
+            self._run_check()
+        finally:
+            from gi.repository import GLib
+
+            GLib.idle_add(self._finish_check)
+
+    def _finish_check(self) -> bool:
+        """Allow the next tick to start a check (runs on the main loop)."""
+        self._check_in_progress = False
+        return False
+
+    def _run_check(self) -> None:
+        """Collect connection status and hand the result to the main loop."""
         # Save previous status
         previous_status = ConnectionStatus(
             proxy_ok=self._status.proxy_ok,
