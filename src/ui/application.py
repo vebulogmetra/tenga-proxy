@@ -123,6 +123,7 @@ class TengaApplication(Adw.Application):
         занимает путь на шине сессии до конца процесса.
         """
         if self._window is not None:
+            self._window.detach()
             self._window.destroy()
             self._window = None
         if context is not None:

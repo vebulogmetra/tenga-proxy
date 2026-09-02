@@ -207,7 +207,17 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
         """Persist geometry once, on close (B12)."""
         self.save_geometry()
+        self.detach()
         return False
+
+    def detach(self) -> None:
+        """Stop listening to the proxy state.
+
+        Сигнал destroy приходит только при завершении процесса, поэтому
+        отписка выполняется здесь: слушатель закрытого окна иначе обратился бы
+        к уничтоженным виджетам при следующей смене состояния.
+        """
+        self._context.proxy_state.remove_listener(self._on_proxy_state_changed)
 
     def save_geometry(self) -> None:
         """Store the current size.

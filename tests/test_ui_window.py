@@ -89,3 +89,14 @@ def test_geometry_is_saved_without_close_request(window, adw_app):
 
     saved = parse_geometry(adw_app.context.config.window_size)
     assert (saved.width, saved.height) == (910, 640)
+
+
+def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app):
+    """Слушатель мёртвого окна обратился бы к уничтоженным виджетам."""
+    state = adw_app.context.proxy_state
+    before = len(state._state_listeners)
+
+    window.close()
+    window.destroy()
+
+    assert len(state._state_listeners) == before - 1
