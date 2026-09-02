@@ -74,7 +74,6 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         self.set_title("VPN и маршруты")
         self._profile = profile
 
-        self._build_profile_page()
         self._build_vpn_page()
         self._build_routing_page()
 
@@ -82,23 +81,21 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
 
     # --- страницы ---
 
-    def _build_profile_page(self) -> None:
-        page = Adw.PreferencesPage(title="Профиль", icon_name="network-server-symbolic")
-        self.add(page)
-
-        group = Adw.PreferencesGroup(title="Профиль")
-        page.add(group)
-
-        self.name_row = Adw.EntryRow(title="Имя")
-        group.add(self.name_row)
-
-        self.address_row = Adw.ActionRow(title="Сервер")
-        self.address_row.set_subtitle_selectable(True)
-        group.add(self.address_row)
-
     def _build_vpn_page(self) -> None:
         page = Adw.PreferencesPage(title="VPN", icon_name="network-vpn-symbolic")
         self.add(page)
+
+        # Профиль и VPN на одной странице: две строки не оправдывают отдельной
+        # вкладки, а имя всё равно правится в диалоге редактирования профиля.
+        profile_group = Adw.PreferencesGroup(title="Профиль")
+        page.add(profile_group)
+
+        self.name_row = Adw.EntryRow(title="Имя")
+        profile_group.add(self.name_row)
+
+        self.address_row = Adw.ActionRow(title="Сервер")
+        self.address_row.set_subtitle_selectable(True)
+        profile_group.add(self.address_row)
 
         group = Adw.PreferencesGroup(
             title="Подключение NetworkManager",

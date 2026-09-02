@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GObject, Gtk, Pango
 
 from src.ui.dialogs4.base import FormDialog, copy_to_clipboard
 from src.ui.logic.forms import validate_profile_link
@@ -72,10 +72,13 @@ class EditProfileDialog(FormDialog):
 
         link_group.add(self.link_row)
 
-        self.status_label = Gtk.Label(xalign=0.0, wrap=True)
+        self.status_row = Adw.ActionRow()
+        self.status_row.set_visible(False)
+        self.status_label = Gtk.Label(xalign=0.0)
+        self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.status_label.add_css_class("caption")
-        self.status_label.set_margin_top(6)
-        link_group.add(self.status_label)
+        self.status_row.add_prefix(self.status_label)
+        link_group.add(self.status_row)
 
         self.save_button = self.confirm_button
 
@@ -83,15 +86,13 @@ class EditProfileDialog(FormDialog):
 
     def _on_copy(self, _button: Gtk.Button) -> None:
         copy_to_clipboard(self.link_row.get_text())
-        self.status_label.remove_css_class("error")
-        self.status_label.set_text("Ссылка скопирована")
+        self._set_status("Ссылка скопирована")
 
     def apply_link(self) -> bool:
         """Parse the edited link and refresh the fields from it."""
         result = validate_profile_link(self.link_row.get_text())
         if not result.ok:
-            self.status_label.add_css_class("error")
-            self.status_label.set_text(result.message)
+            self._set_status(result.message, error=True)
             return False
 
         bean = result.bean
@@ -101,9 +102,16 @@ class EditProfileDialog(FormDialog):
         self.port_row.set_value(float(bean.server_port))
         self.link_row.set_text(bean.to_share_link())
 
-        self.status_label.remove_css_class("error")
-        self.status_label.set_text(APPLIED)
+        self._set_status(APPLIED)
         return True
+
+    def _set_status(self, text: str, *, error: bool = False) -> None:
+        self.status_label.set_text(text)
+        self.status_row.set_visible(bool(text))
+        if error:
+            self.status_label.add_css_class("error")
+        else:
+            self.status_label.remove_css_class("error")
 
     def apply_changes(self) -> None:
         """Write the form back into the profile."""

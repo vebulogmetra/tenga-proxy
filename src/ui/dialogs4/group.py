@@ -33,7 +33,6 @@ class GroupDialog(FormDialog):
     def __init__(self, group=None) -> None:
         super().__init__(_title_for(group), "Сохранить")
         self._group = group
-        self.set_content_height(260)
 
         form = Adw.PreferencesGroup()
         self.page.add(form)

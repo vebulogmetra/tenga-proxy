@@ -48,13 +48,15 @@ class ShortcutsDialog(Adw.Dialog):
         super().__init__()
         self.set_title("Сочетания клавиш")
         self.set_content_width(460)
-        self.set_content_height(520)
+        self.set_content_height(560)
 
         toolbar = Adw.ToolbarView()
         toolbar.add_top_bar(Adw.HeaderBar())
         self.set_child(toolbar)
 
         page = Adw.PreferencesPage()
+        # Явная ширина: без неё описания сжимаются в столбик по одной букве.
+        page.set_size_request(420, -1)
         toolbar.set_content(page)
 
         for title, entries in SHORTCUTS:

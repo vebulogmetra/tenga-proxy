@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GObject, Gtk, Pango
 
 from src.ui.dialogs4.base import FormDialog, read_clipboard
 from src.ui.logic.forms import validate_subscription
@@ -51,10 +51,14 @@ class SubscriptionDialog(FormDialog):
         self.updated_row.set_visible(group is not None)
         form.add(self.updated_row)
 
-        self.status_label = Gtk.Label(xalign=0.0, wrap=True)
+        self.status_row = Adw.ActionRow()
+        self.status_row.set_visible(False)
+        self.status_label = Gtk.Label(xalign=0.0)
+        self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.status_label.add_css_class("caption")
-        self.status_label.set_margin_top(6)
-        form.add(self.status_label)
+        self.status_label.add_css_class("error")
+        self.status_row.add_prefix(self.status_label)
+        form.add(self.status_row)
 
         self.save_button = self.confirm_button
         if group is not None:
@@ -68,11 +72,9 @@ class SubscriptionDialog(FormDialog):
 
         # Пустая форма только что открыта — сообщать об ошибке рано.
         blank = not self.name_row.get_text().strip() and not self.url_row.get_text().strip()
-        self.status_label.set_text("" if result.ok or blank else result.message)
-        if result.ok or blank:
-            self.status_label.remove_css_class("error")
-        else:
-            self.status_label.add_css_class("error")
+        message = "" if result.ok or blank else result.message
+        self.status_label.set_text(message)
+        self.status_row.set_visible(bool(message))
 
     def _on_confirm(self, _button: Gtk.Button) -> None:
         data = self.get_data()

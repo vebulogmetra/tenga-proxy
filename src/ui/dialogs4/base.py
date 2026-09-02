@@ -10,7 +10,6 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gtk
 
 DEFAULT_WIDTH = 520
-DEFAULT_HEIGHT = 420
 
 
 class FormDialog(Adw.Dialog):
@@ -24,8 +23,10 @@ class FormDialog(Adw.Dialog):
     def __init__(self, title: str, confirm_label: str) -> None:
         super().__init__()
         self.set_title(title)
-        self.set_content_width(DEFAULT_WIDTH)
-        self.set_content_height(DEFAULT_HEIGHT)
+        # Размер по содержимому: у форм из двух-трёх полей фиксированная высота
+        # оставляла бы под ними полэкрана пустоты. Ширину при этом задаёт
+        # `size_request` содержимого: `content-width` в этом режиме не влияет.
+        self.set_follows_content_size(True)
 
         self._toolbar = Adw.ToolbarView()
         self.set_child(self._toolbar)
@@ -46,6 +47,7 @@ class FormDialog(Adw.Dialog):
         self._toolbar.add_top_bar(header)
 
         self.page = Adw.PreferencesPage()
+        self.page.set_size_request(DEFAULT_WIDTH, -1)
         self._toolbar.set_content(self.page)
 
     def set_content_widget(self, widget: Gtk.Widget) -> None:
