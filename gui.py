@@ -5,6 +5,11 @@ import os
 import sys
 from pathlib import Path
 
+from src import __app_name__ as APP_NAME
+from src import __version__ as APP_VERSION
+
+MIN_ADWAITA = (1, 5)
+
 
 def setup_early_logging():
     log_dir = os.environ.get("TENGA_CONFIG_DIR")
@@ -21,12 +26,48 @@ def setup_early_logging():
     return logging.getLogger("startup")
 
 
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Tenga Proxy",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "-c", "--config-dir", type=Path, help="Директория конфигурации (по умолчанию core/)"
+    )
+    parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
+    parser.add_argument(
+        "--gtk4",
+        action="store_true",
+        help="Новый интерфейс на GTK4 и libadwaita (в разработке)",
+    )
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
+    return parser
+
+
+def parse_args(argv: list[str] | None = None):
+    """Parse the command line before any GTK version is pinned.
+
+    Версия GTK фиксируется в процессе первым `gi.require_version`, а выбор
+    версии зависит от аргументов: разбор обязан идти раньше импорта GTK.
+    """
+    return build_parser().parse_known_args(argv)
+
+
+def adwaita_is_supported(major: int, minor: int) -> bool:
+    """Check libadwaita against the minimum version the new UI needs."""
+    return (major, minor) >= MIN_ADWAITA
+
+
+# --- GTK bootstrap ---
+
 logger = setup_early_logging()
 logger.info("=== Tenga Proxy starting ===")
 logger.info(f"Python: {sys.version}")
 logger.info(f"DISPLAY: {os.environ.get('DISPLAY')}")
 logger.info(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY')}")
 logger.info(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE')}")
+
+_ARGS, _EXTRA = parse_args()
 
 if "GI_TYPELIB_PATH" not in os.environ:
     typelib_paths = [
@@ -38,16 +79,29 @@ if "GI_TYPELIB_PATH" not in os.environ:
         os.environ["GI_TYPELIB_PATH"] = ":".join(existing_paths)
 
 try:
-    # Initialize GTK before importing any GTK modules
     import gi
 
-    gi.require_version("Gdk", "3.0")
-    gi.require_version("Gtk", "3.0")
-    from gi.repository import Gdk, Gtk
+    if _ARGS.gtk4:
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gdk, Gtk
 
-    logger.info("GTK imported successfully")
+        if not adwaita_is_supported(Adw.MAJOR_VERSION, Adw.MINOR_VERSION):
+            print(
+                f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
+                f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
+            )
+            print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
+            sys.exit(1)
+    else:
+        gi.require_version("Gdk", "3.0")
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gdk, Gtk
 
-    if not Gtk.init_check()[0]:
+    logger.info("GTK imported successfully (gtk4=%s)", _ARGS.gtk4)
+
+    if not Gtk.init_check():
         logger.error("Gtk.init_check() failed")
         display = Gdk.Display.get_default()
         logger.error(f"Display: {display}")
@@ -58,12 +112,18 @@ try:
     display = Gdk.Display.get_default()
     logger.info(f"Display: {display.get_name() if display else 'None'}")
 
+except ImportError as e:
+    logger.exception(f"Error importing GTK: {e}")
+    print(f"Ошибка импорта GTK: {e}")
+    if _ARGS.gtk4:
+        print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
+    else:
+        print("Установите пакеты: sudo apt install python3-gi gir1.2-gtk-3.0")
+    sys.exit(1)
 except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
     raise
 
-from src import __app_name__ as APP_NAME
-from src import __version__ as APP_VERSION
 from src.core.config import (
     BUNDLE_DIR,
     CORE_DIR,
@@ -72,7 +132,6 @@ from src.core.config import (
     init_config_files,
 )
 from src.sys.single_instance import SingleInstance
-from src.ui.app import run_app
 
 logger.info(f"BUNDLE_DIR: {BUNDLE_DIR}")
 logger.info(f"CORE_DIR: {CORE_DIR}")
@@ -82,17 +141,7 @@ init_config_files()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Tenga Proxy",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument(
-        "-c", "--config-dir", type=Path, help="Директория конфигурации (по умолчанию core/)"
-    )
-    parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
-    parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
-
-    args = parser.parse_args()
+    args = _ARGS
 
     # Check for single instance
     lock_file = get_lock_file(args.config_dir)
@@ -114,6 +163,11 @@ def main() -> int:
             return 1
 
     try:
+        if args.gtk4:
+            from src.ui.application import run_app
+        else:
+            from src.ui.app import run_app
+
         return run_app(config_dir=args.config_dir, lock=single_instance)
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
