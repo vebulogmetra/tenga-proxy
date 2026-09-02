@@ -127,6 +127,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.subscriptions_page = SubscriptionsPage()
         self.monitoring_page = MonitoringPage()
         self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
+        self.profiles_page.connect("profile-activated", self._on_profile_activated)
+        self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
         self.view_stack.add_titled_with_icon(
             self.profiles_page, "profiles", "Профили", "network-server-symbolic"
@@ -266,6 +268,16 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
         self.set_search_enabled(button.get_active())
+
+    def _on_profile_activated(self, _page, profile_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.select_profile(profile_id)
+
+    def _on_subscription_update(self, _page, group_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.update_subscription(group_id)
 
     def _on_monitoring_refresh(self, _page) -> None:
         monitor = self._context.monitor

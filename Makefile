@@ -82,8 +82,10 @@ test-cov:
 # Тесты виджетов GTK4: под xvfb, а при его отсутствии на текущем дисплее.
 # Отдельный прогон обязателен: GTK3 и GTK4 не уживаются в одном процессе, а
 # pytest импортирует все файлы тестов на этапе сбора, включая GTK3-овые.
-GTK4_TESTS := tests/test_ui_application.py tests/test_ui_window.py \
-	tests/test_ui_widgets_status_card.py
+# Список собирается по маске, а не перечислением: забытый файл иначе молча
+# выпадает из прогона.
+GTK4_TESTS := $(wildcard tests/test_ui_application.py tests/test_ui_window.py \
+	tests/test_ui_widgets_*.py tests/test_ui_pages_*.py)
 
 test-gtk:
 	@if command -v xvfb-run >/dev/null 2>&1; then \

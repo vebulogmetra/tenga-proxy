@@ -163,3 +163,37 @@ def test_refresh_pages_marks_the_active_profile(window, adw_app):
 def test_monitoring_page_is_updated_on_refresh(window):
     window.refresh_pages()
     assert window.monitoring_page.get_value("Прокси") == "Не запущен"
+
+
+def test_profile_activation_reaches_the_application(window, adw_app):
+    """Двойной щелчок по профилю выбирает его для подключения."""
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    entry = store.parse_and_add_link(
+        "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба",
+        group_id=group.id,
+    )
+    window.refresh_pages()
+
+    selected: list[int] = []
+    adw_app.set_profile_activation_handler(selected.append)
+
+    window.profiles_page.expand_all()
+    window.profiles_page.emit_activation_for_test(profile_id=entry.id)
+
+    assert selected == [entry.id]
+
+
+def test_subscription_update_reaches_the_application(window, adw_app):
+    store = adw_app.context.profiles
+    group = store.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+    window.refresh_pages()
+
+    updated: list[int] = []
+    adw_app.set_subscription_updater(lambda gid, url: updated.append(gid) or 1)
+
+    window.subscriptions_page.click_update_for_test(group_id=group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert updated == [group.id]
