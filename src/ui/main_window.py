@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import array
 import threading
 import time
 import datetime
@@ -27,17 +26,6 @@ from src.sub.updater import SubscriptionUpdater
 
 if TYPE_CHECKING:
     from src.core.context import AppContext, ProxyState
-
-
-def format_bytes(bytes_count: int) -> str:
-    """Format bytes to human-readable string."""
-    if bytes_count < 1024:
-        return f"{bytes_count} B"
-    if bytes_count < 1024 * 1024:
-        return f"{bytes_count / 1024:.1f} KB"
-    if bytes_count < 1024 * 1024 * 1024:
-        return f"{bytes_count / (1024 * 1024):.1f} MB"
-    return f"{bytes_count / (1024 * 1024 * 1024):.2f} GB"
 
 
 class MainWindow(Gtk.Window):

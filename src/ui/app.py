@@ -715,16 +715,10 @@ class TengaApp:
                         direct_interface,
                     )
 
-            if routing.mode == RoutingMode.PROXY_ALL:
-                outbounds = [
-                    outbound,
-                    direct_outbound,
-                ]
-            else:
-                outbounds = [
-                    outbound,
-                    direct_outbound,
-                ]
+            outbounds = [
+                outbound,
+                direct_outbound,
+            ]
 
             if vpn_tag and vpn_interface:
                 vpn_outbound = {
