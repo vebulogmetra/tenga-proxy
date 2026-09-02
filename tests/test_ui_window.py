@@ -31,11 +31,13 @@ def test_narrow_window_moves_the_switcher_down(window):
     window.set_default_size(420, 700)
     window.present()
 
+    # Брейкпоинт применяется не в этой итерации цикла, а когда композитор
+    # выделит окну размер: выход по «очередь пуста» ловил момент до того,
+    # как размер доехал, и тест падал через раз.
     context = GLib.MainContext.default()
-    for _ in range(200):
-        if not context.pending():
-            break
-        context.iteration(False)
+    deadline = GLib.get_monotonic_time() + 5_000_000
+    while window.get_current_breakpoint() is None and GLib.get_monotonic_time() < deadline:
+        context.iteration(True)
 
     assert window.get_current_breakpoint() is not None
     assert window.view_switcher_bar.get_reveal() is True
