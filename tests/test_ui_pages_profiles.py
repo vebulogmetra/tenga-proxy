@@ -159,3 +159,78 @@ def test_profile_rows_carry_no_count(gtk_ready, data):
     rows = build_profile_rows(groups, profiles)
     leaf = RowItem(rows[0].children[0])
     assert leaf.count_text == ""
+
+
+def test_a_context_click_on_a_profile_reports_it(page, data):
+    page.set_data(*data)
+    page.expand_all()
+    seen: list[tuple[int, bool]] = []
+    page.connect(
+        "profile-context",
+        lambda _p, item_id, is_group: seen.append((item_id, is_group)),
+    )
+
+    # Позиция 1 — первый ребёнок первой группы: группы идут по алфавиту,
+    # «Подписка» раньше «Работы».
+    page.emit_context_for_test(position=1)
+
+    assert seen == [(3, False)]
+
+
+def test_a_context_click_on_a_group_reports_the_group(page, data):
+    page.set_data(*data)
+    seen: list[tuple[int, bool]] = []
+    page.connect(
+        "profile-context",
+        lambda _p, item_id, is_group: seen.append((item_id, is_group)),
+    )
+
+    page.emit_context_for_test(position=0)
+
+    assert seen == [(2, True)]
+
+
+def test_a_context_click_moves_the_selection(page, data):
+    """Пункты меню работают с выделением — щелчок должен его перенести."""
+    page.set_data(*data)
+    page.expand_all()
+
+    page.emit_context_for_test(position=2)
+
+    assert page.get_selected_position() == 2
+
+
+def test_a_context_click_past_the_last_row_is_ignored(page, data):
+    page.set_data(*data)
+    seen: list[int] = []
+    page.connect("profile-context", lambda _p, item_id, _g: seen.append(item_id))
+
+    page.emit_context_for_test(position=99)
+
+    assert seen == []
+
+
+def test_the_context_menu_of_a_profile_offers_connecting(page, data):
+    page.set_data(*data)
+    page.expand_all()
+
+    labels = page.context_menu_labels_for_test(position=1)
+
+    assert "Подключить" in labels
+    assert "VPN и маршруты…" in labels
+
+
+def test_the_context_menu_of_a_group_offers_expanding(page, data):
+    page.set_data(*data)
+
+    labels = page.context_menu_labels_for_test(position=0)
+
+    assert "Развернуть группу" in labels
+    assert "Подключить" not in labels
+
+
+def test_an_expanded_group_offers_collapsing(page, data):
+    page.set_data(*data)
+    page.expand_all()
+
+    assert "Свернуть группу" in page.context_menu_labels_for_test(position=0)

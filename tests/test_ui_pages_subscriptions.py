@@ -103,3 +103,28 @@ def test_search_bar_can_be_toggled(page):
     assert page.search_bar.get_search_mode() is True
     page.set_search_enabled(False)
     assert page.search_bar.get_search_mode() is False
+
+
+def test_every_row_carries_a_menu_button(page, data):
+    page.set_data(*data)
+
+    assert page.get_menu_button_for_test(group_id=1) is not None
+
+
+def test_the_menu_lists_the_row_actions(page, data):
+    page.set_data(*data)
+
+    labels = page.context_menu_labels_for_test(group_id=1)
+
+    assert labels == ["Обновить", "Редактировать", "Удалить"]
+
+
+def test_the_menu_targets_its_own_row(page, data):
+    """У каждой подписки своё меню — иначе действие уйдёт не в ту группу."""
+    page.set_data(*data)
+
+    first = page.get_menu_target_for_test(group_id=1)
+    second = page.get_menu_target_for_test(group_id=2)
+
+    assert first == 1
+    assert second == 2

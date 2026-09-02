@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, Gio, GObject, Gtk
 
 from src.ui.logic.subscriptions_view import SubscriptionRow, build_subscription_rows
 
@@ -34,6 +34,7 @@ class SubscriptionsPage(Gtk.Box):
         self._rows: list[SubscriptionRow] = []
         self._row_widgets: dict[int, Adw.ActionRow] = {}
         self._update_buttons: dict[int, Gtk.Button] = {}
+        self._menu_buttons: dict[int, Gtk.MenuButton] = {}
 
         self._build_search_bar()
         self._build_stack()
@@ -78,6 +79,7 @@ class SubscriptionsPage(Gtk.Box):
             self._group.remove(widget)
         self._row_widgets.clear()
         self._update_buttons.clear()
+        self._menu_buttons.clear()
 
         self._rows = build_subscription_rows(self._groups, self._counts, query=self._query)
 
@@ -108,9 +110,31 @@ class SubscriptionsPage(Gtk.Box):
         )
         action_row.add_suffix(button)
 
+        menu_button = Gtk.MenuButton(icon_name="view-more-symbolic")
+        menu_button.set_valign(Gtk.Align.CENTER)
+        menu_button.set_tooltip_text("Действия")
+        menu_button.add_css_class("flat")
+        menu_button.set_menu_model(self._menu_model_for(row.group_id))
+        action_row.add_suffix(menu_button)
+
         self._row_widgets[row.group_id] = action_row
         self._update_buttons[row.group_id] = button
+        self._menu_buttons[row.group_id] = menu_button
         return action_row
+
+    @staticmethod
+    def _menu_model_for(group_id: int) -> Gio.Menu:
+        """Build the menu of one subscription row.
+
+        Идентификатор группы вшит в каждое действие: у строк общий набор
+        пунктов, и без параметра действие ушло бы в текущее выделение, а не в
+        ту подписку, у которой открыли меню.
+        """
+        menu = Gio.Menu()
+        menu.append("Обновить", f"win.update-subscription({group_id})")
+        menu.append("Редактировать", f"win.edit-subscription({group_id})")
+        menu.append("Удалить", f"win.delete-subscription({group_id})")
+        return menu
 
     # --- публичное api ---
 
@@ -152,3 +176,19 @@ class SubscriptionsPage(Gtk.Box):
 
     def activate_row_for_test(self, *, group_id: int) -> None:
         self._row_widgets[group_id].emit("activated")
+
+    def get_menu_button_for_test(self, *, group_id: int) -> Gtk.MenuButton | None:
+        return self._menu_buttons.get(group_id)
+
+    def context_menu_labels_for_test(self, *, group_id: int) -> list[str]:
+        menu = self._menu_buttons[group_id].get_menu_model()
+        return [
+            menu.get_item_attribute_value(index, "label", None).get_string()
+            for index in range(menu.get_n_items())
+        ]
+
+    def get_menu_target_for_test(self, *, group_id: int) -> int:
+        """Return the group id encoded in the row's first menu action."""
+        menu = self._menu_buttons[group_id].get_menu_model()
+        target = menu.get_item_attribute_value(0, "target", None)
+        return target.get_int32()

@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GObject, Gtk, Pango
 
 from src.ui.logic.profiles_view import (
     GroupRow,
@@ -80,7 +80,9 @@ class ProfilesPage(Gtk.Box):
 
     __gsignals__ = {
         "profile-activated": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
-        "profile-context": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
+        # Второй аргумент — признак группы: набор пунктов меню у группы и у
+        # профиля разный, а по одному идентификатору их не различить.
+        "profile-context": (GObject.SignalFlags.RUN_FIRST, None, (int, bool)),
     }
 
     def __init__(self) -> None:
@@ -135,6 +137,7 @@ class ProfilesPage(Gtk.Box):
         self.column_view = Gtk.ColumnView()
         self.column_view.add_css_class("data-table")
         self.column_view.connect("activate", self._on_row_activated)
+        self._install_context_gestures()
 
         self.column_view.append_column(self._build_name_column())
         self.column_view.append_column(
@@ -175,6 +178,132 @@ class ProfilesPage(Gtk.Box):
         column = Gtk.ColumnViewColumn(title="Пинг", factory=factory)
         column.set_resizable(True)
         return column
+
+    # --- контекстное меню ---
+
+    def _install_context_gestures(self) -> None:
+        """Right click and long press both open the row menu."""
+        click = Gtk.GestureClick(button=3)
+        click.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        click.connect("pressed", self._on_context_click)
+        self.column_view.add_controller(click)
+
+        # Долгое нажатие — тот же жест для сенсорного экрана и трекпада.
+        long_press = Gtk.GestureLongPress()
+        long_press.set_touch_only(False)
+        long_press.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        long_press.connect("pressed", self._on_context_long_press)
+        self.column_view.add_controller(long_press)
+
+        self._menu_popover = Gtk.PopoverMenu()
+        self._menu_popover.set_parent(self.column_view)
+        self._menu_popover.set_has_arrow(False)
+        self._menu_popover.set_halign(Gtk.Align.START)
+
+    def _on_context_click(self, gesture, _n_press: int, x: float, y: float) -> None:
+        position = self._position_at(x, y)
+        if position is None:
+            return
+        gesture.set_state(Gtk.EventSequenceState.CLAIMED)
+        self._open_context_menu(position, x, y)
+
+    def _on_context_long_press(self, _gesture, x: float, y: float) -> None:
+        position = self._position_at(x, y)
+        if position is not None:
+            self._open_context_menu(position, x, y)
+
+    def _position_at(self, x: float, y: float) -> int | None:
+        """Find the row index under a pointer position.
+
+        В GTK4 у `Gtk.ColumnView` нет аналога `get_path_at_pos`: строку
+        приходится опознавать по виджету под курсором и его порядку среди
+        детей списка.
+        """
+        widget = self.column_view.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while widget is not None and widget is not self.column_view:
+            parent = widget.get_parent()
+            if parent is not None and parent.get_css_name() == "listview":
+                return self._index_of_child(parent, widget)
+            widget = parent
+        return None
+
+    @staticmethod
+    def _index_of_child(parent: Gtk.Widget, target: Gtk.Widget) -> int | None:
+        index = 0
+        child = parent.get_first_child()
+        while child is not None:
+            if child is target:
+                return index
+            index += 1
+            child = child.get_next_sibling()
+        return None
+
+    def _open_context_menu(self, position: int, x: float, y: float) -> None:
+        """Select the row, report it and pop the menu up over it."""
+        item = self._item_at(position)
+        if item is None:
+            return
+
+        self._select_position(position)
+        item_id = item.row.group_id if item.is_group else item.row.profile_id
+        self.emit("profile-context", item_id, item.is_group)
+
+        self._menu_popover.set_menu_model(self._menu_model_for(position))
+        # Всплывать может только виджет на экране: у неотрисованного списка
+        # (страница вне окна, как в тестах) popup() роняет GTK.
+        if not self.column_view.get_realized():
+            return
+        self._menu_popover.set_pointing_to(Gdk.Rectangle(x=int(x), y=int(y), width=1, height=1))
+        self._menu_popover.popup()
+
+    def _menu_model_for(self, position: int) -> Gio.Menu:
+        """Build the menu of one row; window actions carry the row id."""
+        item = self._item_at(position)
+        menu = Gio.Menu()
+        if item is None:
+            return menu
+
+        if item.is_group:
+            group_id = item.row.group_id
+            tree_row = self._tree_model.get_row(position)
+            expanded = tree_row is not None and tree_row.get_expanded()
+            actions = Gio.Menu()
+            actions.append(
+                "Свернуть группу" if expanded else "Развернуть группу",
+                f"win.toggle-group({group_id})",
+            )
+            actions.append("Тест задержки", "app.test-latency")
+            menu.append_section(None, actions)
+
+            edit = Gio.Menu()
+            edit.append("Редактировать", f"win.edit-group({group_id})")
+            edit.append("Удалить", f"win.delete-group({group_id})")
+            menu.append_section(None, edit)
+            return menu
+
+        profile_id = item.row.profile_id
+        actions = Gio.Menu()
+        actions.append("Подключить", f"win.connect-profile({profile_id})")
+        actions.append("VPN и маршруты…", f"win.profile-routing({profile_id})")
+        actions.append("Тест задержки", f"win.test-profile({profile_id})")
+        menu.append_section(None, actions)
+
+        edit = Gio.Menu()
+        edit.append("Редактировать", f"win.edit-profile({profile_id})")
+        edit.append("Удалить", f"win.delete-profile({profile_id})")
+        menu.append_section(None, edit)
+        return menu
+
+    def _item_at(self, position: int) -> RowItem | None:
+        if self._tree_model is None or position >= self._tree_model.get_n_items():
+            return None
+        tree_row = self._tree_model.get_row(position)
+        return None if tree_row is None else tree_row.get_item()
+
+    def _select_position(self, position: int) -> None:
+        selection = self.column_view.get_model()
+        if selection is not None:
+            selection.set_selected(position)
 
     # --- фабрики ячеек ---
 
@@ -372,12 +501,21 @@ class ProfilesPage(Gtk.Box):
         return []
 
     def get_active_titles(self) -> list[str]:
-        return [
-            child.title for group in self._rows for child in group.children if child.is_active
-        ]
+        return [child.title for group in self._rows for child in group.children if child.is_active]
 
     def activate_row_for_test(self, position: int) -> None:
         self._activate_position(position)
+
+    def get_selected_position(self) -> int:
+        selection = self.column_view.get_model()
+        return -1 if selection is None else selection.get_selected()
+
+    def emit_context_for_test(self, *, position: int) -> None:
+        self._open_context_menu(position, 0.0, 0.0)
+
+    def context_menu_labels_for_test(self, *, position: int) -> list[str]:
+        menu = self._menu_model_for(position)
+        return _menu_labels(menu)
 
     def emit_activation_for_test(self, *, profile_id: int) -> None:
         for position in range(self.get_visible_row_count()):
@@ -388,8 +526,15 @@ class ProfilesPage(Gtk.Box):
                 return
 
 
-def _new_row_store() -> Any:
-    """Create a Gio.ListStore of RowItem."""
-    from gi.repository import Gio
-
-    return Gio.ListStore.new(RowItem)
+def _menu_labels(menu: Gio.MenuModel) -> list[str]:
+    """Flatten a menu model into its labels, sections included."""
+    labels: list[str] = []
+    for index in range(menu.get_n_items()):
+        label = menu.get_item_attribute_value(index, "label", None)
+        if label is not None:
+            labels.append(label.get_string())
+        for link in ("section", "submenu"):
+            child = menu.get_item_link(index, link)
+            if child is not None:
+                labels.extend(_menu_labels(child))
+    return labels
