@@ -20,6 +20,8 @@ EXPECTED_ACTIONS = {
     "shortcuts",
     "quit",
     "hide-window",
+    "activate-window",
+    "connect-profile",
 }
 
 
@@ -341,3 +343,62 @@ def test_settings_do_not_reload_a_stopped_core(adw_app):
     adw_app.apply_settings()
 
     assert calls == []
+
+
+# --- действия для трея (этап 4) ---
+
+
+def test_the_connect_profile_action_takes_a_profile_id(adw_app):
+    """Трей адресует профиль числом: у пунктов меню общий обработчик."""
+    from gi.repository import GLib
+
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.lookup_action("connect-profile").activate(GLib.Variant("i", entry.id))
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_the_activate_window_action_shows_the_window(adw_app):
+    adw_app.activate()
+    adw_app._window.set_visible(False)
+
+    adw_app.activate_action("activate-window", None)
+
+    assert adw_app._window.get_visible() is True
+
+
+def test_activate_action_accepts_a_plain_integer_target(adw_app):
+    """TrayController зовёт activate_action(name, target) одинаково для всех."""
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.activate_action("connect-profile", entry.id)
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_activate_action_still_accepts_a_variant(adw_app):
+    """Старые вызовы передают GLib.Variant — они не должны сломаться."""
+    from gi.repository import GLib
+
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.activate_action("connect-profile", GLib.Variant("i", entry.id))
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_activating_an_unknown_action_is_harmless(adw_app):
+    adw_app.activate_action("no-such-action", None)

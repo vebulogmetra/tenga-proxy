@@ -108,12 +108,21 @@ class TengaApplication(Adw.Application):
             "shortcuts": self._open_shortcuts,
             "quit": self.quit,
             "hide-window": self._hide_window,
+            "activate-window": self._activate_window,
         }
 
         for name, handler in handlers.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _action, _param, fn=handler: fn())
             self.add_action(action)
+
+        # Действие с параметром: трей адресует конкретный профиль числом, как
+        # это делают строчные действия окна.
+        connect_profile = Gio.SimpleAction.new("connect-profile", GLib.VariantType.new("i"))
+        connect_profile.connect(
+            "activate", lambda _action, param: self.connect_profile(param.get_int32())
+        )
+        self.add_action(connect_profile)
 
         for detailed_name, accels in _ACCELS.items():
             self.set_accels_for_action(detailed_name, accels)
@@ -595,6 +604,32 @@ class TengaApplication(Adw.Application):
     def _hide_window(self) -> None:
         if self._window is not None:
             self._window.set_visible(False)
+
+    def _activate_window(self) -> None:
+        """Show the window, creating it if the application ran headless."""
+        self.activate()
+        if self._window is not None:
+            self._window.set_visible(True)
+            self._window.present()
+
+    def activate_action(self, name: str, target=None) -> None:
+        """Run one of the application actions, wrapping an integer target.
+
+        `Gio.Action` требует `GLib.Variant`, а трей адресует профиль обычным
+        числом: приведение живёт здесь, чтобы вызывающие о нём не знали.
+        Вызов синхронный, в отличие от унаследованного `Gio.Application`:
+        тому нужен прогон главного цикла, и результат виден не сразу.
+        """
+        action = self.lookup_action(name)
+        if action is None:
+            logger.warning("Unknown action %s", name)
+            return
+
+        if isinstance(target, GLib.Variant) or target is None:
+            parameter = target
+        else:
+            parameter = GLib.Variant("i", int(target))
+        action.activate(parameter)
 
     def reset_for_tests(self, context: AppContext | None) -> None:
         """Rebind the application to another context and drop the window.
