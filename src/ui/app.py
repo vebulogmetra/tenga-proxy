@@ -71,6 +71,7 @@ class TengaApp:
         # Initialize socket listener stop flag
         self._stop_socket_listener = False
 
+        self._signal_source_ids: list[int] = []
         self._setup_signal_handlers()
 
     def _setup_monitor(self) -> None:
@@ -98,16 +99,19 @@ class TengaApp:
             )
 
     def _setup_signal_handlers(self) -> None:
-        """Setup signal handlers."""
-        signal.signal(signal.SIGINT, self._on_signal)
-        signal.signal(signal.SIGTERM, self._on_signal)
+        """Deliver SIGINT/SIGTERM through the GLib main loop (safe for GTK)."""
+        self._signal_source_ids = [
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self._on_signal, signum)
+            for signum in (signal.SIGINT, signal.SIGTERM)
+        ]
 
-    def _on_signal(self, signum: int, frame) -> None:
-        """Signal handler."""
+    def _on_signal(self, signum: int) -> bool:
+        """Signal handler running on the main loop."""
         logger.info("Received signal %s, terminating application", signum)
         if self._lock:
             self._lock.release()
         self.quit()
+        return GLib.SOURCE_REMOVE
 
     def _start_socket_listener(self) -> None:
         """Start socket listener thread to handle activation signals."""
