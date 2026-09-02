@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 import pytest
 
@@ -178,3 +179,23 @@ def test_release_unlink_error(monkeypatch, tmp_path):
 
     inst.release()
     assert not inst._acquired
+
+
+def test_the_lock_has_no_socket_activation_any_more(tmp_path):
+    """Активация окна — дело Gio.Application, у блокировки её больше нет."""
+    instance = SingleInstance(tmp_path / "tenga.lock")
+
+    assert not hasattr(instance, "send_activation_signal")
+    assert not hasattr(instance, "setup_socket_server")
+    assert not hasattr(instance, "close_socket_server")
+    assert not hasattr(instance, "_socket_file")
+
+
+def test_acquiring_and_releasing_leaves_no_socket_behind(tmp_path):
+    """Сокета нет вовсе: раньше он оставался в XDG_RUNTIME_DIR."""
+    instance = SingleInstance(tmp_path / "tenga.lock")
+
+    assert instance.acquire() is True
+    assert list(tmp_path.glob("*.sock")) == []
+    instance.release()
+    assert list(tmp_path.glob("*.sock")) == []

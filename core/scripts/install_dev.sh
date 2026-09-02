@@ -128,13 +128,12 @@ install_system_deps() {
         MISSING_DEPS+=("python3-gi")
     fi
 
-    if ! dpkg -l | grep -q "^ii.*gir1.2-appindicator3-0.1 " && \
-       ! dpkg -l | grep -q "^ii.*gir1.2-ayatanaappindicator3-0.1 "; then
-        MISSING_DEPS+=("gir1.2-ayatanaappindicator3-0.1")
+    if ! dpkg -l | grep -q "^ii.*gir1.2-gtk-4.0 "; then
+        MISSING_DEPS+=("gir1.2-gtk-4.0")
     fi
 
-    if ! dpkg -l | grep -q "^ii.*gir1.2-notify-0.7 "; then
-        MISSING_DEPS+=("gir1.2-notify-0.7")
+    if ! dpkg -l | grep -q "^ii.*gir1.2-adw-1 "; then
+        MISSING_DEPS+=("gir1.2-adw-1")
     fi
 
     # gsettings (GNOME) or kwriteconfig5 (KDE)

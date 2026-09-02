@@ -11,7 +11,7 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 APP_NAME="tenga-proxy"
-APP_VERSION="0.10.6"
+APP_VERSION="0.13.0"
 BUILD_DIR="$PROJECT_ROOT/build"
 APPDIR="$BUILD_DIR/${APP_NAME}.AppDir"
 
@@ -86,6 +86,13 @@ create_appdir() {
     # Copy assets
     cp -r "$PROJECT_ROOT/assets" "$APPDIR/usr/share/tenga-proxy/" 2>/dev/null || true
     
+    # Иконки трея приложение берёт из бандла по IconThemePath, а не из системной
+    # темы: если их не окажется на месте, панель покажет пустой квадрат.
+    for icon in tenga-proxy-disconnected tenga-proxy-connecting tenga-proxy-connected; do
+        [ -f "$APPDIR/usr/share/tenga-proxy/assets/icons/${icon}.svg" ] \
+            || error "Иконка трея ${icon}.svg не попала в бандл"
+    done
+
     # Desktop and icons
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/usr/share/applications/"
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/"
@@ -106,12 +113,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$SCRIPT_DIR/../share/tenga-proxy"
 
 # Set up environment
-export TENGA_CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/tenga-proxy"
+# Переменная снаружи имеет приоритет: без этого AppImage невозможно запустить
+# на отдельной конфигурации, любой запуск шёл бы в рабочую.
+export TENGA_CONFIG_DIR="${TENGA_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/tenga-proxy}"
 export GI_TYPELIB_PATH="/usr/lib/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-1.0:${GI_TYPELIB_PATH}"
 
-# Wayland compatibility
-if [ -n "$WAYLAND_DISPLAY" ] && [ -n "$DISPLAY" ]; then
-    export GDK_BACKEND=x11
+# GTK4 работает на Wayland нативно, принудительный XWayland только испортил бы
+# масштабирование. Программный рендеринг — по требованию: на некоторых
+# виртуальных машинах GL-рендерер GTK4 не инициализируется.
+if [ -n "$TENGA_SOFTWARE_RENDER" ]; then
+    export GSK_RENDERER=cairo
 fi
 
 # Make xray-core available
@@ -134,8 +145,11 @@ check_deps() {
         if ! python3 -c "import gi" 2>/dev/null; then
             missing+=("python3-gi")
         fi
-        if ! python3 -c "from gi.repository import Gtk" 2>/dev/null; then
-            missing+=("python3-gi (GTK3)")
+        if ! python3 -c "import gi; gi.require_version('Gtk','4.0'); from gi.repository import Gtk" 2>/dev/null; then
+            missing+=("gir1.2-gtk-4.0")
+        fi
+        if ! python3 -c "import gi; gi.require_version('Adw','1'); from gi.repository import Adw" 2>/dev/null; then
+            missing+=("gir1.2-adw-1")
         fi
         if ! python3 -c "import requests" 2>/dev/null; then
             missing+=("python3-requests или pip install requests")
@@ -153,8 +167,8 @@ check_deps() {
         echo "" >&2
         echo "Для Ubuntu/Debian установите:" >&2
         echo "  sudo apt update" >&2
-        echo "  sudo apt install -y python3 python3-gi python3-pip gir1.2-gtk-3.0 \\" >&2
-        echo "    gir1.2-appindicator3-0.1 gir1.2-notify-0.7" >&2
+        echo "  sudo apt install -y python3 python3-gi python3-pip \\" >&2
+        echo "    gir1.2-gtk-4.0 gir1.2-adw-1" >&2
         echo "  pip3 install requests PyYAML" >&2
         echo "" >&2
         echo "Подробнее см. README.md: https://github.com/vebulogmetra/tenga-proxy#зависимости" >&2

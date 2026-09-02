@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from typing import TYPE_CHECKING
 
 import requests
@@ -10,9 +12,14 @@ from src.fmt import ProxyBean, parse_subscription_content
 if TYPE_CHECKING:
     from src.db.profiles import ProfileManager
 
+logger = logging.getLogger("tenga.sub.updater")
+
 
 class SubscriptionUpdater:
     """Subscription update manager."""
+
+    MAX_ATTEMPTS = 3
+    RETRY_BASE_DELAY_SEC = 1.0
 
     def __init__(
         self,
@@ -35,10 +42,60 @@ class SubscriptionUpdater:
         if self._config and self._config.sub_insecure:
             verify = False
 
-        response = requests.get(url, headers=headers, timeout=30, verify=verify)
-        response.raise_for_status()
+        last_error: requests.RequestException | None = None
+        for attempt in range(self.MAX_ATTEMPTS):
+            try:
+                response = requests.get(url, headers=headers, timeout=30, verify=verify)
+                response.raise_for_status()
+                return self._decode(response)
+            except requests.RequestException as e:
+                # Повторяем только сетевые сбои: HTTP-код — окончательный ответ
+                # сервера, повтор лишь задержит обновление.
+                if not self._is_retryable(e) or attempt == self.MAX_ATTEMPTS - 1:
+                    raise
+                last_error = e
+                delay = self.RETRY_BASE_DELAY_SEC * (2**attempt)
+                logger.warning(
+                    "Попытка %d/%d загрузить подписку не удалась (%s), повтор через %.1f с",
+                    attempt + 1,
+                    self.MAX_ATTEMPTS,
+                    e,
+                    delay,
+                )
+                time.sleep(delay)
 
-        return response.text
+        # Недостижимо: последняя попытка либо возвращает результат, либо бросает.
+        raise last_error or requests.RequestException("Не удалось загрузить подписку")
+
+    @staticmethod
+    def _decode(response: requests.Response) -> str:
+        """Read the body as text, assuming UTF-8 when no charset is declared.
+
+        Без charset в Content-Type requests по RFC 2616 берёт ISO-8859-1, и имена
+        профилей с кириллицей или эмодзи приходят искажёнными. Подписки почти
+        всегда в UTF-8, поэтому явно объявленную кодировку уважаем, а
+        подставленную по умолчанию — нет.
+        """
+        try:
+            content_type = response.headers.get("Content-Type", "") or ""
+            if "charset=" in content_type.lower() and response.encoding:
+                return response.text
+            return response.content.decode("utf-8", errors="replace")
+        except (AttributeError, TypeError, UnicodeDecodeError):
+            # Ответ без привычных полей (нестандартный транспорт, заглушка в
+            # тестах): текст всё равно нужно вернуть, а не уронить обновление.
+            return response.text
+
+    @staticmethod
+    def _is_retryable(error: requests.RequestException) -> bool:
+        """Стоит ли повторять запрос.
+
+        HTTPError — это ответ сервера (404/403/500), повтор ничего не изменит.
+        Обрывы соединения и таймауты обычно разовые.
+        """
+        if isinstance(error, requests.HTTPError):
+            return False
+        return isinstance(error, (requests.ConnectionError, requests.Timeout))
 
     def parse(self, content: str) -> list[ProxyBean]:
         """Parse subscription content."""
