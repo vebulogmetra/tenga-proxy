@@ -157,3 +157,187 @@ def test_refresh_without_subscriptions_is_a_no_op(adw_app):
     adw_app.wait_for_subscriptions_for_test()
 
     assert called == []
+
+
+# --- подключение и диалоги (этап 3) ---
+
+LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#Новый"
+
+
+class FakeService:
+    """Records what would have been done instead of touching xray."""
+
+    def __init__(self, calls, *, ok=True, error=""):
+        from src.core.connection import ConnectionResult
+
+        self._calls = calls
+        self._result = ConnectionResult(ok, error)
+
+    def connect(self, profile_id):
+        self._calls.append(("connect", profile_id))
+        return self._result
+
+    def disconnect(self):
+        self._calls.append(("disconnect",))
+        return self._result
+
+    def reload_config(self):
+        self._calls.append(("reload",))
+        return self._result
+
+
+def add_profile(app):
+    from src.fmt import parse_link
+
+    return app.add_profile_from_bean(parse_link(LINK))
+
+
+def test_activating_a_profile_connects_through_the_service(adw_app):
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.select_profile(entry.id)
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_toggle_connection_disconnects_a_running_proxy(adw_app):
+    adw_app.activate()
+    adw_app.context.proxy_state.is_running = True
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.activate_action("toggle-connection", None)
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("disconnect",)]
+
+
+def test_a_failed_connection_is_reported(adw_app):
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    adw_app.set_connection_service(FakeService([], ok=False, error="нет бинарника"))
+
+    adw_app.select_profile(entry.id)
+    adw_app.wait_for_connection_for_test()
+
+    assert "нет бинарника" in adw_app.last_toast_for_test
+
+
+def test_a_successful_connection_refreshes_the_pages(adw_app):
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    adw_app.set_connection_service(FakeService([]))
+
+    adw_app.select_profile(entry.id)
+    adw_app.wait_for_connection_for_test()
+
+    assert "Подключено" in adw_app.last_toast_for_test
+
+
+def test_toggle_connection_without_a_selection_says_so(adw_app):
+    adw_app.activate()
+    adw_app.set_connection_service(FakeService([]))
+
+    adw_app.activate_action("toggle-connection", None)
+
+    assert "профиль" in adw_app.last_toast_for_test.lower()
+
+
+def test_add_profile_stores_and_saves(adw_app):
+    adw_app.activate()
+    before = len(adw_app.context.profiles.profiles)
+
+    entry = add_profile(adw_app)
+
+    assert len(adw_app.context.profiles.profiles) == before + 1
+    assert entry.id in adw_app.context.profiles.profiles
+
+
+def test_delete_profile_removes_it(adw_app):
+    adw_app.activate()
+    entry = add_profile(adw_app)
+
+    adw_app.delete_profile(entry.id)
+
+    assert entry.id not in adw_app.context.profiles.profiles
+
+
+def test_deleting_a_missing_profile_is_harmless(adw_app):
+    adw_app.activate()
+    adw_app.delete_profile(9999)
+    assert "не найден" in adw_app.last_toast_for_test.lower()
+
+
+def test_add_subscription_creates_a_group(adw_app):
+    adw_app.activate()
+
+    group = adw_app.add_subscription("Подписка", "https://example.com/s")
+
+    assert group.is_subscription
+    assert group.subscription_url == "https://example.com/s"
+    assert adw_app.context.profiles.get_group(group.id) is not None
+
+
+def test_add_group_creates_a_plain_group(adw_app):
+    adw_app.activate()
+
+    group = adw_app.add_group("Дом")
+
+    assert not group.is_subscription
+    assert group.name == "Дом"
+
+
+def test_update_group_renames_it(adw_app):
+    adw_app.activate()
+    group = adw_app.add_group("Дом")
+
+    adw_app.update_group(group.id, name="Работа")
+
+    assert adw_app.context.profiles.get_group(group.id).name == "Работа"
+
+
+def test_update_group_can_change_the_subscription_url(adw_app):
+    adw_app.activate()
+    group = adw_app.add_subscription("Подписка", "https://example.com/a")
+
+    adw_app.update_group(group.id, name="Подписка", url="https://example.com/b")
+
+    assert adw_app.context.profiles.get_group(group.id).subscription_url == (
+        "https://example.com/b"
+    )
+
+
+def test_delete_group_removes_it(adw_app):
+    adw_app.activate()
+    group = adw_app.add_group("Дом")
+
+    adw_app.delete_group(group.id)
+
+    assert adw_app.context.profiles.get_group(group.id) is None
+
+
+def test_settings_reload_the_running_config(adw_app):
+    """Изменённые настройки должны доехать до работающего ядра."""
+    adw_app.activate()
+    adw_app.context.proxy_state.is_running = True
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.apply_settings()
+
+    assert calls == [("reload",)]
+
+
+def test_settings_do_not_reload_a_stopped_core(adw_app):
+    adw_app.activate()
+    adw_app.context.proxy_state.is_running = False
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.apply_settings()
+
+    assert calls == []

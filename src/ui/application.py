@@ -11,11 +11,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, GLib
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core.context import AppContext, get_context
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
+from src.ui.logic.version import app_version
 from src.ui.window import MainWindow, load_css
 
 if TYPE_CHECKING:
@@ -56,6 +57,9 @@ class TengaApplication(Adw.Application):
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
         self._profile_activation_handler: Callable[[int], None] | None = None
+        self._connection_service = None
+        self._connection_thread = None
+        self.last_toast_for_test = ""
 
     # Жизненный цикл
 
@@ -89,19 +93,19 @@ class TengaApplication(Adw.Application):
 
     def _register_actions(self) -> None:
         handlers: dict[str, Callable[[], None]] = {
-            "connect": self._not_implemented("connect"),
-            "disconnect": self._not_implemented("disconnect"),
-            "toggle-connection": self._not_implemented("toggle-connection"),
-            "add-profile": self._not_implemented("add-profile"),
-            "add-profile-from-clipboard": self._not_implemented("add-profile-from-clipboard"),
-            "add-subscription": self._not_implemented("add-subscription"),
-            "add-group": self._not_implemented("add-group"),
+            "connect": self._connect_selected,
+            "disconnect": self.disconnect_proxy,
+            "toggle-connection": self._toggle_connection,
+            "add-profile": self._open_add_profile,
+            "add-profile-from-clipboard": self._add_profile_from_clipboard,
+            "add-subscription": self._open_add_subscription,
+            "add-group": self._open_add_group,
             "refresh-subscriptions": self._refresh_subscriptions,
             "test-latency": self._test_latency,
             "search": self._toggle_search,
-            "settings": self._not_implemented("settings"),
-            "about": self._not_implemented("about"),
-            "shortcuts": self._not_implemented("shortcuts"),
+            "settings": self._open_settings,
+            "about": self._open_about,
+            "shortcuts": self._open_shortcuts,
             "quit": self.quit,
             "hide-window": self._hide_window,
         }
@@ -114,14 +118,272 @@ class TengaApplication(Adw.Application):
         for detailed_name, accels in _ACCELS.items():
             self.set_accels_for_action(detailed_name, accels)
 
-    def _not_implemented(self, name: str) -> Callable[[], None]:
-        """Placeholder handler until pages and dialogs arrive in phase 2."""
+    # Подключение
 
-        def handler() -> None:
-            logger.info("Action %s is not implemented yet", name)
-            self.toast(f"«{name}» появится на следующем этапе")
+    def set_connection_service(self, service) -> None:
+        """Install the object starting and stopping the proxy."""
+        self._connection_service = service
 
-        return handler
+    def _ensure_connection_service(self):
+        if self._connection_service is None:
+            from src.core.connection import ConnectionService
+
+            self._connection_service = ConnectionService(self.context)
+        return self._connection_service
+
+    def _connection_busy(self) -> bool:
+        return self._connection_thread is not None and self._connection_thread.is_alive()
+
+    def connect_profile(self, profile_id: int) -> None:
+        """Start the proxy for one profile in the background."""
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        if self._connection_busy():
+            # Два одновременных запуска оставили бы висящий процесс xray.
+            self.toast("Подключение уже выполняется")
+            return
+
+        if self._window is not None:
+            self._window.show_connecting(profile.name)
+
+        service = self._ensure_connection_service()
+        self._connection_thread = run_in_background(
+            lambda: service.connect(profile_id),
+            on_done=lambda result: self._on_connection_done(result, profile.name),
+            on_error=self._on_connection_failed,
+            name="tenga-connect",
+        )
+
+    def disconnect_proxy(self) -> None:
+        """Stop the proxy in the background."""
+        if self._connection_busy():
+            self.toast("Подключение уже выполняется")
+            return
+
+        service = self._ensure_connection_service()
+        self._connection_thread = run_in_background(
+            service.disconnect,
+            on_done=lambda result: self._on_disconnection_done(result),
+            on_error=self._on_connection_failed,
+            name="tenga-disconnect",
+        )
+
+    def _connect_selected(self) -> None:
+        profile_id = self._selected_profile_id()
+        if profile_id is None:
+            self.toast("Выберите профиль в списке")
+            return
+        self.connect_profile(profile_id)
+
+    def _toggle_connection(self) -> None:
+        if self.context.proxy_state.is_running:
+            self.disconnect_proxy()
+            return
+        self._connect_selected()
+
+    def _selected_profile_id(self) -> int | None:
+        if self._window is None:
+            return None
+        return self._window.profiles_page.get_selected_profile_id()
+
+    def _on_connection_done(self, result, profile_name: str) -> None:
+        if result.ok:
+            self.toast(f"Подключено: {profile_name}")
+        else:
+            self.toast(f"Не удалось подключиться: {result.error}")
+            if self._window is not None:
+                self._window.show_error(result.error)
+
+        self._refresh_window()
+
+    def _on_disconnection_done(self, result) -> None:
+        if result.ok:
+            self.toast("Отключено")
+        else:
+            self.toast(f"Не удалось отключиться: {result.error}")
+        self._refresh_window()
+
+    def _on_connection_failed(self, error: BaseException) -> None:
+        self.toast(f"Ошибка подключения: {error}")
+        if self._window is not None:
+            self._window.show_error(str(error))
+        self._refresh_window()
+
+    def _refresh_window(self) -> None:
+        if self._window is not None:
+            self._window.refresh_status()
+            self._window.refresh_pages()
+
+    # Изменение данных
+
+    def add_profile_from_bean(self, bean, group_id: int | None = None):
+        """Store a parsed profile and persist it."""
+        entry = self.context.profiles.add_profile(bean, group_id=group_id)
+        self._save_profiles()
+        self._refresh_pages()
+        self.toast(f"Профиль добавлен: {entry.name}")
+        return entry
+
+    def delete_profile(self, profile_id: int) -> None:
+        """Remove one profile."""
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        name = profile.name
+        self.context.profiles.remove_profile(profile_id)
+        self._save_profiles()
+        self._refresh_pages()
+        self.toast(f"Профиль удалён: {name}")
+
+    def add_subscription(self, name: str, url: str):
+        """Create a subscription group and fetch it right away."""
+        group = self.context.profiles.add_group(name, is_subscription=True)
+        group.subscription_url = url
+        self._save_profiles()
+        self._refresh_pages()
+        self.update_subscription(group.id)
+        return group
+
+    def add_group(self, name: str):
+        """Create a plain group."""
+        group = self.context.profiles.add_group(name)
+        self._save_profiles()
+        self._refresh_pages()
+        self.toast(f"Группа добавлена: {name}")
+        return group
+
+    def update_group(self, group_id: int, *, name: str, url: str | None = None):
+        """Rename a group and optionally change its subscription address."""
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            self.toast("Группа не найдена")
+            return None
+
+        group.name = name
+        if url is not None:
+            group.subscription_url = url
+        self._save_profiles()
+        self._refresh_pages()
+        return group
+
+    def delete_group(self, group_id: int) -> None:
+        """Remove a group together with its profiles."""
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            self.toast("Группа не найдена")
+            return
+
+        name = group.name
+        self.context.profiles.remove_group(group_id)
+        self._save_profiles()
+        self._refresh_pages()
+        self.toast(f"Удалено: {name}")
+
+    def save_profiles(self) -> None:
+        """Persist the profile store after an external edit."""
+        self._save_profiles()
+        self._refresh_pages()
+
+    def apply_settings(self) -> None:
+        """Persist the configuration and push it into a running core."""
+        try:
+            self.context.save_config()
+        except Exception as e:
+            logger.warning("Could not persist settings: %s", e)
+            self.toast(f"Не удалось сохранить настройки: {e}")
+            return
+
+        if not self.context.proxy_state.is_running:
+            return
+
+        result = self._ensure_connection_service().reload_config()
+        if result.ok:
+            self.toast("Настройки применены")
+        else:
+            self.toast(f"Настройки сохранены, но не применены: {result.error}")
+
+    def _save_profiles(self) -> None:
+        try:
+            self.context.save_profiles()
+        except Exception as e:
+            logger.warning("Could not persist profiles: %s", e)
+
+    def _refresh_pages(self) -> None:
+        if self._window is not None:
+            self._window.refresh_pages()
+
+    # Диалоги
+
+    def _open_add_profile(self, link: str = "") -> None:
+        from src.ui.dialogs4.add_profile import AddProfileDialog
+
+        dialog = AddProfileDialog()
+        if link:
+            dialog.link_row.set_text(link)
+        dialog.connect("profile-ready", lambda _d, bean: self.add_profile_from_bean(bean))
+        dialog.present(self._window)
+
+    def _add_profile_from_clipboard(self) -> None:
+        """Open the add dialog with the clipboard already pasted in."""
+        from src.ui.dialogs4.base import read_clipboard
+
+        read_clipboard(self._open_add_profile)
+
+    def _open_add_subscription(self) -> None:
+        from src.ui.dialogs4.subscription import SubscriptionDialog
+
+        dialog = SubscriptionDialog()
+        dialog.connect("subscription-ready", lambda _d, name, url: self.add_subscription(name, url))
+        dialog.present(self._window)
+
+    def _open_add_group(self) -> None:
+        from src.ui.dialogs4.group import GroupDialog
+
+        dialog = GroupDialog()
+        dialog.connect("group-ready", lambda _d, name: self.add_group(name))
+        dialog.present(self._window)
+
+    def _open_settings(self) -> None:
+        from src.ui.dialogs4.settings import SettingsDialog
+
+        dialog = SettingsDialog(self.context.config, context=self.context)
+        # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции
+        # GNOME настройки применяются при закрытии.
+        dialog.connect("closed", lambda _d: self._save_and_apply(dialog))
+        dialog.present(self._window)
+
+    def _save_and_apply(self, dialog) -> None:
+        dialog.save()
+        self.apply_settings()
+
+    def _open_about(self) -> None:
+        dialog = Adw.AboutDialog(
+            application_name="Tenga Proxy",
+            application_icon="network-server-symbolic",
+            developer_name="Artem G.",
+            version=app_version(),
+            comments="Клиент прокси для Linux на базе xray-core",
+            license_type=Gtk.License.MIT_X11,
+        )
+        dialog.present(self._window)
+
+    def _open_shortcuts(self) -> None:
+        from src.ui.shortcuts import ShortcutsDialog
+
+        ShortcutsDialog().present(self._window)
+
+    def wait_for_connection_for_test(self, timeout: float = 10.0) -> None:
+        if self._connection_thread is not None:
+            self._connection_thread.join(timeout)
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
 
     # Действия страниц
 
@@ -143,18 +405,11 @@ class TengaApplication(Adw.Application):
         self._profile_activation_handler = handler
 
     def select_profile(self, profile_id: int) -> None:
-        """Handle a profile activated on the profiles page.
-
-        Подключение появится на этапе 3 вместе с диалогами; пока действие
-        только сообщает выбор наружу.
-        """
+        """Connect to a profile activated on the profiles page."""
         if self._profile_activation_handler is not None:
             self._profile_activation_handler(profile_id)
             return
-
-        profile = self.context.profiles.get_profile(profile_id)
-        name = profile.name if profile is not None else str(profile_id)
-        self.toast(f"Выбран профиль: {name}")
+        self.connect_profile(profile_id)
 
     def update_subscription(self, group_id: int) -> None:
         """Refresh one subscription group in the background."""
@@ -216,9 +471,7 @@ class TengaApplication(Adw.Application):
 
     def _ensure_latency_runner(self) -> LatencyRunner:
         if self._latency_runner is None:
-            self._latency_runner = LatencyRunner(
-                self._latency_probe or self._default_latency_probe
-            )
+            self._latency_runner = LatencyRunner(self._latency_probe or self._default_latency_probe)
         return self._latency_runner
 
     def _test_latency(self) -> None:
@@ -238,6 +491,21 @@ class TengaApplication(Adw.Application):
             return
 
         self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+
+    def test_latency_for(self, profile_id: int) -> None:
+        """Measure the latency of one profile."""
+        if self.context.profiles.get_profile(profile_id) is None:
+            self.toast("Профиль не найден")
+            return
+
+        runner = self._ensure_latency_runner()
+        started = runner.run(
+            [profile_id],
+            on_result=self._on_latency_result,
+            on_done=self._on_latency_done,
+        )
+        if not started:
+            self.toast("Проверка задержки уже идёт")
 
     def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
         profile = self.context.profiles.get_profile(profile_id)
@@ -299,9 +567,7 @@ class TengaApplication(Adw.Application):
 
     def _toggle_search(self) -> None:
         if self._window is not None:
-            self._window.search_button.set_active(
-                not self._window.search_button.get_active()
-            )
+            self._window.search_button.set_active(not self._window.search_button.get_active())
 
     # Ожидание фоновых задач: только для тестов, в рабочем коде всё идёт
     # через главный цикл.
@@ -347,9 +613,15 @@ class TengaApplication(Adw.Application):
         self._subscription_updater = None
         self._subscriptions_thread = None
         self._profile_activation_handler = None
+        self._connection_service = None
+        self._connection_thread = None
+        self.last_toast_for_test = ""
 
     def toast(self, text: str) -> None:
         """Show a message in the window, if there is one."""
+        # Последнее сообщение хранится и без окна: тосты — единственный
+        # видимый результат многих действий, и тестам нужно их читать.
+        self.last_toast_for_test = text
         if self._window is not None:
             self._window.toast(text)
 

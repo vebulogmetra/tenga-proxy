@@ -11,7 +11,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gio, Gtk
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
@@ -81,6 +81,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self._build_ui()
         self._install_breakpoint()
+        self._register_row_actions()
 
         self.connect("close-request", self._on_close_request)
         context.proxy_state.add_listener(self._on_proxy_state_changed)
@@ -128,6 +129,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.monitoring_page = MonitoringPage()
         self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
         self.profiles_page.connect("profile-activated", self._on_profile_activated)
+        self.subscriptions_page.connect("subscription-activated", self._on_subscription_edit)
         self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
         self.view_stack.add_titled_with_icon(
@@ -183,6 +185,170 @@ class MainWindow(Adw.ApplicationWindow):
         breakpoint_.add_setter(self.view_switcher, "visible", False)
         self.add_breakpoint(breakpoint_)
 
+    # --- действия строк ---
+
+    _ROW_ACTIONS = (
+        "connect-profile",
+        "edit-profile",
+        "delete-profile",
+        "profile-routing",
+        "test-profile",
+        "toggle-group",
+        "edit-group",
+        "delete-group",
+        "update-subscription",
+        "edit-subscription",
+        "delete-subscription",
+    )
+
+    def _register_row_actions(self) -> None:
+        """Register the actions the row menus point at.
+
+        Действия живут на окне, а не на приложении: они адресуют конкретную
+        строку целым параметром, и держать их рядом со страницами, которые эти
+        строки рисуют, проще, чем прокидывать выделение через приложение.
+        """
+        for name in self._ROW_ACTIONS:
+            action = Gio.SimpleAction.new(name, GLib.VariantType.new("i"))
+            action.connect("activate", self._on_row_action, name)
+            self.add_action(action)
+
+    def _on_row_action(self, _action, parameter, name: str) -> None:
+        handler = getattr(self, f"_row_{name.replace('-', '_')}")
+        handler(parameter.get_int32())
+
+    # профиль
+
+    def _row_connect_profile(self, profile_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.connect_profile(profile_id)
+
+    def _row_edit_profile(self, profile_id: int) -> None:
+        from src.ui.dialogs4.edit_profile import EditProfileDialog
+
+        profile = self._context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        dialog = EditProfileDialog(profile)
+        dialog.connect("profile-saved", lambda _d: self._save_profiles())
+        dialog.present(self)
+
+    def _row_delete_profile(self, profile_id: int) -> None:
+        from src.ui.dialogs4.confirm import confirm_delete
+
+        profile = self._context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        app = self.get_application()
+        confirm_delete(
+            self,
+            "Удалить профиль?",
+            f"«{profile.name}» будет удалён безвозвратно.",
+            lambda: app.delete_profile(profile_id) if app is not None else None,
+        )
+
+    def _row_profile_routing(self, profile_id: int) -> None:
+        from src.ui.dialogs4.profile_routing import ProfileRoutingDialog
+
+        profile = self._context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        dialog = ProfileRoutingDialog(profile)
+        # У `Adw.PreferencesDialog` нет кнопки подтверждения: как и настройки
+        # приложения, эти правки применяются при закрытии.
+        dialog.connect("closed", lambda _d: self._save_routing(dialog))
+        dialog.present(self)
+
+    def _save_routing(self, dialog) -> None:
+        dialog.save()
+        self._save_profiles()
+
+    def _row_test_profile(self, profile_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.test_latency_for(profile_id)
+
+    # группа
+
+    def _row_toggle_group(self, group_id: int) -> None:
+        self.profiles_page.toggle_group(group_id)
+
+    def _row_edit_group(self, group_id: int) -> None:
+        group = self._context.profiles.get_group(group_id)
+        if group is None:
+            self.toast("Группа не найдена")
+            return
+
+        if group.is_subscription:
+            self._row_edit_subscription(group_id)
+            return
+
+        from src.ui.dialogs4.group import GroupDialog
+
+        app = self.get_application()
+        dialog = GroupDialog(group=group)
+        dialog.connect(
+            "group-ready",
+            lambda _d, name: app.update_group(group_id, name=name) if app else None,
+        )
+        dialog.present(self)
+
+    def _row_delete_group(self, group_id: int) -> None:
+        from src.ui.dialogs4.confirm import confirm_delete
+
+        group = self._context.profiles.get_group(group_id)
+        if group is None:
+            self.toast("Группа не найдена")
+            return
+
+        app = self.get_application()
+        count = len(self._context.profiles.get_profiles_in_group(group_id))
+        confirm_delete(
+            self,
+            "Удалить группу?",
+            f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
+            lambda: app.delete_group(group_id) if app is not None else None,
+        )
+
+    # подписка
+
+    def _row_update_subscription(self, group_id: int) -> None:
+        self._on_subscription_update(None, group_id)
+
+    def _row_edit_subscription(self, group_id: int) -> None:
+        from src.ui.dialogs4.subscription import SubscriptionDialog
+
+        group = self._context.profiles.get_group(group_id)
+        if group is None:
+            self.toast("Подписка не найдена")
+            return
+
+        app = self.get_application()
+        dialog = SubscriptionDialog(group=group)
+        dialog.connect(
+            "subscription-ready",
+            lambda _d, name, url: (app.update_group(group_id, name=name, url=url) if app else None),
+        )
+        dialog.present(self)
+
+    def _row_delete_subscription(self, group_id: int) -> None:
+        self._row_delete_group(group_id)
+
+    def _on_subscription_edit(self, _page, group_id: int) -> None:
+        self._row_edit_subscription(group_id)
+
+    def _save_profiles(self) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.save_profiles()
+
     # --- страницы ---
 
     SEARCHABLE_PAGES = ("profiles", "subscriptions")
@@ -191,9 +357,7 @@ class MainWindow(Adw.ApplicationWindow):
         """Reload every page from the current store and proxy state."""
         store = self._context.profiles
         groups = store.groups
-        profiles_by_group = {
-            group_id: store.get_profiles_in_group(group_id) for group_id in groups
-        }
+        profiles_by_group = {group_id: store.get_profiles_in_group(group_id) for group_id in groups}
 
         state = self._context.proxy_state
         active_id = state.started_profile_id if state.is_running else -1

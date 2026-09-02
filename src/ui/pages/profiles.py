@@ -450,6 +450,20 @@ class ProfilesPage(Gtk.Box):
                 row.set_expanded(True)
             index += 1
 
+    def toggle_group(self, group_id: int) -> None:
+        """Expand or collapse one group by its identifier."""
+        if self._tree_model is None:
+            return
+
+        for position in range(self._tree_model.get_n_items()):
+            tree_row = self._tree_model.get_row(position)
+            if tree_row is None:
+                continue
+            item = tree_row.get_item()
+            if item.is_group and item.row.group_id == group_id:
+                tree_row.set_expanded(not tree_row.get_expanded())
+                return
+
     def get_selected_profile_id(self) -> int | None:
         """Return the selected profile, or None when a group is selected."""
         selection = self.column_view.get_model()

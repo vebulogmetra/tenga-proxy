@@ -10,6 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk
 
 from src.db.config import DnsProvider, ProxyMode
+from src.ui.logic.version import app_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
@@ -170,7 +171,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         group = Adw.PreferencesGroup(title="Tenga Proxy")
         page.add(group)
 
-        group.add(self._value_row("Версия", _app_version()))
+        group.add(self._value_row("Версия", app_version()))
         if self._context is not None:
             group.add(self._value_row("Конфигурация", str(self._context.config_dir)))
 
@@ -269,13 +270,3 @@ class SettingsDialog(Adw.PreferencesDialog):
             return
         removed, _size = self._context.log_manager.clear_all_logs()
         self.clear_logs_row.set_subtitle(f"Удалено файлов: {removed}")
-
-
-def _app_version() -> str:
-    try:
-        from importlib.metadata import version
-
-        return version("tenga-proxy")
-    except Exception:
-        # В dev-режиме пакет может быть не установлен — версия не критична.
-        return "—"

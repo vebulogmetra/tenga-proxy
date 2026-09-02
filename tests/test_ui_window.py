@@ -197,3 +197,57 @@ def test_subscription_update_reaches_the_application(window, adw_app):
     adw_app.wait_for_subscriptions_for_test()
 
     assert updated == [group.id]
+
+
+# --- действия строк (этап 3) ---
+
+ROW_ACTIONS = {
+    "connect-profile",
+    "edit-profile",
+    "delete-profile",
+    "profile-routing",
+    "test-profile",
+    "toggle-group",
+    "edit-group",
+    "delete-group",
+    "update-subscription",
+    "edit-subscription",
+    "delete-subscription",
+}
+
+
+def test_the_window_registers_the_row_actions(window):
+    assert set(window.list_actions()) >= ROW_ACTIONS
+
+
+def test_the_row_actions_take_an_integer(window):
+    from gi.repository import GLib
+
+    action = window.lookup_action("edit-profile")
+    assert action.get_parameter_type().equal(GLib.VariantType.new("i"))
+
+
+def test_connecting_shows_the_intermediate_state(window):
+    window.show_connecting("Альфа")
+    assert "Альфа" in window.status_card.get_subtitle()
+
+
+def test_toggle_group_expands_and_collapses(window, adw_app):
+    from gi.repository import GLib
+
+    from src.fmt import parse_link
+
+    store = adw_app.context.profiles
+    group = store.add_group("Дом")
+    store.add_profile(
+        parse_link("vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"),
+        group_id=group.id,
+    )
+    window.refresh_pages()
+    before = window.profiles_page.get_visible_row_count()
+
+    # Действие вызывается напрямую: window.activate_action() ставит его в
+    # очередь главного цикла, которая в тесте не крутится.
+    window.lookup_action("toggle-group").activate(GLib.Variant("i", group.id))
+
+    assert window.profiles_page.get_visible_row_count() > before
