@@ -110,12 +110,15 @@ src/
 │   ├── profiles.py    # ProfileEntry, ProfileStore - управление профилями
 │   ├── data_store.py  # Низкоуровневое хранилище (JSON файлы)
 │   └── config.py      # Настройки (routing, VPN, DNS)
-├── ui/            # GTK интерфейс
-│   ├── app.py         # TengaApp - главный класс приложения
-│   ├── main_window.py # MainWindow - основное окно
-│   ├── tray.py        # TrayIcon - системный трей
-│   ├── components/    # UI компоненты (профили, статистика)
-│   └── dialogs/       # Диалоговые окна
+├── ui/            # GTK4 + libadwaita интерфейс
+│   ├── application.py # TengaApplication - Adw.Application, действия, трей
+│   ├── window.py      # MainWindow - Adw.ApplicationWindow
+│   ├── pages/         # Страницы: профили, подписки, мониторинг
+│   ├── widgets/       # Виджеты (статус-карточка)
+│   ├── dialogs/       # Диалоги на Adw.Dialog / Adw.PreferencesDialog
+│   ├── tray/          # StatusNotifierItem + com.canonical.dbusmenu
+│   ├── logic/         # Логика без GTK: форматирование, задержка, формы
+│   └── models/        # Модели и фильтры списков
 ├── sys/           # Системные функции
 │   ├── proxy.py       # set_system_proxy(), clear_system_proxy()
 │   ├── vpn.py         # Управление VPN подключением
@@ -185,16 +188,30 @@ core/              # Директория конфигурации (в dev ре�
 
 ### GUI Architecture
 
-**TengaApp** (`src/ui/app.py`) - главный класс:
-- Создает MainWindow и TrayIcon
-- Координирует взаимодействие между UI компонентами
-- Обрабатывает события подключения/отключения
+Интерфейс на GTK 4 и libadwaita 1.5, по GNOME HIG. Системная тема,
+своей нет.
+
+**TengaApplication** (`src/ui/application.py`) - главный класс:
+- Наследует `Adw.Application`, `application_id="ru.tenga.Proxy"`
+- Держит единый набор `Gio.SimpleAction`: их используют меню окна,
+  контекстные меню, ускорители и трей — по одному пути на каждое действие
+- Создаёт MainWindow и TrayController
+- Показывает диалоги через `present_dialog()`: одновременно открыт один
 - Управляет системным прокси через `src/sys/proxy.py`
 
-**Single Instance** (`src/sys/single_instance.py`):
-- Использует lock файл для контроля единственного экземпляра
-- Socket listener для передачи activation signal
-- При запуске второго экземпляра активирует первый
+**Трей** (`src/ui/tray/`) - своя реализация `org.kde.StatusNotifierItem`
+и `com.canonical.dbusmenu` поверх `Gio.DBusConnection`. AppIndicator3 не
+используется: он собран против GTK3 и в одном процессе с GTK4 не живёт.
+
+**Логика без GTK** (`src/ui/logic/`, `src/ui/models/filters.py`,
+`src/ui/tray/{dbusmenu,menu}.py`) не импортирует GTK и тестируется обычным
+pytest, без дисплея.
+
+**Single Instance**:
+- Единственность обеспечивает `Gio.Application` через имя на шине сессии:
+  второй запуск активирует окно первого и завершается
+- `src/sys/single_instance.py` держит файловую блокировку как страховку
+  от двух процессов xray там, где D-Bus недоступен
 
 ### Routing System
 
@@ -231,6 +248,8 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
 - Тесты используют pytest с coverage
 - Конфигурация pytest в `pyproject.toml`
 - Моки для GTK компонентов и subprocess вызовов
+- Тесты виджетов помечены маркером `gtk` и по умолчанию не запускаются;
+  для них есть отдельная цель `make test-gtk` (нужен дисплей или `xvfb-run`)
 
 ### Code Style
 - Линтер: ruff

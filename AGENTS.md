@@ -7,7 +7,7 @@ Main code lives in `src/`, split by responsibility:
 - `src/core/`: app context, xray process management, monitoring, logging.
 - `src/fmt/`: share-link/subscription parsing and protocol models.
 - `src/db/`: JSON-backed profiles and app settings storage.
-- `src/ui/`: GTK app, tray, windows, dialogs.
+- `src/ui/`: GTK4 + libadwaita app, window, pages, dialogs, tray, GTK-free logic.
 - `src/sys/`: system proxy, VPN, single-instance logic.
 - `src/sub/`: subscription update flow.
 
@@ -17,7 +17,8 @@ Entrypoints are `cli.py` (CLI) and `gui.py` (desktop app). Tests are in `tests/`
 - `uv sync --extra dev`: install dependencies including test/lint tools.
 - `uv run python gui.py`: run GUI locally.
 - `uv run python cli.py --help`: inspect CLI commands.
-- `make test` or `uv run pytest`: run test suite.
+- `make test` or `uv run pytest`: run test suite (GTK widget tests are excluded).
+- `make test-gtk`: run the widget tests, which need a display or `xvfb-run`.
 - `make test-cov`: run tests with coverage (terminal + `htmlcov/`).
 - `make lint`, `make lint-fix`: run Ruff checks / auto-fix.
 - `make format`, `make format-check`: apply/check formatting.

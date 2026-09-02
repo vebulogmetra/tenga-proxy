@@ -105,14 +105,16 @@ python cli.py install --uninstall
 
 ## System Dependencies (Ubuntu/Debian)
 
+The interface needs libadwaita 1.5 or newer: Ubuntu 24.04, Fedora 40,
+Debian 13 and later ship it out of the box.
+
 ```bash
 sudo apt update
 sudo apt install -y \
     python3 \
     python3-gi \
     python3-pip \
-    gir1.2-gtk-3.0 \
-    gir1.2-appindicator3-0.1 \
-    gir1.2-notify-0.7 \
+    gir1.2-gtk-4.0 \
+    gir1.2-adw-1 \
     libfuse2t64
 ```
