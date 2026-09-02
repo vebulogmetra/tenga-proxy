@@ -35,20 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
         "-c", "--config-dir", type=Path, help="Директория конфигурации (по умолчанию core/)"
     )
     parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
-    parser.add_argument(
-        "--gtk4",
-        action="store_true",
-        help="Новый интерфейс на GTK4 и libadwaita (в разработке)",
-    )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     return parser
 
 
 def parse_args(argv: list[str] | None = None):
-    """Parse the command line before any GTK version is pinned.
+    """Parse the command line before GTK and the configuration are loaded.
 
-    Версия GTK фиксируется в процессе первым `gi.require_version`, а выбор
-    версии зависит от аргументов: разбор обязан идти раньше импорта GTK.
+    `--config-dir` определяет, куда пишутся стартовый лог и конфигурация,
+    поэтому разбор обязан идти раньше и того, и другого.
     """
     return build_parser().parse_known_args(argv)
 
@@ -81,25 +76,20 @@ if "GI_TYPELIB_PATH" not in os.environ:
 try:
     import gi
 
-    if _ARGS.gtk4:
-        gi.require_version("Gdk", "4.0")
-        gi.require_version("Gtk", "4.0")
-        gi.require_version("Adw", "1")
-        from gi.repository import Adw, Gdk, Gtk
+    gi.require_version("Gdk", "4.0")
+    gi.require_version("Gtk", "4.0")
+    gi.require_version("Adw", "1")
+    from gi.repository import Adw, Gdk, Gtk
 
-        if not adwaita_is_supported(Adw.MAJOR_VERSION, Adw.MINOR_VERSION):
-            print(
-                f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
-                f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
-            )
-            print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
-            sys.exit(1)
-    else:
-        gi.require_version("Gdk", "3.0")
-        gi.require_version("Gtk", "3.0")
-        from gi.repository import Gdk, Gtk
+    if not adwaita_is_supported(Adw.MAJOR_VERSION, Adw.MINOR_VERSION):
+        print(
+            f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
+            f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
+        )
+        print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
+        sys.exit(1)
 
-    logger.info("GTK imported successfully (gtk4=%s)", _ARGS.gtk4)
+    logger.info("GTK4 imported successfully")
 
     if not Gtk.init_check():
         logger.error("Gtk.init_check() failed")
@@ -115,10 +105,7 @@ try:
 except ImportError as e:
     logger.exception(f"Error importing GTK: {e}")
     print(f"Ошибка импорта GTK: {e}")
-    if _ARGS.gtk4:
-        print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
-    else:
-        print("Установите пакеты: sudo apt install python3-gi gir1.2-gtk-3.0")
+    print("Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1")
     sys.exit(1)
 except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
@@ -162,21 +149,16 @@ def main() -> int:
         return 1
 
     try:
-        if args.gtk4:
-            from src.ui.application import run_app
+        from src.ui.application import run_app
 
-            return run_app(
-                config_dir=args.config_dir, lock=single_instance, with_tray=not args.no_tray
-            )
-
-        from src.ui.app import run_app
-
-        return run_app(config_dir=args.config_dir, lock=single_instance)
+        return run_app(
+            config_dir=args.config_dir, lock=single_instance, with_tray=not args.no_tray
+        )
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
         print("\nУбедитесь, что установлены зависимости:")
         print("  pip install PyGObject")
-        print("  sudo apt install python3-gi gir1.2-appindicator3-0.1 gir1.2-notify-0.7")
+        print("  sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1")
         return 1
     except Exception as e:
         print(f"Ошибка: {e}")

@@ -29,14 +29,11 @@ def entry():
     return module
 
 
-def test_gtk4_flag_defaults_to_false(entry):
-    args, _ = entry.parse_args([])
-    assert args.gtk4 is False
-
-
-def test_gtk4_flag_is_accepted(entry):
-    args, _ = entry.parse_args(["--gtk4"])
-    assert args.gtk4 is True
+def test_the_gtk4_flag_is_gone(entry):
+    """Версия интерфейса больше не выбирается: GTK4 единственный."""
+    args, rest = entry.parse_args(["--gtk4"])
+    assert not hasattr(args, "gtk4")
+    assert "--gtk4" in rest
 
 
 def test_existing_flags_still_parse(entry):
