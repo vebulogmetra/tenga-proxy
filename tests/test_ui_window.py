@@ -100,3 +100,66 @@ def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app):
     window.destroy()
 
     assert len(state._state_listeners) == before - 1
+
+
+def test_pages_are_real_widgets(window):
+    from src.ui.pages.monitoring import MonitoringPage
+    from src.ui.pages.profiles import ProfilesPage
+    from src.ui.pages.subscriptions import SubscriptionsPage
+
+    assert isinstance(window.profiles_page, ProfilesPage)
+    assert isinstance(window.subscriptions_page, SubscriptionsPage)
+    assert isinstance(window.monitoring_page, MonitoringPage)
+
+
+def test_search_toggles_the_bar_of_the_visible_page(window):
+    window.view_stack.set_visible_child_name("profiles")
+    window.set_search_enabled(True)
+    assert window.profiles_page.search_bar.get_search_mode() is True
+
+    window.view_stack.set_visible_child_name("subscriptions")
+    window.set_search_enabled(True)
+    assert window.subscriptions_page.search_bar.get_search_mode() is True
+
+
+def test_search_is_disabled_on_the_monitoring_page(window):
+    """Мониторинг — не список, искать там нечего."""
+    window.view_stack.set_visible_child_name("monitoring")
+    window.set_search_enabled(True)
+    assert window.search_button.get_sensitive() is False
+
+
+def test_switching_pages_closes_the_previous_search(window):
+    window.view_stack.set_visible_child_name("profiles")
+    window.set_search_enabled(True)
+
+    window.view_stack.set_visible_child_name("subscriptions")
+
+    assert window.profiles_page.search_bar.get_search_mode() is False
+
+
+def test_refresh_pages_survives_an_empty_store(window):
+    window.refresh_pages()
+    assert window.profiles_page.get_visible_state() == "empty"
+    assert window.subscriptions_page.get_visible_state() == "empty"
+
+
+def test_refresh_pages_marks_the_active_profile(window, adw_app):
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    entry = store.parse_and_add_link(
+        "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба",
+        group_id=group.id,
+    )
+    assert entry is not None
+
+    adw_app.context.proxy_state.is_running = True
+    adw_app.context.proxy_state.started_profile_id = entry.id
+    window.refresh_pages()
+
+    assert window.profiles_page.get_active_titles() == ["Проба"]
+
+
+def test_monitoring_page_is_updated_on_refresh(window):
+    window.refresh_pages()
+    assert window.monitoring_page.get_value("Прокси") == "Не запущен"

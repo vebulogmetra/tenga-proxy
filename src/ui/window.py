@@ -20,7 +20,11 @@ from src.ui.logic.geometry import (
     format_geometry,
     parse_geometry,
 )
+from src.ui.logic.monitoring_view import monitoring_view
 from src.ui.logic.status import ConnectionState, status_view
+from src.ui.pages.monitoring import MonitoringPage
+from src.ui.pages.profiles import ProfilesPage
+from src.ui.pages.subscriptions import SubscriptionsPage
 from src.ui.widgets.status_card import StatusCard
 
 if TYPE_CHECKING:
@@ -29,6 +33,16 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tenga.ui.window")
 
 NARROW_WIDTH = 550
+
+
+class _EmptyStatus:
+    """Stand-in used before the connection monitor exists."""
+
+    proxy_ok = False
+    vpn_ok = True
+    last_check_time = 0.0
+    proxy_error = ""
+    vpn_error = ""
 
 
 def load_css() -> None:
@@ -71,6 +85,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.connect("close-request", self._on_close_request)
         context.proxy_state.add_listener(self._on_proxy_state_changed)
         self.refresh_status()
+        self.refresh_pages()
 
     def _build_ui(self) -> None:
         self.toast_overlay = Adw.ToastOverlay()
@@ -108,15 +123,22 @@ class MainWindow(Adw.ApplicationWindow):
         toolbar.set_content(content)
 
     def _add_pages(self) -> None:
-        pages = (
-            ("profiles", "Профили", "network-server-symbolic", "Профилей пока нет"),
-            ("subscriptions", "Подписки", "folder-download-symbolic", "Подписок пока нет"),
-            ("monitoring", "Мониторинг", "utilities-system-monitor-symbolic", "Нет данных"),
+        self.profiles_page = ProfilesPage()
+        self.subscriptions_page = SubscriptionsPage()
+        self.monitoring_page = MonitoringPage()
+        self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
+
+        self.view_stack.add_titled_with_icon(
+            self.profiles_page, "profiles", "Профили", "network-server-symbolic"
         )
-        for name, title, icon, placeholder in pages:
-            # Страницы наполняются на этапе 2, пока это заглушки.
-            page = Adw.StatusPage(title=placeholder, icon_name=icon)
-            self.view_stack.add_titled_with_icon(page, name, title, icon)
+        self.view_stack.add_titled_with_icon(
+            self.subscriptions_page, "subscriptions", "Подписки", "folder-download-symbolic"
+        )
+        self.view_stack.add_titled_with_icon(
+            self.monitoring_page, "monitoring", "Мониторинг", "utilities-system-monitor-symbolic"
+        )
+
+        self.view_stack.connect("notify::visible-child-name", self._on_page_changed)
 
     def _build_add_button(self) -> Gtk.MenuButton:
         menu = Gio.Menu()
@@ -144,6 +166,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_search_button(self) -> Gtk.ToggleButton:
         self.search_button = Gtk.ToggleButton(icon_name="system-search-symbolic")
         self.search_button.set_tooltip_text("Поиск (Ctrl+F)")
+        self.search_button.connect("toggled", self._on_search_toggled)
         return self.search_button
 
     def _install_breakpoint(self) -> None:
@@ -157,6 +180,98 @@ class MainWindow(Adw.ApplicationWindow):
         breakpoint_.add_setter(self.view_switcher_bar, "reveal", True)
         breakpoint_.add_setter(self.view_switcher, "visible", False)
         self.add_breakpoint(breakpoint_)
+
+    # --- страницы ---
+
+    SEARCHABLE_PAGES = ("profiles", "subscriptions")
+
+    def refresh_pages(self) -> None:
+        """Reload every page from the current store and proxy state."""
+        store = self._context.profiles
+        groups = store.groups
+        profiles_by_group = {
+            group_id: store.get_profiles_in_group(group_id) for group_id in groups
+        }
+
+        state = self._context.proxy_state
+        active_id = state.started_profile_id if state.is_running else -1
+
+        self.profiles_page.set_active_profile(active_id)
+        self.profiles_page.set_data(groups, profiles_by_group)
+
+        counts = {group_id: len(items) for group_id, items in profiles_by_group.items()}
+        self.subscriptions_page.set_data(groups, counts)
+
+        self.refresh_monitoring()
+
+    def refresh_monitoring(self) -> None:
+        """Redraw the monitoring page from the monitor and the active profile."""
+        monitor = self._context.monitor
+        status = monitor.status if monitor is not None else _EmptyStatus()
+
+        state = self._context.proxy_state
+        profile = (
+            self._context.profiles.get_profile(state.started_profile_id)
+            if state.is_running
+            else None
+        )
+
+        routing = getattr(profile, "routing_settings", None) or self._context.config.routing
+        vpn_settings = getattr(profile, "vpn_settings", None)
+        vpn_enabled = bool(
+            vpn_settings
+            and getattr(vpn_settings, "enabled", False)
+            and getattr(vpn_settings, "connection_name", "")
+        )
+
+        self.monitoring_page.update(
+            monitoring_view(
+                status,
+                routing,
+                is_running=state.is_running,
+                profile_found=profile is not None,
+                vpn_enabled=vpn_enabled,
+                # Активность VPN берётся из последней проверки монитора, а не
+                # запрашивается у NetworkManager: перерисовка не должна ходить
+                # в систему.
+                vpn_is_up=vpn_enabled and status.vpn_ok,
+            )
+        )
+
+    def set_search_enabled(self, enabled: bool) -> None:
+        """Open or close the search bar of the visible page."""
+        page = self._visible_search_page()
+        if page is None:
+            return
+        page.set_search_enabled(enabled)
+
+    def _visible_search_page(self):
+        name = self.view_stack.get_visible_child_name()
+        if name == "profiles":
+            return self.profiles_page
+        if name == "subscriptions":
+            return self.subscriptions_page
+        return None
+
+    def _on_page_changed(self, _stack, _param) -> None:
+        """Close the search of the page we just left and disable it where unused."""
+        for page in (self.profiles_page, self.subscriptions_page):
+            if page is not self._visible_search_page():
+                page.set_search_enabled(False)
+
+        searchable = self.view_stack.get_visible_child_name() in self.SEARCHABLE_PAGES
+        self.search_button.set_sensitive(searchable)
+        if not searchable:
+            self.search_button.set_active(False)
+
+    def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
+        self.set_search_enabled(button.get_active())
+
+    def _on_monitoring_refresh(self, _page) -> None:
+        monitor = self._context.monitor
+        if monitor is not None:
+            monitor.check_now()
+        self.refresh_monitoring()
 
     def refresh_status(self) -> None:
         """Redraw the status card from the current proxy state."""
@@ -202,6 +317,7 @@ class MainWindow(Adw.ApplicationWindow):
         from gi.repository import GLib
 
         self.refresh_status()
+        self.refresh_pages()
         return GLib.SOURCE_REMOVE
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:

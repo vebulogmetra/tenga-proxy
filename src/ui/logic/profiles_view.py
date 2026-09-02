@@ -129,6 +129,11 @@ def build_profile_rows(
             if not visible:
                 continue
         else:
+            # Пустая группа не показывается и без фильтра: хранилище всегда
+            # заводит группу «Default», и без этого свежая установка встречала
+            # бы пользователя пустой строкой вместо приглашения добавить профиль.
+            if not group_profiles:
+                continue
             visible = group_profiles
 
         children = tuple(

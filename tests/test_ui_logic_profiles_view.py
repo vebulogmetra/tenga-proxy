@@ -158,3 +158,10 @@ def test_group_title_carries_visible_count(sample):
 def test_ping_text():
     assert ping_text(-1) == "—"
     assert ping_text(42) == "42 ms"
+
+
+def test_empty_group_is_hidden_without_a_query():
+    """The store always creates a "Default" group; an empty one is noise."""
+    groups = {0: FakeGroup(id=0, name="Default")}
+    rows = build_profile_rows(groups, {0: []})
+    assert rows == []
