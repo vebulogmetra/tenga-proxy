@@ -86,6 +86,8 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "RUF001",  # ambiguous unicode characters (false positives for Cyrillic text)
+    "RUF002",  # same, in docstrings: the project documents itself in Russian
+    "RUF003",  # same, in comments
     "ARG001",  # unused-function-argument (common for callback functions)
     "ARG002",  # unused-method-argument (common for interface methods)
     "ARG003",  # unused-class-method-argument
