@@ -23,7 +23,9 @@ class Geometry:
     maximized: bool = False
 
 
-DEFAULT_GEOMETRY = Geometry(width=520, height=720, maximized=False)
+# Ширина заведомо больше брейкпоинта _NARROW_WIDTH (550 sp): окно по
+# умолчанию должно открываться в широком режиме, а не в компактном.
+DEFAULT_GEOMETRY = Geometry(width=640, height=760, maximized=False)
 
 
 def _int_at(parts: list[str], index: int, minimum: int, fallback: int) -> int:
