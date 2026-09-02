@@ -1,12 +1,36 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import logging
 import os
 import socket
+import tempfile
 from pathlib import Path
 
 logger = logging.getLogger("tenga.sys.single_instance")
+
+# Linux limits sockaddr_un.sun_path to 108 bytes including the trailing NUL.
+_MAX_UNIX_SOCKET_PATH = 107
+
+
+def _socket_path_for(lock_file: Path) -> Path:
+    """Pick an activation socket path that fits into sun_path.
+
+    The socket normally sits next to the lock file, but a long TENGA_CONFIG_DIR
+    would overflow the AF_UNIX limit and bind() would fail with EINVAL, silently
+    disabling single-instance activation. In that case fall back to the runtime
+    directory with a name derived from the lock path.
+    """
+    candidate = lock_file.with_suffix(".sock")
+    if len(str(candidate).encode()) <= _MAX_UNIX_SOCKET_PATH:
+        return candidate
+
+    runtime_dir = Path(os.environ.get("XDG_RUNTIME_DIR") or tempfile.gettempdir())
+    digest = hashlib.sha1(str(lock_file).encode()).hexdigest()[:12]
+    fallback = runtime_dir / f"tenga-proxy-{digest}.sock"
+    logger.debug("Lock path too long for AF_UNIX, using socket at %s", fallback)
+    return fallback
 
 
 class SingleInstance:
@@ -22,7 +46,7 @@ class SingleInstance:
         self._lock_file = lock_file
         self._lock_fd: int | None = None
         self._acquired = False
-        self._socket_file = lock_file.with_suffix('.sock')
+        self._socket_file = _socket_path_for(lock_file)
 
     def is_running(self) -> bool:
         """

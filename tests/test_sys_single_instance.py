@@ -178,3 +178,22 @@ def test_release_unlink_error(monkeypatch, tmp_path):
 
     inst.release()
     assert not inst._acquired
+
+
+def test_socket_path_falls_back_to_runtime_dir_when_too_long(tmp_path, monkeypatch):
+    runtime = tmp_path / "run"
+    runtime.mkdir()
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(runtime))
+    long_dir = tmp_path / ("x" * 120)
+    long_dir.mkdir()
+
+    instance = SingleInstance(long_dir / "tenga.lock")
+
+    assert instance._socket_file.parent == runtime
+    assert len(str(instance._socket_file)) < 108
+
+
+def test_socket_path_stays_next_to_lock_when_short(tmp_path):
+    instance = SingleInstance(tmp_path / "tenga.lock")
+
+    assert instance._socket_file == tmp_path / "tenga.sock"
