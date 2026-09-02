@@ -520,3 +520,82 @@ def test_a_tray_that_cannot_start_does_not_break_the_application(adw_app, monkey
     adw_app.start_tray()
 
     assert adw_app.tray is None
+
+
+class _FakeManager:
+    """Стоит вместо XrayManager: замер не должен поднимать настоящий процесс."""
+
+    instances: list = []
+
+    def __init__(self, binary_path=None):
+        self.binary_path = binary_path
+        self.stopped = False
+        self.started_with = None
+        _FakeManager.instances.append(self)
+
+    def start(self, config):
+        self.started_with = config
+        return True, ""
+
+    def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
+        return 42
+
+    def stop(self):
+        self.stopped = True
+
+
+def _install_fake_xray(monkeypatch, cls=None):
+    """Replace XrayManager and return the probe's own instance afterwards.
+
+    Экземпляров создаётся два: один лениво заводит `AppContext` ради
+    `binary_path`, второй — сам замер. Замеру принадлежит последний.
+    """
+    _FakeManager.instances = []
+    monkeypatch.setattr("src.core.xray_manager.XrayManager", cls or _FakeManager)
+
+
+def _probe_manager():
+    assert _FakeManager.instances, "замер обязан был создать экземпляр"
+    return _FakeManager.instances[-1]
+
+
+def test_default_latency_probe_measures_through_a_temporary_xray(adw_app, monkeypatch):
+    _install_fake_xray(monkeypatch)
+    entry = add_profile(adw_app)
+
+    assert adw_app._default_latency_probe(entry.id) == 42
+    assert _probe_manager().stopped is True
+
+
+def test_default_latency_probe_returns_minus_one_for_a_missing_profile(adw_app, monkeypatch):
+    _install_fake_xray(monkeypatch)
+
+    assert adw_app._default_latency_probe(999999) == -1
+    assert _FakeManager.instances == []
+
+
+def test_default_latency_probe_returns_minus_one_when_xray_does_not_start(adw_app, monkeypatch):
+    class Failing(_FakeManager):
+        def start(self, config):
+            return False, "port busy"
+
+    _install_fake_xray(monkeypatch, Failing)
+    entry = add_profile(adw_app)
+
+    assert adw_app._default_latency_probe(entry.id) == -1
+    assert _probe_manager().stopped is True
+
+
+def test_default_latency_probe_stops_xray_when_the_probe_raises(adw_app, monkeypatch):
+    """Временный процесс гасится и на ошибке: иначе он останется висеть."""
+
+    class Raising(_FakeManager):
+        def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
+            raise RuntimeError("boom")
+
+    _install_fake_xray(monkeypatch, Raising)
+    entry = add_profile(adw_app)
+
+    with pytest.raises(RuntimeError):
+        adw_app._default_latency_probe(entry.id)
+    assert _probe_manager().stopped is True
