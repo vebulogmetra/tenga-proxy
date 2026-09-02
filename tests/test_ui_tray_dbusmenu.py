@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.ui.tray.dbusmenu import MenuItem, MenuModel, separator
+from src.ui.tray4.dbusmenu import MenuItem, MenuModel, separator
 
 
 def test_root_children_get_sequential_ids():

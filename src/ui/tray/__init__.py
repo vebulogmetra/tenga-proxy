@@ -1,1 +1,0 @@
-"""System tray over StatusNotifierItem."""

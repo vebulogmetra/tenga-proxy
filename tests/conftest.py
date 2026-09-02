@@ -49,3 +49,85 @@ def adw_app(_app_session, tmp_path):
     _app_session.reset_for_tests(AppContext(config_dir=tmp_path))
     yield _app_session
     _app_session.reset_for_tests(None)
+
+
+@pytest.fixture
+def private_bus():
+    """A throwaway session bus for the tray tests.
+
+    Свой экземпляр шины на тест: элемент трея занимает уникальное имя и
+    регистрируется у watcher, а делать это на живой шине пользователя нельзя —
+    там работает установленное приложение.
+    """
+    pytest.importorskip("gi")
+    from gi.repository import Gio
+
+    bus = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
+    bus.up()
+    try:
+        yield bus.get_bus_address()
+    finally:
+        bus.down()
+
+
+@pytest.fixture
+def bus_connection(private_bus):
+    """A client connection to the private bus."""
+    from gi.repository import Gio
+
+    flags = (
+        Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT
+        | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION
+    )
+    return Gio.DBusConnection.new_for_address_sync(private_bus, flags, None, None)
+
+
+@pytest.fixture
+def dbus_call():
+    """Call a D-Bus method while still driving the main loop.
+
+    `call_sync` здесь непригоден: объект обслуживается главным циклом того же
+    потока, и синхронный вызов блокирует его до таймаута. Поэтому вызов
+    асинхронный, а цикл крутится вручную до готовности ответа.
+    """
+    from gi.repository import Gio, GLib
+
+    def call(connection, name, path, interface, method, params=None, timeout=5.0):
+        box: dict = {}
+
+        def done(source, result):
+            try:
+                box["value"] = source.call_finish(result)
+            except Exception as e:  # noqa: BLE001 - ошибка возвращается вызывающему
+                box["error"] = e
+
+        connection.call(
+            name, path, interface, method, params, None, Gio.DBusCallFlags.NONE, 2000, None, done
+        )
+
+        context = GLib.MainContext.default()
+        deadline = GLib.get_monotonic_time() + int(timeout * 1_000_000)
+        while not box and GLib.get_monotonic_time() < deadline:
+            context.iteration(True)
+
+        if "error" in box:
+            raise box["error"]
+        if "value" not in box:
+            raise TimeoutError(f"{interface}.{method} did not answer in {timeout}s")
+        return box["value"]
+
+    return call
+
+
+@pytest.fixture
+def pump():
+    """Drive the main loop for a short while."""
+    from gi.repository import GLib
+
+    def run(seconds: float = 0.2) -> None:
+        context = GLib.MainContext.default()
+        deadline = GLib.get_monotonic_time() + int(seconds * 1_000_000)
+        while GLib.get_monotonic_time() < deadline:
+            context.iteration(False)
+
+    return run

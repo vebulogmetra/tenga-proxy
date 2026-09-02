@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from src.ui.tray.dbusmenu import MenuItem, MenuModel, separator
-from src.ui.tray.variants import layout_variant, pack_properties, properties_variant
+from src.ui.tray4.dbusmenu import MenuItem, MenuModel, separator
+from src.ui.tray4.variants import layout_variant, pack_properties, properties_variant
 
 
 def test_a_string_property_becomes_a_string_variant():
