@@ -98,7 +98,7 @@ def dbus_call():
         def done(source, result):
             try:
                 box["value"] = source.call_finish(result)
-            except Exception as e:  # noqa: BLE001 - ошибка возвращается вызывающему
+            except Exception as e:
                 box["error"] = e
 
         connection.call(
