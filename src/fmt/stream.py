@@ -1,9 +1,25 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from src.db.config import ConfigBase
+
+
+def parse_json_object(raw: str) -> dict[str, Any]:
+    """Разобрать сырой JSON-объект из share-ссылки.
+
+    Битое значение отбрасываем, а не роняем разбор всего профиля: парсеры ссылок
+    не бросают исключений, а одна кривая ссылка не должна ломать всю подписку.
+    """
+    if not raw or not raw.strip():
+        return {}
+    try:
+        parsed = json.loads(raw)
+    except (ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
 
 
 @dataclass
@@ -31,6 +47,15 @@ class StreamSettings(ConfigBase):
     ws_early_data_name: str = "Sec-WebSocket-Protocol"
     # Packet encoding
     packet_encoding: str = "xudp"  # Для VMess/VLESS
+    # XHTTP
+    xhttp_mode: str = ""  # auto | packet-up | stream-up | stream-one
+    xhttp_padding_bytes: str = ""  # напр. "100-1000"; пустая строка → дефолт ядра
+    # Сырой JSON из `?extra={...}` share-ссылки — это буквально тело настроек xhttp.
+    # Хранится строкой намеренно: набор ключей у xray открытый (seqKey, xmux, sc*,
+    # xPadding*, downloadSettings, ...) и меняется от сервера к серверу. Разложение
+    # по типизированным полям требовало бы правки кода на каждый новый ключ и молча
+    # резало бы обфускацию у профилей, которые без неё не подключаются.
+    xhttp_extra: str = ""
 
     def build_transport(self) -> dict[str, Any] | None:
         """Build transport configuration for xray-core (streamSettings)."""
@@ -77,7 +102,10 @@ class StreamSettings(ConfigBase):
 
         elif transport_type == "xhttp":
             stream_settings["network"] = "splithttp"
-            splithttp_settings: dict[str, Any] = {}
+            # extra из share-ссылки — готовое тело настроек транспорта (обфускация:
+            # seqKey/xmux/sc*/xPadding*). Берём его за основу, чтобы не потерять ключи,
+            # которых нет в StreamSettings: без них сервер с обфускацией не отвечает.
+            splithttp_settings: dict[str, Any] = parse_json_object(self.xhttp_extra)
 
             if self.path and self.path.strip() and self.path.strip() != "/":
                 splithttp_settings["path"] = self.path.strip()
@@ -94,6 +122,11 @@ class StreamSettings(ConfigBase):
                 host_value = self.sni.strip()
             if host_value:
                 splithttp_settings["host"] = host_value
+            # Явные параметры ссылки авторитетнее extra — extra задаёт дефолты транспорта.
+            if self.xhttp_mode:
+                splithttp_settings["mode"] = self.xhttp_mode
+            if self.xhttp_padding_bytes:
+                splithttp_settings["xPaddingBytes"] = self.xhttp_padding_bytes
             stream_settings["splithttpSettings"] = splithttp_settings
 
         elif transport_type == "grpc":

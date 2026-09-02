@@ -3,14 +3,19 @@ from __future__ import annotations
 import fcntl
 import logging
 import os
-import socket
 from pathlib import Path
 
 logger = logging.getLogger("tenga.sys.single_instance")
 
 
 class SingleInstance:
-    """Ensure only one instance of the application is running."""
+    """File lock keeping a second xray from starting.
+
+    Активацию окна второго запуска берёт на себя `Gio.Application`: имя
+    `ru.tenga.Proxy` на шине сессии занято первым процессом, и он получает
+    `activate`. Блокировка нужна лишь как страховка от двух ядер xray там,
+    где D-Bus недоступен.
+    """
 
     def __init__(self, lock_file: Path):
         """
@@ -22,7 +27,6 @@ class SingleInstance:
         self._lock_file = lock_file
         self._lock_fd: int | None = None
         self._acquired = False
-        self._socket_file = lock_file.with_suffix('.sock')
 
     def is_running(self) -> bool:
         """
@@ -47,8 +51,6 @@ class SingleInstance:
                 logger.warning("Stale lock file found (PID %s not running), removing", pid)
                 try:
                     self._lock_file.unlink()
-                    if self._socket_file.exists():
-                        self._socket_file.unlink()
                 except Exception:
                     pass
                 return False
@@ -57,68 +59,9 @@ class SingleInstance:
             logger.warning("Error reading lock file: %s", e)
             try:
                 self._lock_file.unlink()
-                if self._socket_file.exists():
-                    self._socket_file.unlink()
             except Exception:
                 pass
             return False
-
-    def send_activation_signal(self) -> bool:
-        """
-        Send activation signal to the existing instance to bring window to foreground.
-
-        Returns:
-            True if signal was sent successfully, False otherwise
-        """
-        try:
-            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            try:
-                sock.connect(str(self._socket_file))
-                sock.send(b'ACTIVATE')
-                return True
-            except socket.error as e:
-                logger.warning("Could not connect to existing instance socket: %s", e)
-                return False
-            finally:
-                sock.close()
-        except Exception as e:
-            logger.error("Error sending activation signal: %s", e)
-            return False
-
-    def setup_socket_server(self) -> bool:
-        """
-        Setup socket server for receiving activation signals.
-
-        Returns:
-            True if socket server was setup successfully, False otherwise
-        """
-        try:
-            if self._socket_file.exists():
-                self._socket_file.unlink()
-
-            self._server_socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self._server_socket.bind(str(self._socket_file))
-            self._server_socket.listen(1)
-
-            logger.info("Socket server setup at: %s", self._socket_file)
-            return True
-        except Exception as e:
-            logger.error("Error setting up socket server: %s", e)
-            return False
-
-    def close_socket_server(self):
-        """Close and cleanup socket server."""
-        try:
-            if hasattr(self, '_server_socket'):
-                self._server_socket.close()
-        except Exception as e:
-            logger.error("Error closing socket server: %s", e)
-
-        try:
-            if self._socket_file.exists():
-                self._socket_file.unlink()
-        except Exception as e:
-            logger.error("Error removing socket file: %s", e)
 
     def acquire(self) -> bool:
         """
@@ -147,7 +90,6 @@ class SingleInstance:
 
             self._acquired = True
             logger.info("Lock acquired, PID: %s", pid_str)
-            self.setup_socket_server()
 
             return True
 
@@ -183,7 +125,6 @@ class SingleInstance:
                     self._lock_file.unlink()
                 except Exception:
                     pass
-            self.close_socket_server()
 
             self._acquired = False
             logger.info("Lock released")

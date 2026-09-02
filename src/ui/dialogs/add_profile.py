@@ -1,188 +1,113 @@
-from __future__ import annotations
+"""Add a profile from a share link (GTK4)."""
 
-from typing import TYPE_CHECKING
+from __future__ import annotations
 
 import gi
 
-gi.require_version("Gtk", "3.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
 
-from gi.repository import Gdk, Gtk
+from gi.repository import Adw, GObject, Gtk, Pango
 
-from src.fmt import parse_link
-from src.ui.style import style_dialog
+from src.ui.dialogs.base import FormDialog, read_clipboard
+from src.ui.logic.forms import validate_profile_link
 
-if TYPE_CHECKING:
-    from src.fmt import ProxyBean
+PLACEHOLDER = "vless://… trojan://… hysteria2://…"
 
 
-class AddProfileDialog(Gtk.Dialog):
-    """Dialog for adding profile by share link."""
+class AddProfileDialog(FormDialog):
+    """Asks for a share link and reports the parsed profile."""
 
-    def __init__(self, parent: Gtk.Window | None = None):
-        super().__init__(
-            title="Добавить профиль",
-            transient_for=parent,
-            flags=0,
-        )
-        self.set_wmclass("tenga-proxy", "tenga-proxy")
-        self.set_role("tenga-proxy")
-        self.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-        self.connect("realize", self._on_realize)
+    __gtype_name__ = "TengaAddProfileDialog"
 
-        self.add_buttons(
-            Gtk.STOCK_CANCEL,
-            Gtk.ResponseType.CANCEL,
-            Gtk.STOCK_ADD,
-            Gtk.ResponseType.OK,
-        )
+    __gsignals__ = {
+        "profile-ready": (GObject.SignalFlags.RUN_FIRST, None, (object,)),
+    }
 
-        self.set_default_size(500, 200)
-        self.set_modal(True)
-        self.set_skip_taskbar_hint(True)
+    def __init__(self) -> None:
+        super().__init__("Добавить профиль", "Добавить")
+        self._bean = None
+        # Имя, введённое вручную, не должно затираться именем из ссылки.
+        self._name_touched = False
 
-        self._link_entry: Gtk.Entry | None = None
-        self._name_entry: Gtk.Entry | None = None
-        self._error_label: Gtk.Label | None = None
-        self._parsed_bean: ProxyBean | None = None
+        group = Adw.PreferencesGroup()
+        group.set_title("Ссылка подключения")
+        self.page.add(group)
 
-        self._setup_ui()
-        style_dialog(self)
+        self.link_row = Adw.EntryRow(title="Ссылка")
+        self.link_row.set_show_apply_button(False)
+        paste = Gtk.Button(icon_name="edit-paste-symbolic", valign=Gtk.Align.CENTER)
+        paste.add_css_class("flat")
+        paste.set_tooltip_text("Вставить из буфера обмена")
+        paste.connect("clicked", self._on_paste)
+        self.link_row.add_suffix(paste)
+        self.link_row.connect("changed", self._on_link_changed)
+        group.add(self.link_row)
 
-    def _on_realize(self, widget: Gtk.Widget) -> None:
-        """Handle window realization - set WM_CLASS via Gdk.Window."""
-        window = self.get_window()
-        if window:
-            try:
-                window.set_wmclass("tenga-proxy", "tenga-proxy")
-                # Ensure skip taskbar is set after window is realized
-                self.set_skip_taskbar_hint(True)
-            except Exception:
-                pass
+        self.name_row = Adw.EntryRow(title="Имя")
+        self.name_row.connect("changed", self._on_name_changed)
+        group.add(self.name_row)
 
-    def _setup_ui(self) -> None:
-        """Setup UI."""
-        content = self.get_content_area()
-        content.set_spacing(10)
-        content.set_margin_start(15)
-        content.set_margin_end(15)
-        content.set_margin_top(10)
-        content.set_margin_bottom(10)
+        # Подсказка внутри группы: отдельная метка под карточкой читалась бы
+        # как подпись ко всей странице, а не к введённой ссылке.
+        self.status_row = Adw.ActionRow()
+        self.status_row.set_visible(False)
+        self.status_row.add_css_class("property")
+        group.add(self.status_row)
+        self.status_label = Gtk.Label(xalign=0.0)
+        self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.status_label.add_css_class("caption")
+        self.status_row.add_prefix(self.status_label)
 
-        # Instructions
-        info_label = Gtk.Label()
-        info_label.set_markup("<b>Вставьте share link</b>\n")
-        info_label.set_halign(Gtk.Align.START)
-        content.pack_start(info_label, False, False, 0)
-        # Link field
-        link_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        content.pack_start(link_box, False, False, 5)
+        self.add_button = self.confirm_button
+        self.add_button.set_sensitive(False)
 
-        link_label = Gtk.Label(label="Ссылка:")
-        link_label.set_width_chars(10)
-        link_label.set_halign(Gtk.Align.END)
-        link_box.pack_start(link_label, False, False, 0)
+    # --- реакции ---
 
-        self._link_entry = Gtk.Entry()
-        self._link_entry.set_placeholder_text("vless://... или trojan://... или vmess://...")
-        self._link_entry.connect("changed", self._on_link_changed)
-        self._link_entry.connect("activate", self._on_link_activate)
-        link_box.pack_start(self._link_entry, True, True, 0)
+    def _on_name_changed(self, _row: Adw.EntryRow) -> None:
+        if self.name_row.get_text().strip():
+            self._name_touched = True
 
-        # Paste button
-        paste_button = Gtk.Button(label="📋")
-        paste_button.set_tooltip_text("Вставить из буфера обмена")
-        paste_button.connect("clicked", self._on_paste_clicked)
-        link_box.pack_start(paste_button, False, False, 0)
-        # Name field (optional)
-        name_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
-        content.pack_start(name_box, False, False, 5)
-
-        name_label = Gtk.Label(label="Имя:")
-        name_label.set_width_chars(10)
-        name_label.set_halign(Gtk.Align.END)
-        name_box.pack_start(name_label, False, False, 0)
-
-        self._name_entry = Gtk.Entry()
-        self._name_entry.set_placeholder_text("(опционально, будет взято из ссылки)")
-        name_box.pack_start(self._name_entry, True, True, 0)
-        # Error/status
-        self._error_label = Gtk.Label()
-        self._error_label.set_halign(Gtk.Align.START)
-        content.pack_start(self._error_label, False, False, 5)
-
-        content.show_all()
-
-        # Focus on link field
-        self._link_entry.grab_focus()
-
-    def _on_link_changed(self, entry: Gtk.Entry) -> None:
-        """Handle link change."""
-        link = entry.get_text().strip()
-
-        if not link:
-            self._error_label.set_text("")
-            self._parsed_bean = None
+    def _on_link_changed(self, _row: Adw.EntryRow) -> None:
+        text = self.link_row.get_text().strip()
+        if not text:
+            self._bean = None
+            self._set_status("")
+            self.add_button.set_sensitive(False)
             return
 
-        bean = parse_link(link)
+        result = validate_profile_link(text, name=self.name_row.get_text())
+        self._bean = result.bean
+        self._set_status(result.message, error=not result.ok)
+        self.add_button.set_sensitive(result.ok)
 
-        if bean:
-            self._parsed_bean = bean
-            self._error_label.set_markup(
-                f'<span color="green">[OK] {bean.proxy_type.upper()}: {bean.display_address}</span>'
-            )
+        if result.ok and not self._name_touched and result.bean.name:
+            # Флаг снимается вокруг подстановки: set_text снова эмитирует
+            # changed, и без этого автозаполнение считалось бы ручным вводом.
+            self.name_row.set_text(result.bean.name)
+            self._name_touched = False
 
-            # Fill name if empty
-            if not self._name_entry.get_text() and bean.name:
-                self._name_entry.set_text(bean.name)
+    def _set_status(self, text: str, *, error: bool = False) -> None:
+        self.status_label.set_text(text)
+        self.status_row.set_visible(bool(text))
+        if error:
+            self.status_label.add_css_class("error")
         else:
-            self._parsed_bean = None
-            self._error_label.set_markup(
-                '<span color="red">[ERROR] Не удалось распарсить ссылку</span>'
-            )
+            self.status_label.remove_css_class("error")
 
-    def _on_link_activate(self, entry: Gtk.Entry) -> None:
-        """Enter in link field."""
-        if self._parsed_bean:
-            self.response(Gtk.ResponseType.OK)
+    def _on_paste(self, _button: Gtk.Button) -> None:
+        read_clipboard(self.link_row.set_text)
 
-    def _on_paste_clicked(self, button: Gtk.Button) -> None:
-        """Paste from clipboard."""
-        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
-        text = clipboard.wait_for_text()
-        if text:
-            self._link_entry.set_text(text.strip())
+    def _on_confirm(self, _button: Gtk.Button) -> None:
+        bean = self.get_profile()
+        if bean is None:
+            return
+        self.emit("profile-ready", bean)
+        self.close()
 
-    def get_profile(self) -> ProxyBean | None:
-        """Get parsed profile."""
-        if not self._parsed_bean:
-            return None
+    # --- результат ---
 
-        # Update name if set
-        custom_name = self._name_entry.get_text().strip()
-        if custom_name:
-            self._parsed_bean.name = custom_name
-
-        return self._parsed_bean
-
-    def get_link(self) -> str:
-        """Get entered link."""
-        return self._link_entry.get_text().strip()
-
-
-def show_add_profile_dialog(parent: Gtk.Window | None = None) -> ProxyBean | None:
-    """
-    Show add profile dialog.
-
-    Returns:
-        ProxyBean if profile added, None if cancelled
-    """
-    dialog = AddProfileDialog(parent)
-    response = dialog.run()
-
-    profile = None
-    if response == Gtk.ResponseType.OK:
-        profile = dialog.get_profile()
-
-    dialog.destroy()
-    return profile
+    def get_profile(self):
+        """Return the parsed bean, with the typed name applied."""
+        result = validate_profile_link(self.link_row.get_text(), name=self.name_row.get_text())
+        return result.bean if result.ok else None

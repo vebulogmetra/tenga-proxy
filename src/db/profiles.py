@@ -15,6 +15,7 @@ def _get_protocol_classes() -> dict[str, type[ProxyBean]]:
     """Lazy loading of protocol classes to avoid circular imports."""
     from src.fmt.protocols import (
         HttpBean,
+        Hysteria2Bean,
         ShadowsocksBean,
         SocksBean,
         TrojanBean,
@@ -26,6 +27,8 @@ def _get_protocol_classes() -> dict[str, type[ProxyBean]]:
         "vless": VLESSBean,
         "trojan": TrojanBean,
         "vmess": VMessBean,
+        "hysteria2": Hysteria2Bean,
+        "hy2": Hysteria2Bean,
         "shadowsocks": ShadowsocksBean,
         "ss": ShadowsocksBean,
         "socks": SocksBean,

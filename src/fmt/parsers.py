@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import string
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, unquote
 
@@ -8,7 +9,25 @@ if TYPE_CHECKING:
     from src.fmt.base import ProxyBean
 
 
+def looks_like_base64(data: str) -> bool:
+    """Похоже ли содержимое на base64.
+
+    Нужна отдельная проверка: `decode_base64` декодирует с errors="ignore" и
+    на обычном тексте не падает, а возвращает мусор. Из-за этого список
+    share-ссылок мог «декодироваться» в бессмыслицу, и подписка молча давала
+    ноль профилей — срабатывало через раз, в зависимости от длины содержимого.
+    """
+    stripped = "".join(data.split())
+    if not stripped:
+        return False
+    allowed = set(string.ascii_letters + string.digits + "+/=-_")
+    return all(ch in allowed for ch in stripped)
+
+
 def decode_base64(data: str, url_safe: bool = True) -> str | None:
+    if not looks_like_base64(data):
+        return None
+
     try:
         # Add padding
         padding = 4 - len(data) % 4
@@ -130,6 +149,8 @@ def detect_link_type(link: str) -> str | None:
         return "vless"
     if link_lower.startswith("trojan://"):
         return "trojan"
+    if link_lower.startswith(("hysteria2://", "hy2://")):
+        return "hysteria2"
     if link_lower.startswith("vmess://"):
         return "vmess"
     if link_lower.startswith("ss://"):
@@ -147,6 +168,7 @@ def detect_link_type(link: str) -> str | None:
 def parse_link(link: str) -> ProxyBean | None:
     from src.fmt.protocols import (
         HttpBean,
+        Hysteria2Bean,
         ShadowsocksBean,
         SocksBean,
         TrojanBean,
@@ -166,6 +188,8 @@ def parse_link(link: str) -> ProxyBean | None:
         bean = TrojanBean()
     elif link_type == "vmess":
         bean = VMessBean()
+    elif link_type == "hysteria2":
+        bean = Hysteria2Bean()
     elif link_type == "shadowsocks":
         bean = ShadowsocksBean()
     elif link_type == "socks":
@@ -180,7 +204,19 @@ def parse_link(link: str) -> ProxyBean | None:
 
 
 def parse_subscription_content(content: str) -> list[ProxyBean]:
+    from src.fmt.json_config import looks_like_json, parse_json_config
+
     results: list[ProxyBean] = []
+
+    # Часть провайдеров отдаёт подписку готовым xray-конфигом, а не списком
+    # ссылок. Формат определяем по первому непробельному символу — ни URL, ни
+    # заголовки его не выдают. Проверяем до base64: decode_base64 работает с
+    # errors="ignore" и «успешно» превращает JSON в мусор.
+    if looks_like_json(content):
+        json_profiles = parse_json_config(content)
+        if json_profiles:
+            return json_profiles
+
     decoded = decode_base64(content.strip())
     if decoded:
         content = decoded
@@ -188,6 +224,12 @@ def parse_subscription_content(content: str) -> list[ProxyBean]:
     if "proxies:" in content:
         # TODO: Parse Clash YAML
         pass
+
+    # Подписка могла быть base64 от xray-конфига.
+    if looks_like_json(content):
+        json_profiles = parse_json_config(content)
+        if json_profiles:
+            return json_profiles
 
     for line in content.split("\n"):
         line = line.strip()

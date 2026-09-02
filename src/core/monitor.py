@@ -44,6 +44,8 @@ class ConnectionMonitor:
         """
         self._context = context
         self._timer_id: int | None = None
+        self._check_in_progress = False
+        self._check_generation = 0
         self._status = ConnectionStatus()
         self._previous_status = ConnectionStatus()
         self._on_status_changed: Callable[[ConnectionStatus, ConnectionStatus], None] | None = None
@@ -80,6 +82,11 @@ class ConnectionMonitor:
 
     def stop(self) -> None:
         """Stop monitoring."""
+        # Cleared before the early return: a check may be in flight even when no
+        # timer is armed, and leaving the flag set would make every later tick
+        # skip forever.
+        self._check_in_progress = False
+
         if self._timer_id is None:
             return
 
@@ -113,8 +120,16 @@ class ConnectionMonitor:
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Checking connections...")
 
+        if self._check_in_progress:
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug("Previous connection check still running, skipping tick")
+            return True
+
         # Run checks in background thread
-        threading.Thread(target=self._do_check_async, daemon=True).start()
+        self._check_in_progress = True
+        self._check_generation += 1
+        generation = self._check_generation
+        threading.Thread(target=self._do_check_async, args=(generation,), daemon=True).start()
 
         return True
 
@@ -192,11 +207,34 @@ class ConnectionMonitor:
         """Return True when VPN should be checked in monitoring."""
         return bool(self._get_effective_vpn_connection_name()) or self._context.config.vpn.enabled
 
-    def _do_check_async(self) -> None:
+    def _do_check_async(self, generation: int = 0) -> None:
         """Perform connection checks asynchronously.
 
         Runs in background thread to avoid blocking GTK main loop.
         """
+        try:
+            self._run_check()
+        finally:
+            from gi.repository import GLib
+
+            GLib.idle_add(self._finish_check, generation)
+
+    def _finish_check(self, generation: int = 0) -> bool:
+        """Allow the next tick to start a check (runs on the main loop).
+
+        A stale callback from a check that was superseded by stop()/start() must
+        not clear the flag of the check running now, so it is ignored unless it
+        belongs to the current generation.
+        """
+        if generation and generation != self._check_generation:
+            logger.debug("Ignoring stale check completion (generation %s)", generation)
+            return False
+
+        self._check_in_progress = False
+        return False
+
+    def _run_check(self) -> None:
+        """Collect connection status and hand the result to the main loop."""
         # Save previous status
         previous_status = ConnectionStatus(
             proxy_ok=self._status.proxy_ok,
@@ -217,7 +255,9 @@ class ConnectionMonitor:
         if self._should_check_vpn():
             vpn_ok, vpn_error = self._check_vpn_status()
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug("VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error")
+                logger.debug(
+                    "VPN status: %s (%s)", "OK" if vpn_ok else "FAIL", vpn_error or "no error"
+                )
 
         new_status = ConnectionStatus(
             proxy_ok=proxy_ok,
@@ -229,6 +269,7 @@ class ConnectionMonitor:
 
         # Update UI in main thread
         from gi.repository import GLib
+
         GLib.idle_add(self._update_status_from_async, previous_status, new_status)
 
     def _update_status_from_async(

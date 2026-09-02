@@ -115,7 +115,7 @@ def test_profile_manager_basic_operations(tmp_path):
     assert mgr.get_group(g2.id) is None
 
 
-def test_profile_manager_save_and_load(tmp_path):
+def test_profile_manager_save_and_load(tmp_path, monkeypatch):
     mgr = ProfileManager(profiles_dir=tmp_path)
 
     @dataclass
@@ -133,10 +133,9 @@ def test_profile_manager_save_and_load(tmp_path):
     def fake_protocols():
         return {"dummy": DummyBean}
 
-    import src.db.profiles as profiles_mod
-    from src import db as _db
-
-    profiles_mod._get_protocol_classes = fake_protocols
+    # Через monkeypatch, а не прямым присваиванием: иначе фейковый реестр протоколов
+    # утекал бы в последующие тесты и ломал разбор реальных профилей.
+    monkeypatch.setattr("src.db.profiles._get_protocol_classes", fake_protocols)
 
     g = mgr.add_group("G")
     mgr.current_group_id = g.id

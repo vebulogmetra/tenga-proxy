@@ -4,12 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tenga-proxy"
-version = "0.10.5"
+version = "0.13.0"
 description = "Клиент прокси с бекэндом xray-core"
 readme = "README.md"
 authors = [
     {name = "Artem G."}
 ]
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "certifi>=2025.11.12",
@@ -51,12 +53,17 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "-m",
+    "not gtk",
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "gtk: requires a display, run through make test-gtk",
+]
 
 [tool.ruff]
-target-version = "0.10.5"
+target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
@@ -81,6 +88,8 @@ ignore = [
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
     "RUF001",  # ambiguous unicode characters (false positives for Cyrillic text)
+    "RUF002",  # same, in docstrings: the project documents itself in Russian
+    "RUF003",  # same, in comments
     "ARG001",  # unused-function-argument (common for callback functions)
     "ARG002",  # unused-method-argument (common for interface methods)
     "ARG003",  # unused-class-method-argument

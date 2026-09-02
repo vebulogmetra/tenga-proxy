@@ -87,7 +87,7 @@ Tenga Proxy uses an architecture with separation into:
 
 - **xray-core** - main traffic processing engine
 - **Python 3.11+** - implementation language
-- **GTK 3** - graphical interface
+- **GTK 4 + libadwaita 1.5** - graphical interface following the GNOME HIG
 
 ### Development Tools
 
