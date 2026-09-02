@@ -134,3 +134,28 @@ def test_search_bar_can_be_toggled(page):
     assert page.search_bar.get_search_mode() is True
     page.set_search_enabled(False)
     assert page.search_bar.get_search_mode() is False
+
+
+def test_group_count_is_a_separate_label(gtk_ready, data):
+    """The count must survive ellipsization of a long group name."""
+    from src.ui.logic.profiles_view import build_profile_rows
+    from src.ui.pages.profiles import RowItem
+
+    groups, profiles = data
+    groups[1].name = "очень-длинное-имя-группы-" + "х" * 120
+    rows = build_profile_rows(groups, profiles)
+    group_row = next(row for row in rows if row.group_id == 1)
+
+    item = RowItem(group_row)
+    assert item.title == groups[1].name
+    assert item.count_text == "2"
+
+
+def test_profile_rows_carry_no_count(gtk_ready, data):
+    from src.ui.logic.profiles_view import build_profile_rows
+    from src.ui.pages.profiles import RowItem
+
+    groups, profiles = data
+    rows = build_profile_rows(groups, profiles)
+    leaf = RowItem(rows[0].children[0])
+    assert leaf.count_text == ""

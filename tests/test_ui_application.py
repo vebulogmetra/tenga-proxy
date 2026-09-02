@@ -152,7 +152,7 @@ def test_refresh_without_subscriptions_is_a_no_op(adw_app):
     adw_app.activate()
 
     called: list[int] = []
-    adw_app.set_subscription_updater(lambda gid, url: called.append(gid) or 0)
+    adw_app.set_subscription_updater(lambda gid, _url: called.append(gid) or 0)
     adw_app.activate_action("refresh-subscriptions", None)
     adw_app.wait_for_subscriptions_for_test()
 

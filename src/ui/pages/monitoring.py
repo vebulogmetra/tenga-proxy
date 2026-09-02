@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GObject, Gtk, Pango
 
 from src.ui.logic.monitoring_view import (
     CLASS_DIM,
@@ -80,7 +80,9 @@ class MonitoringPage(Adw.PreferencesPage):
 
         action_row = Adw.ActionRow(title=row.title)
         value = Gtk.Label(label=row.value)
-        value.set_wrap(True)
+        # Без переноса: строки короткие, а wrap рвал «Не запущен» надвое даже
+        # там, где места хватало. Длинную ошибку обрезаем многоточием.
+        value.set_ellipsize(Pango.EllipsizeMode.END)
         value.set_xalign(1.0)
         action_row.add_suffix(value)
         group.add(action_row)

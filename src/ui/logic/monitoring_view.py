@@ -12,6 +12,7 @@ from typing import Any
 
 UNKNOWN = "—"
 NOT_SET = "не задан"
+NOT_CONFIGURED = "не настроен"
 
 _PROXY_ALL = "proxy_all"
 _TIME_FORMAT = "%H:%M:%S"
@@ -97,7 +98,9 @@ def routing_rows(
     )
 
 
-def _connection_rows(status: Any, *, is_running: bool) -> tuple[MonitoringRow, ...]:
+def _connection_rows(
+    status: Any, *, is_running: bool, vpn_enabled: bool
+) -> tuple[MonitoringRow, ...]:
     if not is_running:
         proxy = MonitoringRow("Прокси", "Не запущен", CLASS_DIM)
     elif status.proxy_ok:
@@ -105,7 +108,13 @@ def _connection_rows(status: Any, *, is_running: bool) -> tuple[MonitoringRow, .
     else:
         proxy = MonitoringRow("Прокси", status.proxy_error or "Недоступен", CLASS_ERROR)
 
-    if not status.vpn_ok:
+    # `vpn_ok` остаётся True и когда монитор вовсе не проверял VPN
+    # (src/core/monitor.py: проверка пропускается без имени подключения), поэтому
+    # без явного признака настроенности строка сообщала бы «Активен» о
+    # выключенном VPN.
+    if not vpn_enabled:
+        vpn = MonitoringRow("VPN", NOT_CONFIGURED, CLASS_DIM)
+    elif not status.vpn_ok:
         vpn = MonitoringRow("VPN", status.vpn_error or "Недоступен", CLASS_ERROR)
     elif is_running:
         vpn = MonitoringRow("VPN", "Активен", CLASS_OK)
@@ -138,7 +147,7 @@ def monitoring_view(
         routing_part = routing_rows(routing, vpn_enabled=vpn_enabled, vpn_is_up=vpn_is_up)
 
     return MonitoringView(
-        connection=_connection_rows(status, is_running=is_running),
+        connection=_connection_rows(status, is_running=is_running, vpn_enabled=vpn_enabled),
         routing=routing_part,
         last_check=format_last_check(status.last_check_time),
     )

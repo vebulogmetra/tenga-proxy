@@ -21,6 +21,7 @@ from src.ui.logic.profiles_view import (
 )
 
 _ACTIVE_CLASS = "profile-active"
+_GROUP_CLASS = "profile-group"
 
 
 class RowItem(GObject.Object):
@@ -43,9 +44,12 @@ class RowItem(GObject.Object):
 
     @property
     def title(self) -> str:
-        if isinstance(self.row, GroupRow):
-            return f"{self.row.title} ({self.row.count})"
         return self.row.title
+
+    @property
+    def count_text(self) -> str:
+        """Profile count of a group, empty for a leaf."""
+        return str(self.row.count) if isinstance(self.row, GroupRow) else ""
 
     @property
     def proxy_type(self) -> str:
@@ -176,11 +180,21 @@ class ProfilesPage(Gtk.Box):
 
     def _setup_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
         icon = Gtk.Image()
+        box.append(icon)
+
         label = Gtk.Label(xalign=0.0)
         label.set_ellipsize(Pango.EllipsizeMode.END)
-        box.append(icon)
+        label.set_hexpand(True)
         box.append(label)
+
+        # Счётчик отдельной меткой: внутри названия он обрезался вместе с ним,
+        # а число профилей в группе — то, ради чего строку и разворачивают.
+        count = Gtk.Label(xalign=1.0)
+        count.add_css_class("dim-label")
+        count.add_css_class("caption")
+        box.append(count)
 
         expander = Gtk.TreeExpander()
         expander.set_child(box)
@@ -195,15 +209,22 @@ class ProfilesPage(Gtk.Box):
 
         box = expander.get_child()
         icon = box.get_first_child()
-        label = box.get_last_child()
+        label = icon.get_next_sibling()
+        count = box.get_last_child()
 
         icon.set_visible(bool(item.icon_name))
         if item.icon_name:
             icon.set_from_icon_name(item.icon_name)
 
         label.set_text(item.title)
-        label.remove_css_class(_ACTIVE_CLASS)
-        if not item.is_group and item.row.is_active:
+        count.set_text(item.count_text)
+        count.set_visible(bool(item.count_text))
+
+        for css_class in (_ACTIVE_CLASS, _GROUP_CLASS):
+            label.remove_css_class(css_class)
+        if item.is_group:
+            label.add_css_class(_GROUP_CLASS)
+        elif item.row.is_active:
             label.add_css_class(_ACTIVE_CLASS)
 
     def _setup_label_cell(self, _factory, list_item: Gtk.ListItem) -> None:

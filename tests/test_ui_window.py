@@ -191,7 +191,7 @@ def test_subscription_update_reaches_the_application(window, adw_app):
     window.refresh_pages()
 
     updated: list[int] = []
-    adw_app.set_subscription_updater(lambda gid, url: updated.append(gid) or 1)
+    adw_app.set_subscription_updater(lambda gid, _url: updated.append(gid) or 1)
 
     window.subscriptions_page.click_update_for_test(group_id=group.id)
     adw_app.wait_for_subscriptions_for_test()

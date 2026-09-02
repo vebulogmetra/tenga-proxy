@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from src.ui.logic.monitoring_view import (
+    NOT_CONFIGURED,
     NOT_SET,
     UNKNOWN,
     monitoring_view,
@@ -137,3 +138,27 @@ def test_proxy_ok_carries_the_connected_class():
 @pytest.mark.parametrize("mode", ["proxy_all", "custom"])
 def test_routing_always_returns_four_rows(mode):
     assert len(routing_rows(FakeRouting(mode=mode))) == 4
+
+
+def test_vpn_connection_row_says_not_configured_when_vpn_is_off():
+    """vpn_ok stays True when the monitor skips the check entirely."""
+    view = monitoring_view(
+        FakeStatus(proxy_ok=True, vpn_ok=True),
+        FakeRouting(),
+        is_running=True,
+        vpn_enabled=False,
+    )
+    vpn_row = next(row for row in view.connection if row.title == "VPN")
+    assert vpn_row.value == NOT_CONFIGURED
+    assert vpn_row.css_class == "dim-label"
+
+
+def test_vpn_connection_row_is_active_when_configured_and_up():
+    view = monitoring_view(
+        FakeStatus(proxy_ok=True, vpn_ok=True),
+        FakeRouting(),
+        is_running=True,
+        vpn_enabled=True,
+    )
+    vpn_row = next(row for row in view.connection if row.title == "VPN")
+    assert vpn_row.value == "Активен"
