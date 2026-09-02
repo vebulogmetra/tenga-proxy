@@ -138,3 +138,45 @@ def test_update_subscription_helper(monkeypatch):
         result = update_subscription("http://example.com/sub")
 
         assert len(result) == 1
+
+
+def test_fetch_assumes_utf8_when_the_server_omits_the_charset():
+    """requests falls back to ISO-8859-1 per RFC, mangling non-ASCII names."""
+    from unittest.mock import Mock, patch
+
+    from src.sub.updater import SubscriptionUpdater
+
+    name = "🌏 ByPass №3"
+    body = f"vless://uuid@example.org:443#{name}".encode()
+
+    mock_response = Mock()
+    mock_response.content = body
+    mock_response.encoding = "ISO-8859-1"  # так requests трактует ответ без charset
+    mock_response.headers = {"Content-Type": "text/plain"}
+    mock_response.raise_for_status = Mock()
+    mock_response.text = body.decode("iso-8859-1")
+
+    with patch("requests.get", return_value=mock_response):
+        result = SubscriptionUpdater().fetch("http://example.com/sub")
+
+    assert name in result
+
+
+def test_fetch_respects_an_explicit_charset():
+    """A server that does declare its charset must be believed."""
+    from unittest.mock import Mock, patch
+
+    from src.sub.updater import SubscriptionUpdater
+
+    text = "vless://uuid@example.org:443#Проба"
+    mock_response = Mock()
+    mock_response.content = text.encode("utf-8")
+    mock_response.encoding = "utf-8"
+    mock_response.headers = {"Content-Type": "text/plain; charset=utf-8"}
+    mock_response.raise_for_status = Mock()
+    mock_response.text = text
+
+    with patch("requests.get", return_value=mock_response):
+        result = SubscriptionUpdater().fetch("http://example.com/sub")
+
+    assert result == text

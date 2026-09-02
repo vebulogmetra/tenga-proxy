@@ -47,7 +47,7 @@ class SubscriptionUpdater:
             try:
                 response = requests.get(url, headers=headers, timeout=30, verify=verify)
                 response.raise_for_status()
-                return response.text
+                return self._decode(response)
             except requests.RequestException as e:
                 # Повторяем только сетевые сбои: HTTP-код — окончательный ответ
                 # сервера, повтор лишь задержит обновление.
@@ -66,6 +66,25 @@ class SubscriptionUpdater:
 
         # Недостижимо: последняя попытка либо возвращает результат, либо бросает.
         raise last_error or requests.RequestException("Не удалось загрузить подписку")
+
+    @staticmethod
+    def _decode(response: requests.Response) -> str:
+        """Read the body as text, assuming UTF-8 when no charset is declared.
+
+        Без charset в Content-Type requests по RFC 2616 берёт ISO-8859-1, и имена
+        профилей с кириллицей или эмодзи приходят искажёнными. Подписки почти
+        всегда в UTF-8, поэтому явно объявленную кодировку уважаем, а
+        подставленную по умолчанию — нет.
+        """
+        try:
+            content_type = response.headers.get("Content-Type", "") or ""
+            if "charset=" in content_type.lower() and response.encoding:
+                return response.text
+            return response.content.decode("utf-8", errors="replace")
+        except (AttributeError, TypeError, UnicodeDecodeError):
+            # Ответ без привычных полей (нестандартный транспорт, заглушка в
+            # тестах): текст всё равно нужно вернуть, а не уронить обновление.
+            return response.text
 
     @staticmethod
     def _is_retryable(error: requests.RequestException) -> bool:
