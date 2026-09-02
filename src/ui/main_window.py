@@ -21,6 +21,7 @@ from src.ui.dialogs import (
     show_profile_vpn_settings_dialog,
     show_subscription_dialog,
 )
+from src.ui.logic.latency import LatencyRunner
 from src.ui.style import style_widget_tree, style_window
 from src.sub.updater import SubscriptionUpdater
 
@@ -52,6 +53,7 @@ class MainWindow(Gtk.Window):
         self._on_disconnect: Callable[[], None] | None = None
         self._on_config_reload: Callable[[], None] | None = None
         self._on_test_latency: Callable[[int], int] | None = None
+        self._latency_runner = LatencyRunner(self._run_profile_latency_test)
         # UI elements
         self._profile_list: Gtk.TreeView | None = None
         self._profile_store: Gtk.TreeStore | None = None
@@ -700,94 +702,74 @@ class MainWindow(Gtk.Window):
         group_id = self._get_selected_group_id()
 
         if profile_id is not None:
-            profile = self._context.profiles.get_profile(profile_id)
-            if not profile:
+            if self._context.profiles.get_profile(profile_id) is None:
                 return
-
-            self._delay_label.set_text("...")
-            self._update_profile_ping_in_ui(profile_id, -2)
-
-            def do_test():
-                latency_ms = self._run_profile_latency_test(profile_id)
-                profile.latency_ms = latency_ms
-                self._context.profiles.save()
-
-                GLib.idle_add(self._update_profile_ping_in_ui, profile_id, latency_ms)
-                GLib.idle_add(self._show_delay_result, latency_ms)
-
-            thread = threading.Thread(target=do_test, daemon=True)
-            thread.start()
-
+            targets = [profile_id]
         elif group_id is not None:
-            group = self._context.profiles.get_group(group_id)
-            if not group:
+            if self._context.profiles.get_group(group_id) is None:
                 return
-
             profiles = self._context.profiles.get_profiles_in_group(group_id)
             if not profiles:
-                dialog = Gtk.MessageDialog(
-                    transient_for=self,
-                    flags=0,
-                    message_type=Gtk.MessageType.INFO,
-                    buttons=Gtk.ButtonsType.OK,
-                    text="Группа пуста",
+                self._show_message(
+                    "Группа пуста",
+                    "В группе нет профилей для тестирования.",
+                    Gtk.MessageType.INFO,
                 )
-                dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-                dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-                dialog.set_skip_taskbar_hint(True)
-                dialog.format_secondary_text("В группе нет профилей для тестирования.")
-                dialog.run()
-                dialog.destroy()
                 return
-
-            self._delay_label.set_text(f"Тестирование {len(profiles)} профилей...")
-
-            for profile in profiles:
-                self._update_profile_ping_in_ui(profile.id, -2)
-
-            def test_profile(profile_id: int) -> None:
-                """Test single profile and update UI."""
-                latency_ms = self._run_profile_latency_test(profile_id)
-                profile = self._context.profiles.get_profile(profile_id)
-                if profile:
-                    profile.latency_ms = latency_ms
-
-                GLib.idle_add(self._update_profile_ping_in_ui, profile_id, latency_ms)
-
-            def test_all_profiles():
-                """Test all profiles asynchronously."""
-                threads = []
-                for profile in profiles:
-                    thread = threading.Thread(
-                        target=test_profile, args=(profile.id,), daemon=True
-                    )
-                    thread.start()
-                    threads.append(thread)
-
-                # Wait for all threads to complete
-                for thread in threads:
-                    thread.join()
-
-                self._context.profiles.save()
-                GLib.idle_add(self._delay_label.set_text, "Готово")
-
-            thread = threading.Thread(target=test_all_profiles, daemon=True)
-            thread.start()
-
+            targets = [profile.id for profile in profiles]
         else:
-            dialog = Gtk.MessageDialog(
-                transient_for=self,
-                flags=0,
-                message_type=Gtk.MessageType.WARNING,
-                buttons=Gtk.ButtonsType.OK,
-                text="Выберите профиль или группу",
+            self._show_message(
+                "Выберите профиль или группу",
+                "Выберите профиль или группу для тестирования задержки.",
+                Gtk.MessageType.WARNING,
             )
-            dialog.set_wmclass("tenga-proxy", "tenga-proxy")
-            dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
-            dialog.set_skip_taskbar_hint(True)
-            dialog.format_secondary_text("Выберите профиль или группу для тестирования задержки.")
-            dialog.run()
-            dialog.destroy()
+            return
+
+        single = len(targets) == 1
+        for target_id in targets:
+            self._update_profile_ping_in_ui(target_id, -2)
+        self._delay_label.set_text(
+            "..." if single else f"Тестирование {len(targets)} профилей..."
+        )
+
+        def on_result(target_id: int, latency_ms: int) -> None:
+            """Store and display one probe result (main thread)."""
+            entry = self._context.profiles.get_profile(target_id)
+            if entry:
+                entry.latency_ms = latency_ms
+            self._update_profile_ping_in_ui(target_id, latency_ms)
+            if single:
+                self._show_delay_result(latency_ms)
+
+        def on_done() -> None:
+            """Persist results once, after every probe finished (main thread)."""
+            self._context.profiles.save()
+            if not single:
+                self._delay_label.set_text("Готово")
+
+        if not self._latency_runner.run(targets, on_result=on_result, on_done=on_done):
+            self._delay_label.set_text("Тест уже выполняется")
+
+    def _show_message(
+        self,
+        text: str,
+        secondary: str,
+        message_type: Gtk.MessageType = Gtk.MessageType.INFO,
+    ) -> None:
+        """Show a modal message dialog with the app window class."""
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            flags=0,
+            message_type=message_type,
+            buttons=Gtk.ButtonsType.OK,
+            text=text,
+        )
+        dialog.set_wmclass("tenga-proxy", "tenga-proxy")
+        dialog.set_type_hint(Gdk.WindowTypeHint.DIALOG)
+        dialog.set_skip_taskbar_hint(True)
+        dialog.format_secondary_text(secondary)
+        dialog.run()
+        dialog.destroy()
 
     def _show_delay_result(self, delay: int) -> None:
         """Show delay test result."""
