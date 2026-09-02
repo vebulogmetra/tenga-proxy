@@ -152,21 +152,24 @@ def main() -> int:
         if single_instance.send_activation_signal():
             logger.info("Activation signal sent successfully")
             return 0
-        else:
-            logger.warning("Could not send activation signal, starting new instance")
-            if not single_instance.acquire():
-                logger.error("Failed to acquire lock")
-                return 1
-    else:
+
+        logger.warning("Could not send activation signal, starting new instance")
         if not single_instance.acquire():
             logger.error("Failed to acquire lock")
             return 1
+    elif not single_instance.acquire():
+        logger.error("Failed to acquire lock")
+        return 1
 
     try:
         if args.gtk4:
             from src.ui.application import run_app
-        else:
-            from src.ui.app import run_app
+
+            return run_app(
+                config_dir=args.config_dir, lock=single_instance, with_tray=not args.no_tray
+            )
+
+        from src.ui.app import run_app
 
         return run_app(config_dir=args.config_dir, lock=single_instance)
     except ImportError as e:

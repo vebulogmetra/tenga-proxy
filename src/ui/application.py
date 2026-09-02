@@ -16,6 +16,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from src.core.context import AppContext, get_context
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
+from src.ui.logic.status import ConnectionState
 from src.ui.logic.version import app_version
 from src.ui.window import MainWindow, load_css
 
@@ -46,10 +47,14 @@ class TengaApplication(Adw.Application):
 
     __gtype_name__ = "TengaApplication"
 
-    def __init__(self, context: AppContext | None = None, lock=None) -> None:
+    def __init__(
+        self, context: AppContext | None = None, lock=None, *, with_tray: bool = False
+    ) -> None:
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.context = context or get_context()
         self._lock = lock
+        self.tray = None
+        self._with_tray = with_tray
         self._signal_source_ids: list[int] = []
         self._window: MainWindow | None = None
         self._latency_runner: LatencyRunner | None = None
@@ -68,6 +73,8 @@ class TengaApplication(Adw.Application):
         load_css()
         self._register_actions()
         self._setup_signal_handlers()
+        if self._with_tray:
+            self.start_tray()
 
     def do_activate(self) -> None:
         if self._window is None:
@@ -79,6 +86,8 @@ class TengaApplication(Adw.Application):
         # сохраняется здесь: этот путь общий для всех способов завершения.
         if self._window is not None:
             self._window.save_geometry()
+
+        self.stop_tray()
 
         for source_id in self._signal_source_ids:
             GLib.source_remove(source_id)
@@ -127,6 +136,30 @@ class TengaApplication(Adw.Application):
         for detailed_name, accels in _ACCELS.items():
             self.set_accels_for_action(detailed_name, accels)
 
+    # Трей
+
+    def start_tray(self, item=None) -> None:
+        """Publish the tray icon."""
+        from src.ui.tray4.controller import TrayController
+
+        if self.tray is not None:
+            return
+        try:
+            self.tray = TrayController(self, self.context, item=item)
+            self.tray.start()
+        except Exception as e:
+            # Без панели, поддерживающей StatusNotifierItem, приложение просто
+            # работает без иконки: это не повод не запускаться.
+            logger.info("Tray is unavailable: %s", e)
+            self.tray = None
+
+    def stop_tray(self) -> None:
+        """Remove the tray icon."""
+        if self.tray is None:
+            return
+        self.tray.stop()
+        self.tray = None
+
     # Подключение
 
     def set_connection_service(self, service) -> None:
@@ -157,6 +190,10 @@ class TengaApplication(Adw.Application):
 
         if self._window is not None:
             self._window.show_connecting(profile.name)
+        if self.tray is not None:
+            # Промежуточное состояние живёт только в UI: в proxy_state его нет,
+            # и сам по себе трей о нём не узнает.
+            self.tray.set_state(ConnectionState.CONNECTING, profile.name)
 
         service = self._ensure_connection_service()
         self._connection_thread = run_in_background(
@@ -205,6 +242,8 @@ class TengaApplication(Adw.Application):
             self.toast(f"Не удалось подключиться: {result.error}")
             if self._window is not None:
                 self._window.show_error(result.error)
+            if self.tray is not None:
+                self.tray.set_state(ConnectionState.ERROR, "")
 
         self._refresh_window()
 
@@ -219,6 +258,8 @@ class TengaApplication(Adw.Application):
         self.toast(f"Ошибка подключения: {error}")
         if self._window is not None:
             self._window.show_error(str(error))
+        if self.tray is not None:
+            self.tray.set_state(ConnectionState.ERROR, "")
         self._refresh_window()
 
     def _refresh_window(self) -> None:
@@ -637,6 +678,7 @@ class TengaApplication(Adw.Application):
         Существует ради тестов: создать второе приложение нельзя, GApplication
         занимает путь на шине сессии до конца процесса.
         """
+        self.stop_tray()
         if self._window is not None:
             self._window.detach()
             self._window.destroy()
@@ -675,10 +717,10 @@ class TengaApplication(Adw.Application):
         return GLib.SOURCE_REMOVE
 
 
-def run_app(config_dir=None, lock=None) -> int:
+def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     """Entry point for the GTK4 interface."""
     from src.core.context import init_context
 
     context = init_context(config_dir=config_dir)
-    app = TengaApplication(context=context, lock=lock)
+    app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
     return app.run([])

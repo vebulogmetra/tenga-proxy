@@ -402,3 +402,121 @@ def test_activate_action_still_accepts_a_variant(adw_app):
 
 def test_activating_an_unknown_action_is_harmless(adw_app):
     adw_app.activate_action("no-such-action", None)
+
+
+# --- трей (этап 4) ---
+
+
+def test_the_tray_is_off_unless_asked_for(adw_app):
+    assert adw_app.tray is None
+
+
+def test_start_tray_publishes_an_item(adw_app):
+    from tests.support.tray import FakeTrayItem
+
+    item = FakeTrayItem()
+    adw_app.start_tray(item=item)
+    try:
+        assert adw_app.tray is not None
+        assert item.published is True
+    finally:
+        adw_app.stop_tray()
+
+
+def test_starting_the_tray_twice_keeps_one_item(adw_app):
+    from tests.support.tray import FakeTrayItem
+
+    first = FakeTrayItem()
+    second = FakeTrayItem()
+    adw_app.start_tray(item=first)
+    try:
+        adw_app.start_tray(item=second)
+
+        assert second.published is False
+    finally:
+        adw_app.stop_tray()
+
+
+def test_connecting_moves_the_tray_into_the_connecting_state(adw_app):
+    from tests.support.tray import FakeTrayItem
+
+    adw_app.activate()
+    item = FakeTrayItem()
+    adw_app.start_tray(item=item)
+    entry = add_profile(adw_app)
+    adw_app.set_connection_service(FakeService([]))
+    try:
+        adw_app.connect_profile(entry.id)
+
+        # Промежуточное состояние есть только в UI, из proxy_state его не видно.
+        assert item.icons[-1] == "tenga-proxy-connecting"
+        adw_app.wait_for_connection_for_test()
+    finally:
+        adw_app.stop_tray()
+
+
+def test_a_failed_connection_moves_the_tray_into_the_error_state(adw_app):
+    from tests.support.tray import FakeTrayItem
+
+    adw_app.activate()
+    item = FakeTrayItem()
+    adw_app.start_tray(item=item)
+    entry = add_profile(adw_app)
+    adw_app.set_connection_service(FakeService([], ok=False, error="нет сети"))
+    try:
+        adw_app.connect_profile(entry.id)
+        adw_app.wait_for_connection_for_test()
+
+        assert item.tooltips[-1] == "Tenga Proxy: ошибка"
+    finally:
+        adw_app.stop_tray()
+
+
+def test_the_tray_menu_reaches_the_application_actions(adw_app):
+    from tests.support.tray import FakeTrayItem, find_item
+
+    adw_app.activate()
+    item = FakeTrayItem()
+    adw_app.start_tray(item=item)
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+    try:
+        adw_app.tray.refresh()
+        menu_entry = find_item(item.menus[-1], entry.name)
+        item.on_activate(menu_entry.action, menu_entry.target)
+        adw_app.wait_for_connection_for_test()
+
+        assert calls == [("connect", entry.id)]
+    finally:
+        adw_app.stop_tray()
+
+
+def test_stop_tray_removes_the_controller(adw_app):
+    from tests.support.tray import FakeTrayItem
+
+    item = FakeTrayItem()
+    adw_app.start_tray(item=item)
+
+    adw_app.stop_tray()
+
+    assert adw_app.tray is None
+    assert item.stopped is True
+
+
+def test_stop_tray_without_a_tray_is_safe(adw_app):
+    adw_app.stop_tray()
+
+
+def test_a_tray_that_cannot_start_does_not_break_the_application(adw_app, monkeypatch):
+    """Без панели с поддержкой SNI приложение обязано запуститься."""
+    from src.ui.tray4 import controller as controller_module
+
+    def explode(*_args, **_kwargs):
+        raise RuntimeError("no bus")
+
+    monkeypatch.setattr(controller_module, "TrayController", explode)
+
+    adw_app.start_tray()
+
+    assert adw_app.tray is None
