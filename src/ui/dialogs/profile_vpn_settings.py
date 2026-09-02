@@ -374,12 +374,16 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         )
         connection_grid.attach(self._vpn_auto_connect_check, 0, 3, 2, 1)
 
+        status_frame = Gtk.Frame()
+        status_frame.set_label("Статус VPN")
+        box.pack_start(status_frame, False, False, 0)
+
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         status_box.set_margin_start(10)
         status_box.set_margin_end(10)
         status_box.set_margin_top(5)
         status_box.set_margin_bottom(5)
-        connection_frame.add(status_box)
+        status_frame.add(status_box)
 
         status_label = Gtk.Label(label="Статус:")
         status_label.set_halign(Gtk.Align.START)
