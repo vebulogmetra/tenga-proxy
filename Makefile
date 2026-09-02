@@ -80,12 +80,17 @@ test-cov:
 	uv run pytest --cov=src --cov-report=term-missing --cov-report=html
 
 # Тесты виджетов GTK4: под xvfb, а при его отсутствии на текущем дисплее.
+# Отдельный прогон обязателен: GTK3 и GTK4 не уживаются в одном процессе, а
+# pytest импортирует все файлы тестов на этапе сбора, включая GTK3-овые.
+GTK4_TESTS := tests/test_ui_application.py tests/test_ui_window.py \
+	tests/test_ui_widgets_status_card.py
+
 test-gtk:
 	@if command -v xvfb-run >/dev/null 2>&1; then \
-		xvfb-run -a uv run pytest -m gtk -p no:cacheprovider --no-cov; \
+		xvfb-run -a uv run pytest -m gtk $(GTK4_TESTS) -p no:cacheprovider --no-cov; \
 	else \
 		echo "xvfb-run not found, using DISPLAY=$$DISPLAY"; \
-		GDK_BACKEND=x11 uv run pytest -m gtk -p no:cacheprovider --no-cov; \
+		GDK_BACKEND=x11 uv run pytest -m gtk $(GTK4_TESTS) -p no:cacheprovider --no-cov; \
 	fi
 
 # Utilities
