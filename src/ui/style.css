@@ -39,3 +39,10 @@
 .latency-bad {
   color: @error_color;
 }
+
+/* Активный профиль в дереве: цветом и насыщенностью, без символа-префикса —
+   значок пометки съедал бы ширину колонки на узком окне. */
+.profile-active {
+  color: @accent_color;
+  font-weight: bold;
+}

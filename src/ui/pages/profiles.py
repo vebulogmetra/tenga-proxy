@@ -1,0 +1,374 @@
+"""Profiles page: a filterable, sortable tree of groups and profiles."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable, Mapping
+from typing import Any
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+
+from gi.repository import Adw, Gio, GObject, Gtk, Pango
+
+from src.ui.logic.profiles_view import (
+    GroupRow,
+    ProfileRow,
+    SortKey,
+    build_profile_rows,
+    ping_text,
+)
+
+_ACTIVE_CLASS = "profile-active"
+
+
+class RowItem(GObject.Object):
+    """List model wrapper around a group or a profile row.
+
+    `Gtk.TreeListModel` работает только с `GObject`, а dataclass'ы из
+    `profiles_view` намеренно остаются обычными объектами Python, чтобы их
+    можно было тестировать без GTK.
+    """
+
+    __gtype_name__ = "TengaProfileRowItem"
+
+    def __init__(self, row: GroupRow | ProfileRow) -> None:
+        super().__init__()
+        self.row = row
+
+    @property
+    def is_group(self) -> bool:
+        return isinstance(self.row, GroupRow)
+
+    @property
+    def title(self) -> str:
+        if isinstance(self.row, GroupRow):
+            return f"{self.row.title} ({self.row.count})"
+        return self.row.title
+
+    @property
+    def proxy_type(self) -> str:
+        return "" if self.is_group else self.row.proxy_type.upper()
+
+    @property
+    def address(self) -> str:
+        return "" if self.is_group else self.row.address
+
+    @property
+    def ping(self) -> str:
+        return "" if self.is_group else ping_text(self.row.latency_ms)
+
+    @property
+    def icon_name(self) -> str:
+        return self.row.icon_name if isinstance(self.row, GroupRow) else ""
+
+
+def _new_row_store() -> Gio.ListStore:
+    """Create an empty list store holding RowItem instances."""
+    return Gio.ListStore.new(RowItem)
+
+
+class ProfilesPage(Gtk.Box):
+    """Search bar, profile tree and the empty state."""
+
+    __gtype_name__ = "TengaProfilesPage"
+
+    __gsignals__ = {
+        "profile-activated": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
+        "profile-context": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
+    }
+
+    def __init__(self) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+
+        self._groups: Mapping[int, Any] = {}
+        self._profiles: Mapping[int, Iterable[Any]] = {}
+        self._query = ""
+        self._sort_key = SortKey.NAME
+        self._ascending = True
+        self._active_profile_id = -1
+        self._rows: list[GroupRow] = []
+
+        self._build_search_bar()
+        self._build_stack()
+        self.refresh()
+
+    # --- построение ---
+
+    def _build_search_bar(self) -> None:
+        self.search_entry = Gtk.SearchEntry(hexpand=True)
+        self.search_entry.set_placeholder_text("Имя, тип, сервер или группа")
+        self.search_entry.connect("search-changed", self._on_search_changed)
+
+        self.search_bar = Gtk.SearchBar()
+        self.search_bar.set_child(self.search_entry)
+        self.search_bar.connect_entry(self.search_entry)
+        self.append(self.search_bar)
+
+    def _build_stack(self) -> None:
+        self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self._stack.set_vexpand(True)
+        self.append(self._stack)
+
+        self._empty_page = Adw.StatusPage(
+            icon_name="network-server-symbolic",
+            title="Профилей пока нет",
+            description="Добавьте профиль по ссылке или подключите подписку.",
+        )
+        self._stack.add_named(self._empty_page, "empty")
+
+        scrolled = Gtk.ScrolledWindow(
+            hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
+        )
+        scrolled.set_child(self._build_column_view())
+        self._stack.add_named(scrolled, "list")
+
+    def _build_column_view(self) -> Gtk.ColumnView:
+        self._tree_model: Gtk.TreeListModel | None = None
+
+        self.column_view = Gtk.ColumnView()
+        self.column_view.add_css_class("data-table")
+        self.column_view.connect("activate", self._on_row_activated)
+
+        self.column_view.append_column(self._build_name_column())
+        self.column_view.append_column(
+            self._build_text_column("Тип", lambda item: item.proxy_type, expand=False)
+        )
+        self.column_view.append_column(
+            self._build_text_column("Сервер", lambda item: item.address, expand=True)
+        )
+        self.column_view.append_column(self._build_ping_column())
+
+        return self.column_view
+
+    def _build_name_column(self) -> Gtk.ColumnViewColumn:
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._setup_name_cell)
+        factory.connect("bind", self._bind_name_cell)
+
+        column = Gtk.ColumnViewColumn(title="Имя", factory=factory)
+        column.set_expand(True)
+        column.set_resizable(True)
+        return column
+
+    def _build_text_column(self, title, getter, *, expand: bool) -> Gtk.ColumnViewColumn:
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._setup_label_cell)
+        factory.connect("bind", lambda _f, item: self._bind_label_cell(item, getter))
+
+        column = Gtk.ColumnViewColumn(title=title, factory=factory)
+        column.set_expand(expand)
+        column.set_resizable(True)
+        return column
+
+    def _build_ping_column(self) -> Gtk.ColumnViewColumn:
+        factory = Gtk.SignalListItemFactory()
+        factory.connect("setup", self._setup_label_cell)
+        factory.connect("bind", lambda _f, item: self._bind_label_cell(item, lambda i: i.ping))
+
+        column = Gtk.ColumnViewColumn(title="Пинг", factory=factory)
+        column.set_resizable(True)
+        return column
+
+    # --- фабрики ячеек ---
+
+    def _setup_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        icon = Gtk.Image()
+        label = Gtk.Label(xalign=0.0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        box.append(icon)
+        box.append(label)
+
+        expander = Gtk.TreeExpander()
+        expander.set_child(box)
+        list_item.set_child(expander)
+
+    def _bind_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
+        tree_row = list_item.get_item()
+        item = tree_row.get_item()
+
+        expander = list_item.get_child()
+        expander.set_list_row(tree_row)
+
+        box = expander.get_child()
+        icon = box.get_first_child()
+        label = box.get_last_child()
+
+        icon.set_visible(bool(item.icon_name))
+        if item.icon_name:
+            icon.set_from_icon_name(item.icon_name)
+
+        label.set_text(item.title)
+        label.remove_css_class(_ACTIVE_CLASS)
+        if not item.is_group and item.row.is_active:
+            label.add_css_class(_ACTIVE_CLASS)
+
+    def _setup_label_cell(self, _factory, list_item: Gtk.ListItem) -> None:
+        label = Gtk.Label(xalign=0.0)
+        label.set_ellipsize(Pango.EllipsizeMode.END)
+        list_item.set_child(label)
+
+    def _bind_label_cell(self, list_item: Gtk.ListItem, getter) -> None:
+        item = list_item.get_item().get_item()
+        list_item.get_child().set_text(getter(item))
+
+    # --- модель ---
+
+    def _rebuild_model(self) -> None:
+        self._rows = build_profile_rows(
+            self._groups,
+            self._profiles,
+            query=self._query,
+            sort_key=self._sort_key,
+            ascending=self._ascending,
+            active_profile_id=self._active_profile_id,
+        )
+
+        root = _new_row_store()
+        for group in self._rows:
+            root.append(RowItem(group))
+
+        self._tree_model = Gtk.TreeListModel.new(
+            root,
+            passthrough=False,
+            autoexpand=False,
+            create_func=self._children_of,
+        )
+        self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
+        self._stack.set_visible_child_name("list" if self._rows else "empty")
+
+    def _children_of(self, item: RowItem):
+        """Return the child model of a group, or None for a leaf."""
+        if not item.is_group or not item.row.children:
+            return None
+
+        store = _new_row_store()
+        for child in item.row.children:
+            store.append(RowItem(child))
+        return store
+
+    # --- публичное api ---
+
+    def set_data(
+        self,
+        groups: Mapping[int, Any],
+        profiles_by_group: Mapping[int, Iterable[Any]],
+    ) -> None:
+        """Replace the underlying data and rebuild the tree."""
+        self._groups = groups
+        self._profiles = profiles_by_group
+        self.refresh()
+
+    def set_query(self, query: str) -> None:
+        self._query = query
+        self.refresh()
+
+    def set_sort(self, sort_key: SortKey, *, ascending: bool = True) -> None:
+        self._sort_key = sort_key
+        self._ascending = ascending
+        self.refresh()
+
+    def set_active_profile(self, profile_id: int) -> None:
+        self._active_profile_id = profile_id
+        self.refresh()
+
+    def set_search_enabled(self, enabled: bool) -> None:
+        self.search_bar.set_search_mode(enabled)
+        if enabled:
+            self.search_entry.grab_focus()
+
+    def refresh(self) -> None:
+        """Rebuild the tree from the current data, filter and ordering."""
+        self._rebuild_model()
+
+    def expand_all(self) -> None:
+        """Expand every group.
+
+        Индекс идёт вперёд по живой модели: раскрытие группы вставляет её детей
+        сразу за ней, поэтому диапазон, снятый заранее, пропустил бы часть строк.
+        """
+        if self._tree_model is None:
+            return
+
+        index = 0
+        while index < self._tree_model.get_n_items():
+            row = self._tree_model.get_row(index)
+            if row is not None and row.is_expandable():
+                row.set_expanded(True)
+            index += 1
+
+    def get_selected_profile_id(self) -> int | None:
+        """Return the selected profile, or None when a group is selected."""
+        selection = self.column_view.get_model()
+        if selection is None:
+            return None
+        tree_row = selection.get_selected_item()
+        if tree_row is None:
+            return None
+        item = tree_row.get_item()
+        return None if item.is_group else item.row.profile_id
+
+    # --- обработчики ---
+
+    def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
+        self.set_query(entry.get_text())
+
+    def _on_row_activated(self, _view: Gtk.ColumnView, position: int) -> None:
+        self._activate_position(position)
+
+    def _activate_position(self, position: int) -> None:
+        if self._tree_model is None:
+            return
+        tree_row = self._tree_model.get_row(position)
+        if tree_row is None:
+            return
+
+        item = tree_row.get_item()
+        if item.is_group:
+            tree_row.set_expanded(not tree_row.get_expanded())
+            return
+
+        self.emit("profile-activated", item.row.profile_id)
+
+    # --- аксессоры для тестов ---
+
+    def get_visible_state(self) -> str:
+        return self._stack.get_visible_child_name()
+
+    def get_root_count(self) -> int:
+        return len(self._rows)
+
+    def get_visible_row_count(self) -> int:
+        return 0 if self._tree_model is None else self._tree_model.get_n_items()
+
+    def get_profile_titles(self, *, group_id: int) -> list[str]:
+        for group in self._rows:
+            if group.group_id == group_id:
+                return [child.title for child in group.children]
+        return []
+
+    def get_active_titles(self) -> list[str]:
+        return [
+            child.title for group in self._rows for child in group.children if child.is_active
+        ]
+
+    def activate_row_for_test(self, position: int) -> None:
+        self._activate_position(position)
+
+    def emit_activation_for_test(self, *, profile_id: int) -> None:
+        for position in range(self.get_visible_row_count()):
+            tree_row = self._tree_model.get_row(position)
+            item = tree_row.get_item()
+            if not item.is_group and item.row.profile_id == profile_id:
+                self._activate_position(position)
+                return
+
+
+def _new_row_store() -> Any:
+    """Create a Gio.ListStore of RowItem."""
+    from gi.repository import Gio
+
+    return Gio.ListStore.new(RowItem)
