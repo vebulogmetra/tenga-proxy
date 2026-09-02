@@ -1,4 +1,4 @@
-.PHONY: install dev-install run cli gui test lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
+.PHONY: install dev-install run cli gui test test-gtk lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
 
 # Переменные
 PYTHON := uv run python
@@ -78,6 +78,15 @@ test:
 
 test-cov:
 	uv run pytest --cov=src --cov-report=term-missing --cov-report=html
+
+# Тесты виджетов GTK4: под xvfb, а при его отсутствии на текущем дисплее.
+test-gtk:
+	@if command -v xvfb-run >/dev/null 2>&1; then \
+		xvfb-run -a uv run pytest -m gtk -p no:cacheprovider --no-cov; \
+	else \
+		echo "xvfb-run not found, using DISPLAY=$$DISPLAY"; \
+		GDK_BACKEND=x11 uv run pytest -m gtk -p no:cacheprovider --no-cov; \
+	fi
 
 # Utilities
 clean:

@@ -51,9 +51,14 @@ addopts = [
     "--cov=src",
     "--cov-report=term-missing",
     "--cov-report=html",
+    "-m",
+    "not gtk",
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = [
+    "gtk: requires a display, run through make test-gtk",
+]
 
 [tool.ruff]
 target-version = "py311"
