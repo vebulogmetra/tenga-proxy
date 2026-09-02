@@ -158,3 +158,7 @@ curl -x socks5://127.0.0.1:2080 https://ifconfig.me
 
 Разработчикам: [сборка и участие в проекте](docs/ru/development.md).
 
+## Лицензия
+
+[MIT](LICENSE)
+
