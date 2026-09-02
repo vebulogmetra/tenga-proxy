@@ -23,7 +23,7 @@ from src.core.proxy_mode import (
     normalize_proxy_mode,
     should_manage_system_proxy,
 )
-from src.db.config import ProxyMode, RoutingMode
+from src.db.config import LOCAL_NETWORKS, ProxyMode, RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.proxy import clear_system_proxy, set_system_proxy
 from src.sys.tun_route import TunRouteState, apply_tun_routes, restore_tun_routes
@@ -567,16 +567,7 @@ class TengaApp:
 
             if routing.mode == RoutingMode.PROXY_ALL:
                 if routing.bypass_local_networks:
-                    local_networks = [
-                        "127.0.0.0/8",
-                        "10.0.0.0/8",
-                        "172.16.0.0/12",
-                        "192.168.0.0/16",
-                        "169.254.0.0/16",
-                        "::1/128",
-                        "fc00::/7",
-                        "fe80::/10",
-                    ]
+                    local_networks = list(LOCAL_NETWORKS)
                     route_rules.append(
                         {
                             "type": "field",
@@ -589,16 +580,7 @@ class TengaApp:
                 direct_list = list(routing.direct_list) if routing.direct_list else []
 
                 if routing.bypass_local_networks:
-                    local_networks = [
-                        "127.0.0.0/8",
-                        "10.0.0.0/8",
-                        "172.16.0.0/12",
-                        "192.168.0.0/16",
-                        "169.254.0.0/16",
-                        "::1/128",
-                        "fc00::/7",
-                        "fe80::/10",
-                    ]
+                    local_networks = list(LOCAL_NETWORKS)
                     for network in local_networks:
                         if network not in direct_list:
                             direct_list.append(network)

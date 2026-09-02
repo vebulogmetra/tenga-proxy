@@ -10,7 +10,7 @@ gi.require_version("Gtk", "3.0")
 
 from gi.repository import Gdk, GLib, Gtk, Pango
 
-from src.db.config import RoutingMode, RoutingSettings, VpnSettings
+from src.db.config import LOCAL_NETWORKS, RoutingMode, RoutingSettings, VpnSettings
 from src.sys.vpn import (
     get_vpn_interface,
     is_vpn_active,
@@ -618,16 +618,7 @@ class ProfileVpnSettingsDialog(Gtk.Dialog):
         if not hasattr(self, "_direct_list_text"):
             return
         
-        local_networks = [
-            "127.0.0.0/8",
-            "10.0.0.0/8",
-            "172.16.0.0/12",
-            "192.168.0.0/16",
-            "169.254.0.0/16",
-            "::1/128",
-            "fc00::/7",
-            "fe80::/10",
-        ]
+        local_networks = list(LOCAL_NETWORKS)
         
         buffer = self._direct_list_text.get_buffer()
         start, end = buffer.get_bounds()
