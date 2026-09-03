@@ -161,6 +161,7 @@ class AppContext:
 
             # Auto-cleanup old logs on first access
             import logging
+
             logger = logging.getLogger("tenga.core.context")
             try:
                 removed = self._log_manager.cleanup_old_logs(days=14)

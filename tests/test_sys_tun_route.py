@@ -34,7 +34,9 @@ def test_run_helper_uses_non_interactive_sudo(monkeypatch):
         return False, "", "denied"
 
     monkeypatch.setattr(tun_route.os.path, "exists", lambda _p: True)
-    monkeypatch.setattr(tun_route.shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None)
+    monkeypatch.setattr(
+        tun_route.shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None
+    )
     monkeypatch.setattr(tun_route, "_run_command", fake_run_command)
 
     tun_route._run_helper("restore", ["1.1.1.1", "-", "eth0", "-"])
@@ -53,7 +55,9 @@ def test_run_ip_batch_fallback_uses_non_interactive_sudo(monkeypatch):
             return True, "", ""
         return False, "", "unexpected command"
 
-    monkeypatch.setattr(tun_route.shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None)
+    monkeypatch.setattr(
+        tun_route.shutil, "which", lambda name: "/usr/bin/sudo" if name == "sudo" else None
+    )
     monkeypatch.setattr(tun_route, "_run_command", fake_run_command)
 
     ok, err = tun_route._run_ip_batch_privileged([["route", "replace", "default", "dev", "xray0"]])

@@ -5,12 +5,13 @@ import logging
 import subprocess
 import tempfile
 import time
-from statistics import median
-import requests
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import median
 from typing import IO, Any
+
+import requests
 
 from src.core.config import (
     DEFAULT_STATS_API_ADDR,
@@ -546,7 +547,9 @@ class XrayManager:
                 start_ns = time.perf_counter_ns()
                 cache_buster = f"cb={start_ns}_{probe_index}"
                 probe_url = (
-                    f"{test_url}&{cache_buster}" if "?" in test_url else f"{test_url}?{cache_buster}"
+                    f"{test_url}&{cache_buster}"
+                    if "?" in test_url
+                    else f"{test_url}?{cache_buster}"
                 )
 
                 try:

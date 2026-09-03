@@ -114,9 +114,7 @@ def test_last_check_never():
 
 def test_last_check_formats_the_timestamp():
     timestamp = 1_700_000_000.0
-    view = monitoring_view(
-        FakeStatus(last_check_time=timestamp), FakeRouting(), is_running=False
-    )
+    view = monitoring_view(FakeStatus(last_check_time=timestamp), FakeRouting(), is_running=False)
     expected = datetime.datetime.fromtimestamp(timestamp).strftime("%H:%M:%S")
     assert view.last_check == expected
 

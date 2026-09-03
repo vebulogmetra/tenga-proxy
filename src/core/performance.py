@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 logger = logging.getLogger("tenga.core.performance")
 
@@ -27,6 +28,7 @@ def measure_time(operation_name: str, threshold_ms: int = 100) -> Callable[[F], 
         def query_db():
             # ...
     """
+
     def decorator(func: F) -> F:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -38,5 +40,7 @@ def measure_time(operation_name: str, threshold_ms: int = 100) -> Callable[[F], 
                 logger.warning("%s took %.0fms", operation_name, elapsed_ms)
 
             return result
+
         return wrapper  # type: ignore
+
     return decorator

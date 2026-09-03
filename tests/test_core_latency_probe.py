@@ -9,7 +9,10 @@ from src.core.xray_manager import XrayManager
 
 
 def _make_running_manager(monkeypatch) -> XrayManager:
-    monkeypatch.setattr(XrayManager, "_fetch_version", lambda self: None)
+    # Версия ядра читается в конструкторе и лезет к бинарнику, которого в
+    # тестах нет. Подменяется метод экземпляра, поэтому `self` в сигнатуре
+    # обязателен, хотя и не используется.
+    monkeypatch.setattr(XrayManager, "_fetch_version", lambda self: None)  # noqa: ARG005
     manager = XrayManager(binary_path="xray")
     manager._process = Mock()
     manager._process.poll.return_value = None
@@ -17,7 +20,7 @@ def _make_running_manager(monkeypatch) -> XrayManager:
 
 
 def test_test_delay_realistic_returns_minus_one_when_manager_not_running(monkeypatch):
-    monkeypatch.setattr(XrayManager, "_fetch_version", lambda self: None)
+    monkeypatch.setattr(XrayManager, "_fetch_version", lambda self: None)  # noqa: ARG005
     manager = XrayManager(binary_path="xray")
 
     delay_ms = manager.test_delay_realistic(
