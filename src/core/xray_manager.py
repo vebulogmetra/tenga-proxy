@@ -138,6 +138,17 @@ class XrayManager:
         if "stats" not in config:
             config["stats"] = {}
 
+        # Без счётчиков в policy ядро не ведёт статистику вовсе: секции stats и
+        # api сами по себе лишь открывают доступ к тому, что уже посчитано.
+        # Вложенные словари копируются явно: config.copy() поверхностный, и
+        # правка на месте протекла бы в конфигурацию вызывающего.
+        policy = dict(config.get("policy") or {})
+        system = dict(policy.get("system") or {})
+        system["statsOutboundUplink"] = True
+        system["statsOutboundDownlink"] = True
+        policy["system"] = system
+        config["policy"] = policy
+
         # Enable API service
         if "api" not in config:
             config["api"] = {
