@@ -98,7 +98,6 @@ class DataStore(ConfigBase):
     # Misc
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000
-    connection_statistics: bool = False
     check_include_pre: bool = False
     system_proxy_format: str = ""
     # Runtime state (not saved)

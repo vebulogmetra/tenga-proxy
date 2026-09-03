@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 from src.core.context import AppContext
 from src.core.monitor import ConnectionMonitor, ConnectionStatus
+from src.core.xray_manager import TrafficStats
 
 
 def test_connection_status_defaults():
@@ -87,10 +88,11 @@ def test_connection_monitor_start_enabled(tmp_path, monkeypatch):
         monitor.start()
 
         assert monitor._timer_id == 123
-        mock_timeout_add.assert_called_once()
-        call_args = mock_timeout_add.call_args
-        assert call_args[0][0] == 5000
-        assert callable(call_args[0][1])
+        # Таймеров два: проверка доступности раз в пять секунд и счётчик
+        # трафика раз в секунду — растущим байтам десять секунд слишком редко.
+        intervals = [call[0][0] for call in mock_timeout_add.call_args_list]
+        assert intervals == [5000, 1000]
+        assert all(callable(call[0][1]) for call in mock_timeout_add.call_args_list)
 
 
 def test_connection_monitor_stop(tmp_path, monkeypatch):
@@ -528,3 +530,122 @@ def test_stale_check_completion_does_not_unblock_the_current_check(tmp_path, mon
 
     monitor._finish_check(monitor._check_generation)
     assert monitor._check_in_progress is False
+
+
+def _context_with_traffic(tmp_path, stats):
+    """Context whose core reports these counters.
+
+    Менеджер подставляется готовым: ленивое свойство иначе создало бы
+    настоящий XrayManager и полезло бы за бинарником.
+    """
+    context = AppContext(config_dir=tmp_path)
+    context._xray_manager = SimpleNamespace(get_traffic=lambda: stats)
+    return context
+
+
+def test_refresh_traffic_writes_the_counters_into_the_state(tmp_path):
+    """Опрос кладёт цифры в состояние: карточка читает их оттуда."""
+    context = _context_with_traffic(tmp_path, TrafficStats(upload=4096, download=8192))
+    context.proxy_state.set_running(profile_id=1)
+
+    ConnectionMonitor(context).refresh_traffic()
+
+    assert context.proxy_state.upload_bytes == 4096
+    assert context.proxy_state.download_bytes == 8192
+
+
+def test_refresh_traffic_notifies_the_listeners(tmp_path):
+    """Карточка перерисовывается по уведомлению состояния."""
+    context = _context_with_traffic(tmp_path, TrafficStats(upload=10, download=20))
+    context.proxy_state.set_running(profile_id=1)
+    seen = []
+    context.proxy_state.add_listener(lambda _state: seen.append(1))
+
+    ConnectionMonitor(context).refresh_traffic()
+
+    assert seen, "слушателей обязаны были уведомить"
+
+
+def test_refresh_traffic_stays_quiet_when_nothing_changed(tmp_path):
+    """Неизменившиеся цифры не поднимают перерисовку раз в секунду впустую."""
+    context = _context_with_traffic(tmp_path, TrafficStats(upload=10, download=20))
+    context.proxy_state.set_running(profile_id=1)
+    ConnectionMonitor(context).refresh_traffic()
+
+    seen = []
+    context.proxy_state.add_listener(lambda _state: seen.append(1))
+    ConnectionMonitor(context).refresh_traffic()
+
+    assert not seen
+
+
+def test_refresh_traffic_skips_a_stopped_core(tmp_path):
+    """У остановленного ядра спрашивать нечего: процесса нет."""
+    called = []
+
+    context = AppContext(config_dir=tmp_path)
+    context._xray_manager = SimpleNamespace(get_traffic=lambda: called.append(1) or TrafficStats())
+    context.proxy_state.set_stopped()
+
+    ConnectionMonitor(context).refresh_traffic()
+
+    assert not called
+
+
+def test_refresh_traffic_survives_a_failing_core(tmp_path):
+    """Опрос идёт по таймеру: исключение ядра не вправе его оборвать."""
+
+    def explode():
+        raise RuntimeError("ядро отвалилось")
+
+    context = AppContext(config_dir=tmp_path)
+    context._xray_manager = SimpleNamespace(get_traffic=explode)
+    context.proxy_state.set_running(profile_id=1)
+
+    ConnectionMonitor(context).refresh_traffic()
+
+    assert context.proxy_state.upload_bytes == 0
+
+
+def test_stop_removes_the_traffic_timer_too(tmp_path):
+    """Таймер трафика не должен пережить остановку наблюдения."""
+    context = AppContext(config_dir=tmp_path)
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = 456
+    monitor._traffic_timer_id = 789
+
+    removed = []
+    mock_glib = MagicMock()
+    mock_glib.source_remove = removed.append
+    mock_gi_repository = MagicMock()
+    mock_gi_repository.GLib = mock_glib
+
+    with patch.dict(
+        sys.modules, {"gi.repository": mock_gi_repository, "gi.repository.GLib": mock_glib}
+    ):
+        monitor.stop()
+
+    assert sorted(removed) == [456, 789]
+    assert monitor._traffic_timer_id is None
+
+
+def test_stop_removes_the_traffic_timer_without_the_main_one(tmp_path):
+    """Ранний возврат по пустому основному таймеру не оставляет трафик висеть."""
+    context = AppContext(config_dir=tmp_path)
+    monitor = ConnectionMonitor(context)
+    monitor._timer_id = None
+    monitor._traffic_timer_id = 789
+
+    removed = []
+    mock_glib = MagicMock()
+    mock_glib.source_remove = removed.append
+    mock_gi_repository = MagicMock()
+    mock_gi_repository.GLib = mock_glib
+
+    with patch.dict(
+        sys.modules, {"gi.repository": mock_gi_repository, "gi.repository.GLib": mock_glib}
+    ):
+        monitor.stop()
+
+    assert removed == [789]
+    assert monitor._traffic_timer_id is None
