@@ -198,7 +198,8 @@ class ProfilesPage(Gtk.Box):
         self._menu_popover = Gtk.PopoverMenu()
         self._menu_popover.set_parent(self.column_view)
         self._menu_popover.set_has_arrow(False)
-        self._menu_popover.set_halign(Gtk.Align.START)
+        # Выравнивание не задаётся: popover позиционируется по set_pointing_to,
+        # то есть по точке клика, а halign прижал бы его к краю списка.
 
     def _on_context_click(self, gesture, _n_press: int, x: float, y: float) -> None:
         position = self._position_at(x, y)
