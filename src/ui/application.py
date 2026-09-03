@@ -81,6 +81,19 @@ class TengaApplication(Adw.Application):
         if self._window is None:
             self._window = MainWindow(application=self, context=self.context)
         self._window.present()
+        self.resume_monitoring()
+
+    def resume_monitoring(self) -> None:
+        """Start watching a proxy that is already running.
+
+        Наблюдение запускает подключение, но приложение может открыться при
+        уже поднятом прокси — тогда проверки не шли бы вовсе, и страница
+        мониторинга показывала бы «Недоступен» при работающем соединении.
+        """
+        monitor = self.context.monitor
+        if monitor is None or not self.context.proxy_state.is_running:
+            return
+        monitor.start()
 
     def do_shutdown(self) -> None:
         # Выход по SIGTERM не эмитирует close-request, поэтому геометрия
@@ -750,7 +763,12 @@ class TengaApplication(Adw.Application):
 def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     """Entry point for the GTK4 interface."""
     from src.core.context import init_context
+    from src.core.monitor import attach_monitor
 
     context = init_context(config_dir=config_dir)
+    # Монитор заводится здесь: без него страница мониторинга пуста, а
+    # подключение не начинает наблюдение — `ConnectionService` запускает уже
+    # готовый монитор, но сам его не создаёт.
+    attach_monitor(context)
     app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
     return app.run([])

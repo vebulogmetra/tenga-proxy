@@ -649,3 +649,85 @@ def test_stop_removes_the_traffic_timer_without_the_main_one(tmp_path):
 
     assert removed == [789]
     assert monitor._traffic_timer_id is None
+
+
+def test_check_now_works_without_a_running_timer(tmp_path, monkeypatch):
+    """Кнопка «Обновить сейчас» обязана проверять и при неактивном таймере.
+
+    `_check_connections` выходит сразу, когда таймера нет, поэтому ручная
+    проверка не должна ходить через него — иначе нажатие не делает ничего.
+    """
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    context.proxy_state.is_running = True
+
+    manager = MagicMock()
+    manager.is_running = True
+    manager.get_version.return_value = {"version": "1.0.0"}
+    context._xray_manager = manager
+
+    monitor = ConnectionMonitor(context)
+    assert monitor._timer_id is None, "таймер намеренно не запущен"
+
+    monkeypatch.setattr(monitor, "_check_vpn_status", lambda: (True, ""))
+    monitor.check_now()
+
+    assert monitor.status.last_check_time > 0, "проверка не отработала"
+    assert monitor.status.proxy_ok is True
+
+
+def test_attach_monitor_puts_a_monitor_into_the_context(tmp_path):
+    """Без этого монитора не существует: страница мониторинга пуста навсегда.
+
+    `context.monitor` оставался None, поэтому проверки не шли, «Прокси»
+    показывал «Недоступен», время проверки — прочерк, а «Обновить сейчас»
+    ничего не делало.
+    """
+    from src.core.monitor import attach_monitor
+
+    context = AppContext(config_dir=tmp_path)
+    assert context.monitor is None
+
+    monitor = attach_monitor(context)
+
+    assert context.monitor is monitor
+    assert isinstance(monitor, ConnectionMonitor)
+
+
+def test_attach_monitor_keeps_an_existing_one(tmp_path):
+    """Повторный вызов не заводит второй монитор с его таймерами."""
+    from src.core.monitor import attach_monitor
+
+    context = AppContext(config_dir=tmp_path)
+    first = attach_monitor(context)
+    second = attach_monitor(context)
+
+    assert first is second
+
+
+def test_resume_monitoring_starts_a_running_proxy(tmp_path):
+    """Приложение могло открыться при уже поднятом прокси: проверки нужны."""
+    from src.ui.application import TengaApplication
+
+    context = AppContext(config_dir=tmp_path)
+    monitor = MagicMock()
+    context.set_monitor(monitor)
+    context.proxy_state.is_running = True
+
+    TengaApplication.resume_monitoring(SimpleNamespace(context=context))
+
+    monitor.start.assert_called_once()
+
+
+def test_resume_monitoring_leaves_a_stopped_proxy_alone(tmp_path):
+    """Без подключения наблюдать нечего."""
+    from src.ui.application import TengaApplication
+
+    context = AppContext(config_dir=tmp_path)
+    monitor = MagicMock()
+    context.set_monitor(monitor)
+    context.proxy_state.is_running = False
+
+    TengaApplication.resume_monitoring(SimpleNamespace(context=context))
+
+    monitor.start.assert_not_called()

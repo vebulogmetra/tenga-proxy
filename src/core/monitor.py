@@ -327,8 +327,14 @@ class ConnectionMonitor:
         self._check_in_progress = False
         return False
 
-    def _run_check(self) -> None:
-        """Collect connection status and hand the result to the main loop."""
+    def _run_check(self, *, defer: bool = True) -> None:
+        """Collect connection status and store it.
+
+        `defer` управляет доставкой результата: фоновая проверка обязана
+        отдавать его главному циклу, а ручная идёт из него самого и должна
+        применить результат сразу — иначе нажатие «Обновить сейчас» оставляет
+        страницу нетронутой до следующего тика.
+        """
         # Save previous status
         previous_status = ConnectionStatus(
             proxy_ok=self._status.proxy_ok,
@@ -360,6 +366,10 @@ class ConnectionMonitor:
             proxy_error=proxy_error,
             vpn_error=vpn_error,
         )
+
+        if not defer:
+            self._update_status_from_async(previous_status, new_status)
+            return
 
         # Update UI in main thread
         from gi.repository import GLib
@@ -431,8 +441,27 @@ class ConnectionMonitor:
             self._context.config.monitoring.enabled = True
 
         try:
-            self._check_connections()
+            # Проверка выполняется напрямую, а не тиком таймера:
+            # `_check_connections` выходит сразу, когда таймер не заведён, и
+            # нажатие «Обновить сейчас» не делало бы ничего.
+            self._run_check(defer=False)
             self._notify_ui_update()
         finally:
             if not was_enabled:
                 self._context.config.monitoring.enabled = False
+
+
+def attach_monitor(context: AppContext) -> ConnectionMonitor:
+    """Create the connection monitor and hand it to the context.
+
+    Без этого вызова `context.monitor` остаётся `None`: наблюдение не
+    запускается при подключении, страница мониторинга показывает «Недоступен»
+    и прочерк вместо времени, а «Обновить сейчас» ничего не делает.
+    """
+    existing = context.monitor
+    if existing is not None:
+        return existing
+
+    monitor = ConnectionMonitor(context)
+    context.set_monitor(monitor)
+    return monitor
