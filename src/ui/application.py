@@ -17,7 +17,7 @@ from src.core.context import AppContext, get_context
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
 from src.ui.logic.status import ConnectionState
-from src.ui.logic.version import app_version
+from src.ui.logic.version import app_version, core_version
 from src.ui.window import MainWindow, load_css
 
 if TYPE_CHECKING:
@@ -437,14 +437,18 @@ class TengaApplication(Adw.Application):
         self.apply_settings()
 
     def _open_about(self) -> None:
+        core = core_version(getattr(self.context, "xray_manager", None))
         dialog = Adw.AboutDialog(
             application_name="Tenga Proxy",
             application_icon="network-server-symbolic",
             developer_name="Artem G.",
             version=app_version(),
-            comments="Клиент прокси для Linux на базе xray-core",
+            comments=f"Клиент прокси для Linux на базе xray-core {core}",
+            website="https://github.com/vebulogmetra/tenga-proxy",
             license_type=Gtk.License.MIT_X11,
         )
+        # Строку целиком копируют в отчёт об ошибке, поэтому обе версии рядом.
+        dialog.set_debug_info(f"Tenga Proxy {app_version()}\nxray-core {core}")
         self.present_dialog(dialog)
 
     def _open_shortcuts(self) -> None:

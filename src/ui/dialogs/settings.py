@@ -10,7 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk
 
 from src.db.config import DnsProvider, ProxyMode
-from src.ui.logic.version import app_version
+from src.ui.logic.version import UNKNOWN, app_version, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
@@ -172,6 +172,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(group)
 
         group.add(self._value_row("Версия", app_version()))
+        manager = getattr(self._context, "xray_manager", None) if self._context else None
+        group.add(self._value_row("Ядро xray", core_version(manager)))
         if self._context is not None:
             group.add(self._value_row("Конфигурация", str(self._context.config_dir)))
 
@@ -191,7 +193,9 @@ class SettingsDialog(Adw.PreferencesDialog):
     @staticmethod
     def _value_row(title: str, value: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=title, subtitle=value)
-        row.set_subtitle_selectable(True)
+        # Выделять есть смысл настоящее значение — его копируют в отчёт об
+        # ошибке. Копировать прочерк незачем: строка только запутывала бы.
+        row.set_subtitle_selectable(value != UNKNOWN)
         return row
 
     # --- состояние ---
