@@ -107,11 +107,6 @@ class XrayManager:
         return self._binary_path
 
     @property
-    def stats_api_url(self) -> str:
-        """Stats API URL (for HTTP API)."""
-        return f"http://{self._stats_api_addr}"
-
-    @property
     def is_running(self) -> bool:
         """Check if process is running."""
         if self._process is None:
@@ -414,24 +409,57 @@ class XrayManager:
         """
         return self._process is not None and self._process.poll() is None
 
-    def _get_stats_via_api(self, name: str, reset: bool = False) -> int:
+    def _query_stats(self) -> dict[str, int]:
+        """Read every counter the core keeps.
+
+        Статистика снимается вызовом самого бинарника: Stats API ядра работает
+        только по gRPC, а генерировать protobuf-стабы ради двух чисел
+        избыточно — вызов укладывается в 25 мс.
+
+        Опрос идёт по таймеру, поэтому любая неудача — это пустой ответ, а не
+        исключение: ядро могло остановиться между двумя тиками.
         """
-        Get stats via API.
-        """
-        logger.debug("Stats API not fully implemented, returning 0 for %s", name)
-        return 0
+        try:
+            result = subprocess.run(
+                [
+                    self._binary_path,
+                    "api",
+                    "statsquery",
+                    f"--server={self._stats_api_addr}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug("Stats query failed: %s", e)
+            return {}
+
+        if result.returncode != 0:
+            logger.debug("Stats query returned %s: %s", result.returncode, result.stderr)
+            return {}
+
+        try:
+            answer = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as e:
+            logger.debug("Could not parse the stats answer: %s", e)
+            return {}
+
+        # У обнулённого счётчика ключа value нет вовсе.
+        return {
+            item["name"]: int(item.get("value", 0))
+            for item in answer.get("stat", [])
+            if isinstance(item, dict) and "name" in item
+        }
 
     def get_traffic(self) -> TrafficStats:
-        """
-        Get current traffic statistics.
-        """
-        upload = 0
-        download = 0
-
-        upload = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>uplink", reset=False)
-        download = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>downlink", reset=False)
-
-        return TrafficStats(upload=upload, download=download)
+        """Current traffic totals of the proxy outbound."""
+        stats = self._query_stats()
+        return TrafficStats(
+            upload=stats.get("outbound>>>proxy>>>traffic>>>uplink", 0),
+            download=stats.get("outbound>>>proxy>>>traffic>>>downlink", 0),
+        )
 
     @measure_time("XrayManager.test_delay")
     def test_delay(
