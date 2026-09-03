@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from src.core.config import get_asset_path
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
     MIN_WIDTH,
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tenga.ui.window")
 
 NARROW_WIDTH = 550
+APP_ICON = "tenga-proxy"
 
 
 class _EmptyStatus:
@@ -63,6 +65,27 @@ def load_css() -> None:
     )
 
 
+def load_icons() -> None:
+    """Make the bundled application icon resolvable by name.
+
+    Иконка лежит в собственном каталоге темы, а не в системной: приложение
+    ставится как AppImage, и в теме пользователя его имени может не быть.
+    После регистрации `tenga-proxy` доступен обычным поиском по имени —
+    им пользуются и окно, и диалог «О программе».
+    """
+    display = Gdk.Display.get_default()
+    if display is None:
+        return
+
+    path = get_asset_path("theme")
+    if not path.exists():
+        logger.warning("Icon theme not found at %s, using the system theme", path)
+        return
+
+    theme = Gtk.IconTheme.get_for_display(display)
+    theme.add_search_path(str(path))
+
+
 class MainWindow(Adw.ApplicationWindow):
     """Shell of the redesigned interface: header bar, status card, page stack."""
 
@@ -70,6 +93,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def __init__(self, application: Adw.Application, context: AppContext) -> None:
         super().__init__(application=application, title="Tenga Proxy")
+        self.set_icon_name(APP_ICON)
         self._context = context
 
         geometry = parse_geometry(getattr(context.config, "window_size", ""))

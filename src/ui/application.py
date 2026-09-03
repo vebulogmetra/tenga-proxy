@@ -18,7 +18,7 @@ from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
 from src.ui.logic.status import ConnectionState
 from src.ui.logic.version import app_version, core_version
-from src.ui.window import MainWindow, load_css
+from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -71,6 +71,7 @@ class TengaApplication(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        load_icons()
         load_css()
         self._register_actions()
         self._setup_signal_handlers()
@@ -453,7 +454,7 @@ class TengaApplication(Adw.Application):
         core = core_version(getattr(self.context, "xray_manager", None))
         dialog = Adw.AboutDialog(
             application_name="Tenga Proxy",
-            application_icon="network-server-symbolic",
+            application_icon=APP_ICON,
             developer_name="Artem G.",
             version=app_version(),
             comments=f"Клиент прокси для Linux на базе xray-core {core}",

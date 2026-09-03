@@ -23,6 +23,18 @@
   color: @error_color;
 }
 
+/* Логотип — готовая картинка, а не symbolic-иконка: правила выше задают
+   `color`, который на текстуру не действует, поэтому состояние показывает
+   сама картинка (цветная или обесцвеченная). Прозрачность приглушает
+   логотип в отключённом состоянии заодно с обесцвечиванием. */
+.status-card .status-logo {
+  opacity: 0.55;
+}
+
+.status-card.status-connected .status-logo {
+  opacity: 1;
+}
+
 .metrics {
   font-size: 0.85em;
   font-feature-settings: "tnum";

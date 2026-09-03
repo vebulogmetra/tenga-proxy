@@ -93,18 +93,24 @@ create_appdir() {
             || error "Иконка трея ${icon}.svg не попала в бандл"
     done
 
+    [ -f "$APPDIR/usr/share/tenga-proxy/assets/logo-inner-256.png" ] \
+        || error "Логотип статус-карточки не попал в бандл"
+    [ -f "$APPDIR/usr/share/tenga-proxy/assets/theme/hicolor/index.theme" ] \
+        || error "Тема значков приложения не попала в бандл"
+
     # Desktop and icons
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/usr/share/applications/"
     cp "$PROJECT_ROOT/assets/tenga-proxy.desktop" "$APPDIR/"
 
-    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.png" ]; then
-        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/tenga-proxy.png"
-        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$APPDIR/tenga-proxy.png"
-    fi
+    for size in 64 128 256; do
+        src="$PROJECT_ROOT/assets/theme/hicolor/${size}x${size}/apps/tenga-proxy.png"
+        [ -f "$src" ] || error "Иконка приложения ${size}x${size} не найдена"
+        mkdir -p "$APPDIR/usr/share/icons/hicolor/${size}x${size}/apps"
+        cp "$src" "$APPDIR/usr/share/icons/hicolor/${size}x${size}/apps/tenga-proxy.png"
+    done
 
-    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
-        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$APPDIR/usr/share/icons/hicolor/scalable/apps/"
-    fi
+    # AppImage берёт значок из корня AppDir, ему нужен ровно один файл.
+    cp "$PROJECT_ROOT/assets/theme/hicolor/256x256/apps/tenga-proxy.png" "$APPDIR/tenga-proxy.png"
     
     # Create launcher script
     cat > "$APPDIR/usr/bin/tenga-proxy" << 'LAUNCHER'

@@ -37,6 +37,11 @@ class StatusView:
     button_class: str
     show_spinner: bool
     metrics: str = ""
+    # Логотип приложения вместо системной иконки: цветной, когда соединение
+    # установлено, и обесцвеченный, когда нет. В состояниях «подключение» и
+    # «ошибка» показываются спиннер и предупреждение, логотип там не нужен.
+    use_logo: bool = False
+    logo_desaturated: bool = False
 
 
 def metrics_text(
@@ -83,6 +88,7 @@ def status_view(
             button_class="destructive-action",
             show_spinner=False,
             metrics=metrics,
+            use_logo=True,
         )
 
     if state is ConnectionState.CONNECTING:
@@ -118,4 +124,6 @@ def status_view(
         button_class="suggested-action",
         show_spinner=False,
         metrics=metrics,
+        use_logo=True,
+        logo_desaturated=True,
     )

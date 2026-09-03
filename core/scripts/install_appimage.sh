@@ -126,13 +126,20 @@ install_appimage() {
         warning "Пропускаю настройку TUN прав."
     fi
 
-    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.png" ]; then
-        info "Установка иконки..."
-        cp "$PROJECT_ROOT/assets/tenga-proxy.png" "$icons_dir/256x256/apps/tenga-proxy.png"
-    fi
+    info "Установка иконки..."
+    for size in 64 128 256; do
+        src="$PROJECT_ROOT/assets/theme/hicolor/${size}x${size}/apps/tenga-proxy.png"
+        [ -f "$src" ] || continue
+        mkdir -p "$icons_dir/${size}x${size}/apps"
+        cp "$src" "$icons_dir/${size}x${size}/apps/tenga-proxy.png"
+    done
 
-    if [ -f "$PROJECT_ROOT/assets/tenga-proxy.svg" ]; then
-        cp "$PROJECT_ROOT/assets/tenga-proxy.svg" "$icons_dir/scalable/apps/"
+    # Прежние сборки ставили масштабируемый SVG. В hicolor он выигрывает у
+    # растровых размеров, поэтому старый значок пережил бы обновление.
+    rm -f "$icons_dir/scalable/apps/tenga-proxy.svg"
+
+    if command -v gtk-update-icon-cache &>/dev/null; then
+        gtk-update-icon-cache -f -t "$icons_dir" 2>/dev/null || true
     fi
 
     info "Создание .desktop файла..."
@@ -197,7 +204,9 @@ uninstall_appimage() {
     rm -f "$install_dir/$APP_NAME.AppImage"
     rm -f "$apps_dir/tenga-proxy.desktop"
     rm -f "$icons_dir/scalable/apps/tenga-proxy.svg"
-    rm -f "$icons_dir/256x256/apps/tenga-proxy.png"
+    for size in 64 128 256; do
+        rm -f "$icons_dir/${size}x${size}/apps/tenga-proxy.png"
+    done
     sudo rm -f "$helper_path" "$sudoers_path" 2>/dev/null || true
 
     if command -v update-desktop-database &>/dev/null; then
