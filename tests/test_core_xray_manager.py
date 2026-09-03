@@ -143,3 +143,56 @@ def test_get_traffic_survives_a_failing_call(monkeypatch):
     _answering(monkeypatch, "", returncode=1)
 
     assert manager.get_traffic() == TrafficStats(upload=0, download=0)
+
+
+def test_get_traffic_sums_the_proxy_outbounds(monkeypatch):
+    """Тег outbound — имя профиля; служебные каналы в счёт не идут."""
+    manager = _make_manager(monkeypatch)
+    profile = "🇵🇱Польша | XHTTP VPN#6"
+    _answering(
+        monkeypatch,
+        json.dumps(
+            {
+                "stat": [
+                    {"name": f"outbound>>>{profile}>>>traffic>>>uplink", "value": 500},
+                    {"name": f"outbound>>>{profile}>>>traffic>>>downlink", "value": 900},
+                    {"name": "outbound>>>direct>>>traffic>>>uplink", "value": 111},
+                    {"name": "outbound>>>vpn>>>traffic>>>downlink", "value": 222},
+                    {"name": "outbound>>>api>>>traffic>>>uplink", "value": 333},
+                    {"name": "outbound>>>main-dns>>>traffic>>>downlink", "value": 444},
+                    {"name": "outbound>>>local-dns>>>traffic>>>uplink", "value": 555},
+                    {"name": "outbound>>>vpn-dns>>>traffic>>>downlink", "value": 666},
+                    {"name": "inbound>>>tun-in>>>traffic>>>uplink", "value": 777},
+                ]
+            }
+        ),
+    )
+
+    assert manager.get_traffic() == TrafficStats(upload=500, download=900)
+
+
+def test_get_traffic_still_counts_an_unnamed_profile(monkeypatch):
+    """У безымянного профиля тегом остаётся proxy: он тоже трафик прокси."""
+    manager = _make_manager(monkeypatch)
+    _answering(monkeypatch, _STATS_ANSWER)
+
+    assert manager.get_traffic() == TrafficStats(upload=1024, download=2048)
+
+
+def test_get_traffic_ignores_a_malformed_counter_name(monkeypatch):
+    """Имя не из четырёх частей пропускается, а не роняет разбор."""
+    manager = _make_manager(monkeypatch)
+    _answering(
+        monkeypatch,
+        json.dumps(
+            {
+                "stat": [
+                    {"name": "outbound>>>node>>>uplink", "value": 10},
+                    {"name": "странное имя", "value": 20},
+                    {"name": "outbound>>>node>>>traffic>>>uplink", "value": 30},
+                ]
+            }
+        ),
+    )
+
+    assert manager.get_traffic() == TrafficStats(upload=30, download=0)

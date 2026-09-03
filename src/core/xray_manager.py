@@ -37,9 +37,14 @@ class XrayManager:
 
     Provides:
     - Start/stop xray-core as subprocess
-    - Monitoring via Stats API (gRPC or HTTP)
+    - Monitoring via Stats API
     - Traffic statistics retrieval
     """
+
+    # Служебные каналы в счёт трафика не идут: direct — мимо прокси, vpn —
+    # через туннель, api — сам опрос статистики, остальные три — резолвинг DNS.
+    # Список отражает теги, которые заводит `src/core/config_builder.py`.
+    _SERVICE_TAGS = frozenset({"direct", "vpn", "api", "main-dns", "local-dns", "vpn-dns"})
 
     def __init__(
         self,
@@ -454,12 +459,25 @@ class XrayManager:
         }
 
     def get_traffic(self) -> TrafficStats:
-        """Current traffic totals of the proxy outbound."""
-        stats = self._query_stats()
-        return TrafficStats(
-            upload=stats.get("outbound>>>proxy>>>traffic>>>uplink", 0),
-            download=stats.get("outbound>>>proxy>>>traffic>>>downlink", 0),
-        )
+        """Traffic totals of every proxy outbound.
+
+        Счётчик именуется по тегу outbound, а тегом служит имя профиля, а не
+        строка `proxy`: её `config_builder` подставляет только безымянному
+        профилю. Поэтому складываются все каналы, кроме служебных, — имя
+        профиля заранее неизвестно, а служебные теги известны наперечёт.
+        """
+        upload = download = 0
+        for name, value in self._query_stats().items():
+            parts = name.split(">>>")
+            if len(parts) != 4 or parts[0] != "outbound":
+                continue
+            if parts[1] in self._SERVICE_TAGS:
+                continue
+            if parts[3] == "uplink":
+                upload += value
+            elif parts[3] == "downlink":
+                download += value
+        return TrafficStats(upload=upload, download=download)
 
     @measure_time("XrayManager.test_delay")
     def test_delay(
