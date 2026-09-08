@@ -217,6 +217,7 @@ class MainWindow(Adw.ApplicationWindow):
         "delete-profile",
         "profile-routing",
         "test-profile",
+        "test-group",
         "toggle-group",
         "edit-group",
         "delete-group",
@@ -313,6 +314,11 @@ class MainWindow(Adw.ApplicationWindow):
             app.test_latency_for(profile_id)
 
     # группа
+
+    def _row_test_group(self, group_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.test_latency_for_group(group_id)
 
     def _row_toggle_group(self, group_id: int) -> None:
         self.profiles_page.toggle_group(group_id)

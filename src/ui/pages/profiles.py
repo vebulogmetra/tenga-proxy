@@ -254,7 +254,14 @@ class ProfilesPage(Gtk.Box):
         # (страница вне окна, как в тестах) popup() роняет GTK.
         if not self.column_view.get_realized():
             return
-        self._menu_popover.set_pointing_to(Gdk.Rectangle(x=int(x), y=int(y), width=1, height=1))
+        # Поля задаются присваиванием: Gdk.Rectangle — boxed-тип, аргументы
+        # конструктора он молча игнорирует, и меню прилипало к углу списка.
+        point = Gdk.Rectangle()
+        point.x = int(x)
+        point.y = int(y)
+        point.width = 1
+        point.height = 1
+        self._menu_popover.set_pointing_to(point)
         self._menu_popover.popup()
 
     def _menu_model_for(self, position: int) -> Gio.Menu:
@@ -273,7 +280,7 @@ class ProfilesPage(Gtk.Box):
                 "Свернуть группу" if expanded else "Развернуть группу",
                 f"win.toggle-group({group_id})",
             )
-            actions.append("Тест задержки", "app.test-latency")
+            actions.append("Тест задержки", f"win.test-group({group_id})")
             menu.append_section(None, actions)
 
             edit = Gio.Menu()
@@ -499,6 +506,9 @@ class ProfilesPage(Gtk.Box):
         self.emit("profile-activated", item.row.profile_id)
 
     # --- аксессоры для тестов ---
+
+    def get_sort_key_for_test(self) -> SortKey:
+        return self._sort_key
 
     def get_visible_state(self) -> str:
         return self._stack.get_visible_child_name()

@@ -234,3 +234,28 @@ def test_an_expanded_group_offers_collapsing(page, data):
     page.expand_all()
 
     assert "Свернуть группу" in page.context_menu_labels_for_test(position=0)
+
+
+def test_context_menu_points_at_click(page, data, monkeypatch):
+    """Меню должно всплывать в точке клика, а не в углу списка.
+
+    Gdk.Rectangle игнорирует аргументы конструктора: прямоугольник,
+    собранный как Rectangle(x=..., y=...), остаётся нулевым, и popover
+    прилипает к верхнему левому углу.
+    """
+    groups, profiles = data
+    page.set_data(groups, profiles)
+
+    captured = {}
+
+    def fake_set_pointing_to(rect):
+        captured["x"] = rect.x
+        captured["y"] = rect.y
+
+    monkeypatch.setattr(page._menu_popover, "set_pointing_to", fake_set_pointing_to)
+    monkeypatch.setattr(page.column_view, "get_realized", lambda: True)
+    monkeypatch.setattr(page._menu_popover, "popup", lambda: None)
+
+    page._open_context_menu(0, 137.0, 208.0)
+
+    assert (captured.get("x"), captured.get("y")) == (137, 208)
