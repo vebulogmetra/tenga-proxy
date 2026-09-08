@@ -259,3 +259,32 @@ def test_context_menu_points_at_click(page, data, monkeypatch):
     page._open_context_menu(0, 137.0, 208.0)
 
     assert (captured.get("x"), captured.get("y")) == (137, 208)
+
+
+def test_refresh_keeps_groups_expanded(page, data):
+    """Обновление списка не должно схлопывать раскрытые группы.
+
+    Пинг группы перерисовывает страницу на каждую порцию результатов:
+    если раскрытие теряется, строки схлопываются прямо во время замера.
+    """
+    groups, profiles = data
+    page.set_data(groups, profiles)
+    page.expand_all()
+    assert page.get_visible_row_count() == 5
+
+    page.refresh()
+
+    assert page.get_visible_row_count() == 5
+
+
+def test_refresh_keeps_a_collapsed_group_collapsed(page, data):
+    """Свёрнутая группа не должна раскрываться сама по себе."""
+    groups, profiles = data
+    page.set_data(groups, profiles)
+    page.expand_all()
+    page.toggle_group(1)
+    collapsed = page.get_visible_row_count()
+
+    page.refresh()
+
+    assert page.get_visible_row_count() == collapsed

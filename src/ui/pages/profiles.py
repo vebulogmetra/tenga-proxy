@@ -376,6 +376,11 @@ class ProfilesPage(Gtk.Box):
     # --- модель ---
 
     def _rebuild_model(self) -> None:
+        # Раскрытие живёт в Gtk.TreeListRow, а модель здесь пересобирается
+        # целиком: без переноса состояния группы схлопывались бы на каждом
+        # обновлении — например на каждой порции результатов пинга.
+        expanded = self._expanded_group_ids()
+
         self._rows = build_profile_rows(
             self._groups,
             self._profiles,
@@ -395,8 +400,40 @@ class ProfilesPage(Gtk.Box):
             autoexpand=False,
             create_func=self._children_of,
         )
+        self._restore_expanded(expanded)
         self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
         self._stack.set_visible_child_name("list" if self._rows else "empty")
+
+    def _expanded_group_ids(self) -> set[int]:
+        """Collect the groups currently expanded in the tree."""
+        if self._tree_model is None:
+            return set()
+
+        ids: set[int] = set()
+        for position in range(self._tree_model.get_n_items()):
+            tree_row = self._tree_model.get_row(position)
+            if tree_row is None or not tree_row.get_expanded():
+                continue
+            item = tree_row.get_item()
+            if item.is_group:
+                ids.add(item.row.group_id)
+        return ids
+
+    def _restore_expanded(self, group_ids: set[int]) -> None:
+        """Re-expand the groups that were open before the rebuild."""
+        if self._tree_model is None or not group_ids:
+            return
+
+        # Индекс идёт вперёд по живой модели: раскрытие вставляет детей сразу
+        # за группой, поэтому заранее снятый диапазон пропустил бы строки.
+        position = 0
+        while position < self._tree_model.get_n_items():
+            tree_row = self._tree_model.get_row(position)
+            if tree_row is not None:
+                item = tree_row.get_item()
+                if item.is_group and item.row.group_id in group_ids:
+                    tree_row.set_expanded(True)
+            position += 1
 
     def _children_of(self, item: RowItem):
         """Return the child model of a group, or None for a leaf."""
