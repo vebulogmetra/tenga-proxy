@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import gi
@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gio, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from src.ui.logic.profiles_view import (
     GroupRow,
@@ -66,6 +66,10 @@ class RowItem(GObject.Object):
     @property
     def icon_name(self) -> str:
         return self.row.icon_name if isinstance(self.row, GroupRow) else ""
+
+
+# Сколько проходов разметки удерживать прокрутку после пересборки.
+_SCROLL_RESTORE_ATTEMPTS = 40
 
 
 def _new_row_store() -> Gio.ListStore:
@@ -124,15 +128,16 @@ class ProfilesPage(Gtk.Box):
         )
         self._stack.add_named(self._empty_page, "empty")
 
-        scrolled = Gtk.ScrolledWindow(
+        self._scrolled = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
             vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
         )
-        scrolled.set_child(self._build_column_view())
-        self._stack.add_named(scrolled, "list")
+        self._scrolled.set_child(self._build_column_view())
+        self._stack.add_named(self._scrolled, "list")
 
     def _build_column_view(self) -> Gtk.ColumnView:
         self._tree_model: Gtk.TreeListModel | None = None
+        self._root_store: Gio.ListStore | None = None
 
         self.column_view = Gtk.ColumnView()
         self.column_view.add_css_class("data-table")
@@ -376,9 +381,9 @@ class ProfilesPage(Gtk.Box):
     # --- модель ---
 
     def _rebuild_model(self) -> None:
-        # Раскрытие живёт в Gtk.TreeListRow, а модель здесь пересобирается
-        # целиком: без переноса состояния группы схлопывались бы на каждом
-        # обновлении — например на каждой порции результатов пинга.
+        # Раскрытие живёт в Gtk.TreeListRow, а корневой store переписывается:
+        # без переноса состояния группы схлопывались бы на каждом обновлении —
+        # например на каждой порции результатов пинга.
         expanded = self._expanded_group_ids()
 
         self._rows = build_profile_rows(
@@ -390,19 +395,60 @@ class ProfilesPage(Gtk.Box):
             active_profile_id=self._active_profile_id,
         )
 
-        root = _new_row_store()
-        for group in self._rows:
-            root.append(RowItem(group))
+        items = [RowItem(group) for group in self._rows]
 
-        self._tree_model = Gtk.TreeListModel.new(
-            root,
-            passthrough=False,
-            autoexpand=False,
-            create_func=self._children_of,
-        )
+        # Модель меняется на месте, а не заводится заново: новая модель в
+        # ColumnView сбрасывает прокрутку в ноль, а счётчик трафика зовёт
+        # обновление раз в секунду — список было невозможно листать.
+        if self._tree_model is None:
+            self._root_store = _new_row_store()
+            self._root_store.splice(0, 0, items)
+            self._tree_model = Gtk.TreeListModel.new(
+                self._root_store,
+                passthrough=False,
+                autoexpand=False,
+                create_func=self._children_of,
+            )
+            self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
+        else:
+            self._root_store.splice(0, self._root_store.get_n_items(), items)
+
         self._restore_expanded(expanded)
-        self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
         self._stack.set_visible_child_name("list" if self._rows else "empty")
+
+    def _preserve_scroll(self, rebuild: Callable[[], None]) -> None:
+        """Run a model rebuild without moving the visible part of the list.
+
+        Строки пересоздаются целиком, поэтому ColumnView успевает укоротить
+        содержимое и подтянуть прокрутку к нулю. Значение снимается до
+        перестройки и возвращается, когда высота уже пересчитана.
+        """
+        adjustment = self._scrolled.get_vadjustment()
+        offset = adjustment.get_value()
+
+        rebuild()
+
+        if offset <= 0:
+            return
+
+        # Возврат повторяется несколько проходов разметки подряд. Пересборка
+        # схлопывает группы: adjustment обрезается до высоты одного экрана,
+        # раскрытие возвращает высоту, и ColumnView доводит прокрутку до
+        # видимой строки уже после первого восстановления. Одного прохода не
+        # хватает — значение перетиралось на строку вниз каждый тик.
+        attempts = 0
+
+        def _restore() -> bool:
+            nonlocal attempts
+            attempts += 1
+            if adjustment.get_value() != offset:
+                adjustment.set_value(offset)
+            if attempts >= _SCROLL_RESTORE_ATTEMPTS:
+                return GLib.SOURCE_REMOVE
+            return GLib.SOURCE_CONTINUE
+
+        adjustment.set_value(offset)
+        GLib.idle_add(_restore)
 
     def _expanded_group_ids(self) -> set[int]:
         """Collect the groups currently expanded in the tree."""
@@ -467,6 +513,11 @@ class ProfilesPage(Gtk.Box):
         self.refresh()
 
     def set_active_profile(self, profile_id: int) -> None:
+        # Без проверки страница перестраивалась дважды за один refresh_pages:
+        # активный профиль между тиками счётчика трафика не меняется, а лишняя
+        # пересборка сдвигала прокрутку на строку вниз.
+        if profile_id == self._active_profile_id:
+            return
         self._active_profile_id = profile_id
         self.refresh()
 
@@ -477,7 +528,7 @@ class ProfilesPage(Gtk.Box):
 
     def refresh(self) -> None:
         """Rebuild the tree from the current data, filter and ordering."""
-        self._rebuild_model()
+        self._preserve_scroll(self._rebuild_model)
 
     def expand_all(self) -> None:
         """Expand every group.
@@ -543,6 +594,9 @@ class ProfilesPage(Gtk.Box):
         self.emit("profile-activated", item.row.profile_id)
 
     # --- аксессоры для тестов ---
+
+    def get_vadjustment_for_test(self) -> Gtk.Adjustment:
+        return self._scrolled.get_vadjustment()
 
     def get_sort_key_for_test(self) -> SortKey:
         return self._sort_key

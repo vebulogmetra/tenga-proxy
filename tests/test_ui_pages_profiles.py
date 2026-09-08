@@ -288,3 +288,67 @@ def test_refresh_keeps_a_collapsed_group_collapsed(page, data):
     page.refresh()
 
     assert page.get_visible_row_count() == collapsed
+
+
+def _drain_events() -> None:
+    from gi.repository import GLib
+
+    context = GLib.MainContext.default()
+    for _ in range(200):
+        if not context.pending():
+            break
+        context.iteration(False)
+
+
+def _many_profiles(count: int = 80):
+    groups = {1: FakeGroup(id=1, name="Большая")}
+    profiles = {
+        1: [
+            FakeProfile(i, f"П{i:03d}", "vless", FakeBean(f"h{i}.example:443"))
+            for i in range(count)
+        ]
+    }
+    return groups, profiles
+
+
+def test_refresh_keeps_the_scroll_position(page):
+    """Обновление списка не должно перематывать его наверх.
+
+    Счётчик трафика зовёт refresh_pages раз в секунду: если перерисовка
+    сбрасывает прокрутку, список невозможно листать.
+    """
+    from gi.repository import Gtk
+
+    groups, profiles = _many_profiles()
+    page.set_data(groups, profiles)
+    page.expand_all()
+
+    # Прокрутка ограничена размером виджета: без окна высота нулевая и
+    # adjustment всегда остаётся в нуле.
+    window = Gtk.Window(default_width=600, default_height=400)
+    window.set_child(page)
+    window.present()
+
+    adjustment = page.get_vadjustment_for_test()
+    # Разметка доезжает не за один проход, а под нагрузкой всего набора
+    # тестов — тем более: ждём, пока список получит высоту.
+    before = 0.0
+    for _ in range(50):
+        _drain_events()
+        adjustment.set_value(400.0)
+        before = adjustment.get_value()
+        if before > 0:
+            break
+
+    if before <= 0:
+        window.set_child(None)
+        window.destroy()
+        pytest.skip("Список не получил высоту: прокрутку проверить нельзя")
+
+    page.refresh()
+    _drain_events()
+
+    assert page.get_vadjustment_for_test().get_value() == before
+
+    window.set_child(None)
+    window.destroy()
