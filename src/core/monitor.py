@@ -44,6 +44,8 @@ class ConnectionMonitor:
         """
         self._context = context
         self._timer_id: int | None = None
+        self._traffic_timer_id: int | None = None
+        self._traffic_in_progress = False
         self._check_in_progress = False
         self._check_generation = 0
         self._status = ConnectionStatus()
@@ -80,12 +82,31 @@ class ConnectionMonitor:
         self._timer_id = GLib.timeout_add(interval_ms, self._check_connections)
         logger.info("Monitoring timer started (ID: %s)", self._timer_id)
 
+        # Счётчик трафика идёт своим таймером: у проверки доступности интервал
+        # в десять секунд, для растущих байтов это слишком редко.
+        traffic_interval_ms = max(200, int(self._context.config.traffic_loop_interval))
+        self._traffic_timer_id = GLib.timeout_add(traffic_interval_ms, self._tick_traffic)
+        logger.info(
+            "Traffic timer started (ID: %s, interval: %d ms)",
+            self._traffic_timer_id,
+            traffic_interval_ms,
+        )
+
     def stop(self) -> None:
         """Stop monitoring."""
         # Cleared before the early return: a check may be in flight even when no
         # timer is armed, and leaving the flag set would make every later tick
         # skip forever.
         self._check_in_progress = False
+        self._traffic_in_progress = False
+
+        # Таймер трафика снимается до раннего возврата: он заводится вместе с
+        # основным, но пережил бы его, если выйти раньше.
+        if self._traffic_timer_id is not None:
+            from gi.repository import GLib
+
+            GLib.source_remove(self._traffic_timer_id)
+            self._traffic_timer_id = None
 
         if self._timer_id is None:
             return
@@ -132,6 +153,79 @@ class ConnectionMonitor:
         threading.Thread(target=self._do_check_async, args=(generation,), daemon=True).start()
 
         return True
+
+    def refresh_traffic(self) -> None:
+        """Pull the traffic counters into the shared state.
+
+        Молча ничего не делает у остановленного ядра: опрос идёт по таймеру,
+        а спрашивать статистику у несуществующего процесса незачем. Ошибку
+        ядра тоже глотает — тик не вправе обрывать наблюдение.
+        """
+        state = self._context.proxy_state
+        if not state.is_running:
+            return
+
+        try:
+            stats = self._context.xray_manager.get_traffic()
+        except Exception as e:
+            logger.debug("Could not read the traffic counters: %s", e)
+            return
+
+        # Неизменившиеся цифры не поднимают перерисовку карточки каждую секунду.
+        if stats.upload == state.upload_bytes and stats.download == state.download_bytes:
+            return
+
+        state.upload_bytes = stats.upload
+        state.download_bytes = stats.download
+        state.notify_listeners()
+
+    def _tick_traffic(self) -> bool:
+        """Timer tick: read the counters off the main thread.
+
+        Вызов ядра занимает около 25 мс, и на слабой машине этого хватит,
+        чтобы интерфейс дёрнулся, поэтому опрос уходит в фоновый поток.
+        """
+        if self._traffic_timer_id is None:
+            return False
+
+        if self._traffic_in_progress:
+            return True
+
+        self._traffic_in_progress = True
+        threading.Thread(target=self._do_traffic_async, daemon=True).start()
+        return True
+
+    def _do_traffic_async(self) -> None:
+        """Read the counters, then apply them on the main thread."""
+        try:
+            state = self._context.proxy_state
+            if not state.is_running:
+                return
+            stats = self._context.xray_manager.get_traffic()
+        except Exception as e:
+            logger.debug("Could not read the traffic counters: %s", e)
+            return
+        finally:
+            self._traffic_in_progress = False
+
+        # Состояние правится и слушатели зовутся только из главного потока:
+        # по их цепочке идёт перерисовка виджетов.
+        from gi.repository import GLib
+
+        GLib.idle_add(self._apply_traffic, stats.upload, stats.download)
+
+    def _apply_traffic(self, upload: int, download: int) -> bool:
+        """Store the counters and repaint, if anything actually changed."""
+        state = self._context.proxy_state
+        if not state.is_running:
+            return False
+        if upload == state.upload_bytes and download == state.download_bytes:
+            return False
+
+        state.upload_bytes = upload
+        state.download_bytes = download
+        state.notify_listeners()
+        return False
 
     @measure_time("ConnectionMonitor._check_proxy_status")
     def _check_proxy_status(self) -> tuple[bool, str]:
@@ -233,8 +327,14 @@ class ConnectionMonitor:
         self._check_in_progress = False
         return False
 
-    def _run_check(self) -> None:
-        """Collect connection status and hand the result to the main loop."""
+    def _run_check(self, *, defer: bool = True) -> None:
+        """Collect connection status and store it.
+
+        `defer` управляет доставкой результата: фоновая проверка обязана
+        отдавать его главному циклу, а ручная идёт из него самого и должна
+        применить результат сразу — иначе нажатие «Обновить сейчас» оставляет
+        страницу нетронутой до следующего тика.
+        """
         # Save previous status
         previous_status = ConnectionStatus(
             proxy_ok=self._status.proxy_ok,
@@ -266,6 +366,10 @@ class ConnectionMonitor:
             proxy_error=proxy_error,
             vpn_error=vpn_error,
         )
+
+        if not defer:
+            self._update_status_from_async(previous_status, new_status)
+            return
 
         # Update UI in main thread
         from gi.repository import GLib
@@ -337,8 +441,27 @@ class ConnectionMonitor:
             self._context.config.monitoring.enabled = True
 
         try:
-            self._check_connections()
+            # Проверка выполняется напрямую, а не тиком таймера:
+            # `_check_connections` выходит сразу, когда таймер не заведён, и
+            # нажатие «Обновить сейчас» не делало бы ничего.
+            self._run_check(defer=False)
             self._notify_ui_update()
         finally:
             if not was_enabled:
                 self._context.config.monitoring.enabled = False
+
+
+def attach_monitor(context: AppContext) -> ConnectionMonitor:
+    """Create the connection monitor and hand it to the context.
+
+    Без этого вызова `context.monitor` остаётся `None`: наблюдение не
+    запускается при подключении, страница мониторинга показывает «Недоступен»
+    и прочерк вместо времени, а «Обновить сейчас» ничего не делает.
+    """
+    existing = context.monitor
+    if existing is not None:
+        return existing
+
+    monitor = ConnectionMonitor(context)
+    context.set_monitor(monitor)
+    return monitor

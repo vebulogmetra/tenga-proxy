@@ -696,3 +696,54 @@ def test_the_dialog_slot_is_cleared_between_tests(adw_app):
     adw_app.reset_for_tests(adw_app.context)
 
     assert adw_app.current_dialog is None
+
+
+def _add(store, group_id, name):
+    return store.parse_and_add_link(
+        f"vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#{name}",
+        group_id=group_id,
+    )
+
+
+def test_group_latency_probes_only_that_group(adw_app):
+    """Пинг группы меряет её профили, а не весь список."""
+    adw_app.activate()
+    store = adw_app.context.profiles
+    target = store.add_group("Целевая")
+    other = store.add_group("Посторонняя")
+    inside = _add(store, target.id, "Внутри")
+    outside = _add(store, other.id, "Снаружи")
+
+    probed: list[int] = []
+
+    def fake_probe(profile_id: int) -> int:
+        probed.append(profile_id)
+        return 42
+
+    adw_app.set_latency_probe(fake_probe)
+    adw_app.test_latency_for_group(target.id)
+    adw_app.wait_for_latency_for_test()
+
+    assert probed == [inside.id]
+    assert store.get_profile(outside.id).latency_ms == -1
+
+
+def test_group_latency_sorts_profiles_while_running(adw_app):
+    """Результаты пинга должны пересортировывать список по ходу замера."""
+    adw_app.activate()
+    store = adw_app.context.profiles
+    group = store.add_group("Целевая")
+    slow = _add(store, group.id, "Медленный")
+    fast = _add(store, group.id, "Быстрый")
+
+    latencies = {slow.id: 300, fast.id: 20}
+    adw_app.set_latency_probe(lambda pid: latencies[pid])
+
+    page = adw_app.get_active_window().profiles_page
+    adw_app.test_latency_for_group(group.id)
+    adw_app.wait_for_latency_for_test()
+
+    from src.ui.logic.profiles_view import SortKey
+
+    assert page.get_sort_key_for_test() is SortKey.PING
+    assert page.get_profile_titles(group_id=group.id) == ["Быстрый", "Медленный"]

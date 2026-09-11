@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import gi
@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gdk, Gio, GObject, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from src.ui.logic.profiles_view import (
     GroupRow,
@@ -66,6 +66,10 @@ class RowItem(GObject.Object):
     @property
     def icon_name(self) -> str:
         return self.row.icon_name if isinstance(self.row, GroupRow) else ""
+
+
+# Сколько проходов разметки удерживать прокрутку после пересборки.
+_SCROLL_RESTORE_ATTEMPTS = 40
 
 
 def _new_row_store() -> Gio.ListStore:
@@ -124,15 +128,16 @@ class ProfilesPage(Gtk.Box):
         )
         self._stack.add_named(self._empty_page, "empty")
 
-        scrolled = Gtk.ScrolledWindow(
+        self._scrolled = Gtk.ScrolledWindow(
             hscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
             vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
         )
-        scrolled.set_child(self._build_column_view())
-        self._stack.add_named(scrolled, "list")
+        self._scrolled.set_child(self._build_column_view())
+        self._stack.add_named(self._scrolled, "list")
 
     def _build_column_view(self) -> Gtk.ColumnView:
         self._tree_model: Gtk.TreeListModel | None = None
+        self._root_store: Gio.ListStore | None = None
 
         self.column_view = Gtk.ColumnView()
         self.column_view.add_css_class("data-table")
@@ -198,7 +203,8 @@ class ProfilesPage(Gtk.Box):
         self._menu_popover = Gtk.PopoverMenu()
         self._menu_popover.set_parent(self.column_view)
         self._menu_popover.set_has_arrow(False)
-        self._menu_popover.set_halign(Gtk.Align.START)
+        # Выравнивание не задаётся: popover позиционируется по set_pointing_to,
+        # то есть по точке клика, а halign прижал бы его к краю списка.
 
     def _on_context_click(self, gesture, _n_press: int, x: float, y: float) -> None:
         position = self._position_at(x, y)
@@ -253,7 +259,14 @@ class ProfilesPage(Gtk.Box):
         # (страница вне окна, как в тестах) popup() роняет GTK.
         if not self.column_view.get_realized():
             return
-        self._menu_popover.set_pointing_to(Gdk.Rectangle(x=int(x), y=int(y), width=1, height=1))
+        # Поля задаются присваиванием: Gdk.Rectangle — boxed-тип, аргументы
+        # конструктора он молча игнорирует, и меню прилипало к углу списка.
+        point = Gdk.Rectangle()
+        point.x = int(x)
+        point.y = int(y)
+        point.width = 1
+        point.height = 1
+        self._menu_popover.set_pointing_to(point)
         self._menu_popover.popup()
 
     def _menu_model_for(self, position: int) -> Gio.Menu:
@@ -272,7 +285,7 @@ class ProfilesPage(Gtk.Box):
                 "Свернуть группу" if expanded else "Развернуть группу",
                 f"win.toggle-group({group_id})",
             )
-            actions.append("Тест задержки", "app.test-latency")
+            actions.append("Тест задержки", f"win.test-group({group_id})")
             menu.append_section(None, actions)
 
             edit = Gio.Menu()
@@ -368,6 +381,11 @@ class ProfilesPage(Gtk.Box):
     # --- модель ---
 
     def _rebuild_model(self) -> None:
+        # Раскрытие живёт в Gtk.TreeListRow, а корневой store переписывается:
+        # без переноса состояния группы схлопывались бы на каждом обновлении —
+        # например на каждой порции результатов пинга.
+        expanded = self._expanded_group_ids()
+
         self._rows = build_profile_rows(
             self._groups,
             self._profiles,
@@ -377,18 +395,91 @@ class ProfilesPage(Gtk.Box):
             active_profile_id=self._active_profile_id,
         )
 
-        root = _new_row_store()
-        for group in self._rows:
-            root.append(RowItem(group))
+        items = [RowItem(group) for group in self._rows]
 
-        self._tree_model = Gtk.TreeListModel.new(
-            root,
-            passthrough=False,
-            autoexpand=False,
-            create_func=self._children_of,
-        )
-        self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
+        # Модель меняется на месте, а не заводится заново: новая модель в
+        # ColumnView сбрасывает прокрутку в ноль, а счётчик трафика зовёт
+        # обновление раз в секунду — список было невозможно листать.
+        if self._tree_model is None:
+            self._root_store = _new_row_store()
+            self._root_store.splice(0, 0, items)
+            self._tree_model = Gtk.TreeListModel.new(
+                self._root_store,
+                passthrough=False,
+                autoexpand=False,
+                create_func=self._children_of,
+            )
+            self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
+        else:
+            self._root_store.splice(0, self._root_store.get_n_items(), items)
+
+        self._restore_expanded(expanded)
         self._stack.set_visible_child_name("list" if self._rows else "empty")
+
+    def _preserve_scroll(self, rebuild: Callable[[], None]) -> None:
+        """Run a model rebuild without moving the visible part of the list.
+
+        Строки пересоздаются целиком, поэтому ColumnView успевает укоротить
+        содержимое и подтянуть прокрутку к нулю. Значение снимается до
+        перестройки и возвращается, когда высота уже пересчитана.
+        """
+        adjustment = self._scrolled.get_vadjustment()
+        offset = adjustment.get_value()
+
+        rebuild()
+
+        if offset <= 0:
+            return
+
+        # Возврат повторяется несколько проходов разметки подряд. Пересборка
+        # схлопывает группы: adjustment обрезается до высоты одного экрана,
+        # раскрытие возвращает высоту, и ColumnView доводит прокрутку до
+        # видимой строки уже после первого восстановления. Одного прохода не
+        # хватает — значение перетиралось на строку вниз каждый тик.
+        attempts = 0
+
+        def _restore() -> bool:
+            nonlocal attempts
+            attempts += 1
+            if adjustment.get_value() != offset:
+                adjustment.set_value(offset)
+            if attempts >= _SCROLL_RESTORE_ATTEMPTS:
+                return GLib.SOURCE_REMOVE
+            return GLib.SOURCE_CONTINUE
+
+        adjustment.set_value(offset)
+        GLib.idle_add(_restore)
+
+    def _expanded_group_ids(self) -> set[int]:
+        """Collect the groups currently expanded in the tree."""
+        if self._tree_model is None:
+            return set()
+
+        ids: set[int] = set()
+        for position in range(self._tree_model.get_n_items()):
+            tree_row = self._tree_model.get_row(position)
+            if tree_row is None or not tree_row.get_expanded():
+                continue
+            item = tree_row.get_item()
+            if item.is_group:
+                ids.add(item.row.group_id)
+        return ids
+
+    def _restore_expanded(self, group_ids: set[int]) -> None:
+        """Re-expand the groups that were open before the rebuild."""
+        if self._tree_model is None or not group_ids:
+            return
+
+        # Индекс идёт вперёд по живой модели: раскрытие вставляет детей сразу
+        # за группой, поэтому заранее снятый диапазон пропустил бы строки.
+        position = 0
+        while position < self._tree_model.get_n_items():
+            tree_row = self._tree_model.get_row(position)
+            if tree_row is not None:
+                item = tree_row.get_item()
+                if item.is_group and item.row.group_id in group_ids:
+                    tree_row.set_expanded(True)
+            position += 1
 
     def _children_of(self, item: RowItem):
         """Return the child model of a group, or None for a leaf."""
@@ -422,6 +513,11 @@ class ProfilesPage(Gtk.Box):
         self.refresh()
 
     def set_active_profile(self, profile_id: int) -> None:
+        # Без проверки страница перестраивалась дважды за один refresh_pages:
+        # активный профиль между тиками счётчика трафика не меняется, а лишняя
+        # пересборка сдвигала прокрутку на строку вниз.
+        if profile_id == self._active_profile_id:
+            return
         self._active_profile_id = profile_id
         self.refresh()
 
@@ -432,7 +528,7 @@ class ProfilesPage(Gtk.Box):
 
     def refresh(self) -> None:
         """Rebuild the tree from the current data, filter and ordering."""
-        self._rebuild_model()
+        self._preserve_scroll(self._rebuild_model)
 
     def expand_all(self) -> None:
         """Expand every group.
@@ -498,6 +594,12 @@ class ProfilesPage(Gtk.Box):
         self.emit("profile-activated", item.row.profile_id)
 
     # --- аксессоры для тестов ---
+
+    def get_vadjustment_for_test(self) -> Gtk.Adjustment:
+        return self._scrolled.get_vadjustment()
+
+    def get_sort_key_for_test(self) -> SortKey:
+        return self._sort_key
 
     def get_visible_state(self) -> str:
         return self._stack.get_visible_child_name()

@@ -5,12 +5,13 @@ import logging
 import subprocess
 import tempfile
 import time
-from statistics import median
-import requests
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
+from statistics import median
 from typing import IO, Any
+
+import requests
 
 from src.core.config import (
     DEFAULT_STATS_API_ADDR,
@@ -37,9 +38,14 @@ class XrayManager:
 
     Provides:
     - Start/stop xray-core as subprocess
-    - Monitoring via Stats API (gRPC or HTTP)
+    - Monitoring via Stats API
     - Traffic statistics retrieval
     """
+
+    # Служебные каналы в счёт трафика не идут: direct — мимо прокси, vpn —
+    # через туннель, api — сам опрос статистики, остальные три — резолвинг DNS.
+    # Список отражает теги, которые заводит `src/core/config_builder.py`.
+    _SERVICE_TAGS = frozenset({"direct", "vpn", "api", "main-dns", "local-dns", "vpn-dns"})
 
     def __init__(
         self,
@@ -107,11 +113,6 @@ class XrayManager:
         return self._binary_path
 
     @property
-    def stats_api_url(self) -> str:
-        """Stats API URL (for HTTP API)."""
-        return f"http://{self._stats_api_addr}"
-
-    @property
     def is_running(self) -> bool:
         """Check if process is running."""
         if self._process is None:
@@ -137,6 +138,17 @@ class XrayManager:
         # Enable stats
         if "stats" not in config:
             config["stats"] = {}
+
+        # Без счётчиков в policy ядро не ведёт статистику вовсе: секции stats и
+        # api сами по себе лишь открывают доступ к тому, что уже посчитано.
+        # Вложенные словари копируются явно: config.copy() поверхностный, и
+        # правка на месте протекла бы в конфигурацию вызывающего.
+        policy = dict(config.get("policy") or {})
+        system = dict(policy.get("system") or {})
+        system["statsOutboundUplink"] = True
+        system["statsOutboundDownlink"] = True
+        policy["system"] = system
+        config["policy"] = policy
 
         # Enable API service
         if "api" not in config:
@@ -403,23 +415,69 @@ class XrayManager:
         """
         return self._process is not None and self._process.poll() is None
 
-    def _get_stats_via_api(self, name: str, reset: bool = False) -> int:
+    def _query_stats(self) -> dict[str, int]:
+        """Read every counter the core keeps.
+
+        Статистика снимается вызовом самого бинарника: Stats API ядра работает
+        только по gRPC, а генерировать protobuf-стабы ради двух чисел
+        избыточно — вызов укладывается в 25 мс.
+
+        Опрос идёт по таймеру, поэтому любая неудача — это пустой ответ, а не
+        исключение: ядро могло остановиться между двумя тиками.
         """
-        Get stats via API.
-        """
-        logger.debug("Stats API not fully implemented, returning 0 for %s", name)
-        return 0
+        try:
+            result = subprocess.run(
+                [
+                    self._binary_path,
+                    "api",
+                    "statsquery",
+                    f"--server={self._stats_api_addr}",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug("Stats query failed: %s", e)
+            return {}
+
+        if result.returncode != 0:
+            logger.debug("Stats query returned %s: %s", result.returncode, result.stderr)
+            return {}
+
+        try:
+            answer = json.loads(result.stdout or "{}")
+        except json.JSONDecodeError as e:
+            logger.debug("Could not parse the stats answer: %s", e)
+            return {}
+
+        # У обнулённого счётчика ключа value нет вовсе.
+        return {
+            item["name"]: int(item.get("value", 0))
+            for item in answer.get("stat", [])
+            if isinstance(item, dict) and "name" in item
+        }
 
     def get_traffic(self) -> TrafficStats:
-        """
-        Get current traffic statistics.
-        """
-        upload = 0
-        download = 0
+        """Traffic totals of every proxy outbound.
 
-        upload = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>uplink", reset=False)
-        download = self._get_stats_via_api("outbound>>>proxy>>>traffic>>>downlink", reset=False)
-
+        Счётчик именуется по тегу outbound, а тегом служит имя профиля, а не
+        строка `proxy`: её `config_builder` подставляет только безымянному
+        профилю. Поэтому складываются все каналы, кроме служебных, — имя
+        профиля заранее неизвестно, а служебные теги известны наперечёт.
+        """
+        upload = download = 0
+        for name, value in self._query_stats().items():
+            parts = name.split(">>>")
+            if len(parts) != 4 or parts[0] != "outbound":
+                continue
+            if parts[1] in self._SERVICE_TAGS:
+                continue
+            if parts[3] == "uplink":
+                upload += value
+            elif parts[3] == "downlink":
+                download += value
         return TrafficStats(upload=upload, download=download)
 
     @measure_time("XrayManager.test_delay")
@@ -489,7 +547,9 @@ class XrayManager:
                 start_ns = time.perf_counter_ns()
                 cache_buster = f"cb={start_ns}_{probe_index}"
                 probe_url = (
-                    f"{test_url}&{cache_buster}" if "?" in test_url else f"{test_url}?{cache_buster}"
+                    f"{test_url}&{cache_buster}"
+                    if "?" in test_url
+                    else f"{test_url}?{cache_buster}"
                 )
 
                 try:

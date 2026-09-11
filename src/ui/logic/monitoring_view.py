@@ -76,9 +76,7 @@ def routing_rows(
     direct = f"активен ({direct_count} правил)" if direct_count else NOT_SET
 
     proxy_count = len(routing.proxy_list or [])
-    proxy = (
-        f"активен ({proxy_count} правил + default)" if proxy_count else "активен (default)"
-    )
+    proxy = f"активен ({proxy_count} правил + default)" if proxy_count else "активен (default)"
 
     vpn_count = len(routing.vpn_list or [])
     if vpn_count == 0:

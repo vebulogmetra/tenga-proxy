@@ -71,3 +71,23 @@ def test_metrics_text_skips_negative_latency():
 
 def test_metrics_text_is_empty_when_nothing_is_known():
     assert metrics_text(latency_ms=None, upload_bytes=None, download_bytes=None, mode="") == ""
+
+
+def test_connected_shows_the_logo_in_colour():
+    view = status_view(ConnectionState.CONNECTED, profile_name="Польша")
+
+    assert view.use_logo is True
+    assert view.logo_desaturated is False
+
+
+def test_disconnected_shows_the_logo_desaturated():
+    view = status_view(ConnectionState.DISCONNECTED)
+
+    assert view.use_logo is True
+    assert view.logo_desaturated is True
+
+
+def test_connecting_and_error_keep_their_themed_icons():
+    # Спиннер и предупреждение сообщают состояние точнее, чем логотип.
+    for state in (ConnectionState.CONNECTING, ConnectionState.ERROR):
+        assert status_view(state).use_logo is False

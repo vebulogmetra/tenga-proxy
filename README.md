@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/tenga-proxy.svg" width="120" alt="Tenga Proxy">
+<img src="assets/theme/hicolor/256x256/apps/tenga-proxy.png" width="120" alt="Tenga Proxy">
 
 # Tenga Proxy
 

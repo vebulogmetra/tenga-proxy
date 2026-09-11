@@ -1,5 +1,6 @@
-import time
 import logging
+import time
+
 from src.core.performance import measure_time
 
 

@@ -74,9 +74,7 @@ def _matches(profile: Any, query: str) -> bool:
     )
 
 
-def _sorted_profiles(
-    profiles: list[Any], sort_key: SortKey, ascending: bool
-) -> list[Any]:
+def _sorted_profiles(profiles: list[Any], sort_key: SortKey, ascending: bool) -> list[Any]:
     if sort_key is SortKey.TYPE:
         return sorted(
             profiles,

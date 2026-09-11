@@ -28,7 +28,7 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
         log_file,
         maxBytes=10 * 1024 * 1024,  # 10 MB
         backupCount=5,
-        encoding="utf-8"
+        encoding="utf-8",
     )
     console_handler = logging.StreamHandler(sys.stdout)
     formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")

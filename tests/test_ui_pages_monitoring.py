@@ -108,7 +108,7 @@ def test_last_check_is_shown(page):
 
 
 def test_vpn_rows_of_both_sections_are_independent(gtk_ready):
-    """"VPN" is a row title in both sections; one must not overwrite the other."""
+    """ "VPN" is a row title in both sections; one must not overwrite the other."""
     from src.ui.logic.monitoring_view import monitoring_view
     from src.ui.pages.monitoring import SECTION_CONNECTION, SECTION_ROUTING, MonitoringPage
 

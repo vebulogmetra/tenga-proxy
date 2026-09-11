@@ -234,3 +234,121 @@ def test_an_expanded_group_offers_collapsing(page, data):
     page.expand_all()
 
     assert "Свернуть группу" in page.context_menu_labels_for_test(position=0)
+
+
+def test_context_menu_points_at_click(page, data, monkeypatch):
+    """Меню должно всплывать в точке клика, а не в углу списка.
+
+    Gdk.Rectangle игнорирует аргументы конструктора: прямоугольник,
+    собранный как Rectangle(x=..., y=...), остаётся нулевым, и popover
+    прилипает к верхнему левому углу.
+    """
+    groups, profiles = data
+    page.set_data(groups, profiles)
+
+    captured = {}
+
+    def fake_set_pointing_to(rect):
+        captured["x"] = rect.x
+        captured["y"] = rect.y
+
+    monkeypatch.setattr(page._menu_popover, "set_pointing_to", fake_set_pointing_to)
+    monkeypatch.setattr(page.column_view, "get_realized", lambda: True)
+    monkeypatch.setattr(page._menu_popover, "popup", lambda: None)
+
+    page._open_context_menu(0, 137.0, 208.0)
+
+    assert (captured.get("x"), captured.get("y")) == (137, 208)
+
+
+def test_refresh_keeps_groups_expanded(page, data):
+    """Обновление списка не должно схлопывать раскрытые группы.
+
+    Пинг группы перерисовывает страницу на каждую порцию результатов:
+    если раскрытие теряется, строки схлопываются прямо во время замера.
+    """
+    groups, profiles = data
+    page.set_data(groups, profiles)
+    page.expand_all()
+    assert page.get_visible_row_count() == 5
+
+    page.refresh()
+
+    assert page.get_visible_row_count() == 5
+
+
+def test_refresh_keeps_a_collapsed_group_collapsed(page, data):
+    """Свёрнутая группа не должна раскрываться сама по себе."""
+    groups, profiles = data
+    page.set_data(groups, profiles)
+    page.expand_all()
+    page.toggle_group(1)
+    collapsed = page.get_visible_row_count()
+
+    page.refresh()
+
+    assert page.get_visible_row_count() == collapsed
+
+
+def _drain_events() -> None:
+    from gi.repository import GLib
+
+    context = GLib.MainContext.default()
+    for _ in range(200):
+        if not context.pending():
+            break
+        context.iteration(False)
+
+
+def _many_profiles(count: int = 80):
+    groups = {1: FakeGroup(id=1, name="Большая")}
+    profiles = {
+        1: [
+            FakeProfile(i, f"П{i:03d}", "vless", FakeBean(f"h{i}.example:443"))
+            for i in range(count)
+        ]
+    }
+    return groups, profiles
+
+
+def test_refresh_keeps_the_scroll_position(page):
+    """Обновление списка не должно перематывать его наверх.
+
+    Счётчик трафика зовёт refresh_pages раз в секунду: если перерисовка
+    сбрасывает прокрутку, список невозможно листать.
+    """
+    from gi.repository import Gtk
+
+    groups, profiles = _many_profiles()
+    page.set_data(groups, profiles)
+    page.expand_all()
+
+    # Прокрутка ограничена размером виджета: без окна высота нулевая и
+    # adjustment всегда остаётся в нуле.
+    window = Gtk.Window(default_width=600, default_height=400)
+    window.set_child(page)
+    window.present()
+
+    adjustment = page.get_vadjustment_for_test()
+    # Разметка доезжает не за один проход, а под нагрузкой всего набора
+    # тестов — тем более: ждём, пока список получит высоту.
+    before = 0.0
+    for _ in range(50):
+        _drain_events()
+        adjustment.set_value(400.0)
+        before = adjustment.get_value()
+        if before > 0:
+            break
+
+    if before <= 0:
+        window.set_child(None)
+        window.destroy()
+        pytest.skip("Список не получил высоту: прокрутку проверить нельзя")
+
+    page.refresh()
+    _drain_events()
+
+    assert page.get_vadjustment_for_test().get_value() == before
+
+    window.set_child(None)
+    window.destroy()

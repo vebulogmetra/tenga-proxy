@@ -937,7 +937,7 @@ wheels = [
 
 [[package]]
 name = "tenga-proxy"
-version = "0.13.0"
+version = "0.15.2"
 source = { editable = "." }
 dependencies = [
     { name = "certifi" },

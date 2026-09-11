@@ -71,9 +71,7 @@ def _run_ip_batch_privileged(commands: list[list[str]], timeout: int = 20) -> tu
         return True, ""
 
     # Single escalated shell invocation to avoid multiple password prompts.
-    chain = " && ".join(
-        "ip " + " ".join(shlex.quote(part) for part in args) for args in commands
-    )
+    chain = " && ".join("ip " + " ".join(shlex.quote(part) for part in args) for args in commands)
 
     attempts: list[list[str]] = []
     if shutil.which("sudo"):

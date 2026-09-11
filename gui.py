@@ -64,6 +64,12 @@ logger.info(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE')}")
 
 _ARGS, _EXTRA = parse_args()
 
+# Локаль выбирается до импорта GTK: переводы подхватываются при инициализации
+# библиотеки, и позже смена переменных уже ничего не даёт.
+from src.ui.logic.locale import apply_locale
+
+apply_locale()
+
 if "GI_TYPELIB_PATH" not in os.environ:
     typelib_paths = [
         "/usr/lib/girepository-1.0",

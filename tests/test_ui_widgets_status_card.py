@@ -92,6 +92,17 @@ def test_metrics_row_hidden_when_empty(card):
     assert "132 ms" in card.get_metrics()
 
 
+def test_logo_replaces_the_themed_icon_when_connected(card):
+    from src.ui.logic.status import ConnectionState
+
+    card.update(_view(ConnectionState.CONNECTED, profile_name="X"))
+    assert card.shows_logo() is True
+
+    # У ошибки логотипа нет: предупреждение читается однозначнее.
+    card.update(_view(ConnectionState.ERROR, error="boom"))
+    assert card.shows_logo() is False
+
+
 def test_button_click_emits_signal(card):
     from src.ui.logic.status import ConnectionState
 

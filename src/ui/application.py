@@ -16,9 +16,13 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from src.core.context import AppContext, get_context
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
+from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
-from src.ui.logic.version import app_version
-from src.ui.window import MainWindow, load_css
+from src.ui.logic.version import app_version, core_version
+from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
+
+# Шаг склейки перерисовок на время замера задержки.
+LATENCY_REFRESH_INTERVAL_MS = 150
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -58,6 +62,7 @@ class TengaApplication(Adw.Application):
         self._signal_source_ids: list[int] = []
         self._window: MainWindow | None = None
         self._latency_runner: LatencyRunner | None = None
+        self._latency_refresh_id: int | None = None
         self._latency_probe: Callable[[int], int] | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
@@ -71,6 +76,7 @@ class TengaApplication(Adw.Application):
 
     def do_startup(self) -> None:
         Adw.Application.do_startup(self)
+        load_icons()
         load_css()
         self._register_actions()
         self._setup_signal_handlers()
@@ -81,6 +87,19 @@ class TengaApplication(Adw.Application):
         if self._window is None:
             self._window = MainWindow(application=self, context=self.context)
         self._window.present()
+        self.resume_monitoring()
+
+    def resume_monitoring(self) -> None:
+        """Start watching a proxy that is already running.
+
+        Наблюдение запускает подключение, но приложение может открыться при
+        уже поднятом прокси — тогда проверки не шли бы вовсе, и страница
+        мониторинга показывала бы «Недоступен» при работающем соединении.
+        """
+        monitor = self.context.monitor
+        if monitor is None or not self.context.proxy_state.is_running:
+            return
+        monitor.start()
 
     def do_shutdown(self) -> None:
         # Выход по SIGTERM не эмитирует close-request, поэтому геометрия
@@ -437,14 +456,18 @@ class TengaApplication(Adw.Application):
         self.apply_settings()
 
     def _open_about(self) -> None:
+        core = core_version(getattr(self.context, "xray_manager", None))
         dialog = Adw.AboutDialog(
             application_name="Tenga Proxy",
-            application_icon="network-server-symbolic",
+            application_icon=APP_ICON,
             developer_name="Artem G.",
             version=app_version(),
-            comments="Клиент прокси для Linux на базе xray-core",
+            comments=f"Клиент прокси для Linux на базе xray-core {core}",
+            website="https://github.com/vebulogmetra/tenga-proxy",
             license_type=Gtk.License.MIT_X11,
         )
+        # Строку целиком копируют в отчёт об ошибке, поэтому обе версии рядом.
+        dialog.set_debug_info(f"Tenga Proxy {app_version()}\nxray-core {core}")
         self.present_dialog(dialog)
 
     def _open_shortcuts(self) -> None:
@@ -582,12 +605,71 @@ class TengaApplication(Adw.Application):
         if not started:
             self.toast("Проверка задержки уже идёт")
 
+    def test_latency_for_group(self, group_id: int) -> None:
+        """Measure the latency of one group, ordering rows as results arrive."""
+        store = self.context.profiles
+        if store.get_group(group_id) is None:
+            self.toast("Группа не найдена")
+            return
+
+        profile_ids = [profile.id for profile in store.get_profiles_in_group(group_id)]
+        if not profile_ids:
+            self.toast("В группе нет профилей")
+            return
+
+        # Пинг группы — единственный случай, когда порядок строк говорит о
+        # результате: список пересортировывается по задержке, пока идёт замер.
+        if self._window is not None:
+            self._window.profiles_page.set_sort(SortKey.PING, ascending=True)
+
+        runner = self._ensure_latency_runner()
+        started = runner.run(
+            profile_ids,
+            on_result=self._on_latency_result_live,
+            on_done=self._on_latency_done,
+        )
+        if not started:
+            self.toast("Проверка задержки уже идёт")
+            return
+
+        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+
     def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
         profile = self.context.profiles.get_profile(profile_id)
         if profile is not None:
             profile.latency_ms = latency_ms
 
+    def _on_latency_result_live(self, profile_id: int, latency_ms: int) -> None:
+        """Store one result and schedule a re-sort of the list.
+
+        Перерисовка склеивается по таймеру: список должен пересортировываться
+        по ходу замера, но на группе в сотни профилей построчный refresh занял
+        бы секунды главного цикла и превратил бы обновление в рывки.
+        """
+        self._on_latency_result(profile_id, latency_ms)
+        self._schedule_latency_refresh()
+
+    def _schedule_latency_refresh(self) -> None:
+        if self._window is None or self._latency_refresh_id is not None:
+            return
+
+        def _redraw() -> bool:
+            self._latency_refresh_id = None
+            if self._window is not None:
+                self._window.refresh_pages()
+            return GLib.SOURCE_REMOVE
+
+        self._latency_refresh_id = GLib.timeout_add(LATENCY_REFRESH_INTERVAL_MS, _redraw)
+
+    def _cancel_latency_refresh(self) -> None:
+        if self._latency_refresh_id is not None:
+            GLib.source_remove(self._latency_refresh_id)
+            self._latency_refresh_id = None
+
     def _on_latency_done(self) -> None:
+        # Итоговая перерисовка всё равно будет ниже: отложенная только
+        # продублировала бы её уже после сохранения.
+        self._cancel_latency_refresh()
         try:
             self.context.save_profiles()
         except Exception as e:
@@ -746,7 +828,12 @@ class TengaApplication(Adw.Application):
 def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     """Entry point for the GTK4 interface."""
     from src.core.context import init_context
+    from src.core.monitor import attach_monitor
 
     context = init_context(config_dir=config_dir)
+    # Монитор заводится здесь: без него страница мониторинга пуста, а
+    # подключение не начинает наблюдение — `ConnectionService` запускает уже
+    # готовый монитор, но сам его не создаёт.
+    attach_monitor(context)
     app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
     return app.run([])

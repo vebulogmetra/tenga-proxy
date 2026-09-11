@@ -28,6 +28,7 @@ core/profiles/
 
 core/direct_list.txt
 core/proxy_list.txt
+routing-backup.txt
 
 build/
 dist/

@@ -39,11 +39,13 @@ class LogManager:
                 size = log_file.stat().st_size
                 modified = log_file.stat().st_mtime
 
-                log_files.append({
-                    "name": log_file.name,
-                    "size": size,
-                    "modified": modified,
-                })
+                log_files.append(
+                    {
+                        "name": log_file.name,
+                        "size": size,
+                        "modified": modified,
+                    }
+                )
                 total_size += size
 
         # Sort by name
