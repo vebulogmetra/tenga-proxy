@@ -218,7 +218,7 @@ class TengaApplication(Adw.Application):
         service = self._ensure_connection_service()
         self._connection_thread = run_in_background(
             lambda: service.connect(profile_id),
-            on_done=lambda result: self._on_connection_done(result, profile.name),
+            on_done=lambda result: self._on_connection_done(result, profile_id, profile.name),
             on_error=self._on_connection_failed,
             name="tenga-connect",
         )
@@ -240,6 +240,10 @@ class TengaApplication(Adw.Application):
     def _connect_selected(self) -> None:
         profile_id = self._selected_profile_id()
         if profile_id is None:
+            # Трей и кнопка в окне без выделения подключают последний профиль.
+            last = self.context.profiles.last_used_profile()
+            profile_id = None if last is None else last.id
+        if profile_id is None:
             self.toast("Выберите профиль в списке")
             return
         self.connect_profile(profile_id)
@@ -255,8 +259,10 @@ class TengaApplication(Adw.Application):
             return None
         return self._window.profiles_page.get_selected_profile_id()
 
-    def _on_connection_done(self, result, profile_name: str) -> None:
+    def _on_connection_done(self, result, profile_id: int, profile_name: str) -> None:
         if result.ok:
+            self.context.profiles.mark_used(profile_id)
+            self._save_profiles()
             self.toast(f"Подключено: {profile_name}")
         else:
             self.toast(f"Не удалось подключиться: {result.error}")

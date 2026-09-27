@@ -146,3 +146,34 @@ def test_profile_manager_save_and_load(tmp_path, monkeypatch):
     assert mgr2.load() is True
     assert any(gr.name == "G" for gr in mgr2.groups.values())
     assert len(mgr2.profiles) >= 1
+
+
+def test_last_used_profile_is_the_latest_marked(tmp_path):
+    mgr = ProfileManager(profiles_dir=tmp_path)
+
+    @dataclass
+    class DummyBean:
+        display_name: str = "P"
+        proxy_type: str = "dummy"
+
+        def to_dict(self):
+            return {}
+
+    assert mgr.last_used_profile() is None
+
+    first = mgr.add_profile(DummyBean())
+    second = mgr.add_profile(DummyBean())
+    assert mgr.last_used_profile() is None
+
+    mgr.mark_used(second.id, now=100)
+    mgr.mark_used(first.id, now=200)
+    assert mgr.last_used_profile() is first
+
+    mgr.remove_profile(first.id)
+    assert mgr.last_used_profile() is second
+
+
+def test_marking_a_missing_profile_is_harmless(tmp_path):
+    mgr = ProfileManager(profiles_dir=tmp_path)
+    mgr.mark_used(42)
+    assert mgr.last_used_profile() is None

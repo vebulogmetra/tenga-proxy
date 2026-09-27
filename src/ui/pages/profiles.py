@@ -385,6 +385,10 @@ class ProfilesPage(Gtk.Box):
         # без переноса состояния группы схлопывались бы на каждом обновлении —
         # например на каждой порции результатов пинга.
         expanded = self._expanded_group_ids()
+        # Выделение тоже теряется: splice убирает выбранную строку, и
+        # SingleSelection перескакивает на группу. «Подключить» берёт профиль
+        # из выделения, поэтому без переноса оно после отключения пустело.
+        selected_id = self.get_selected_profile_id()
 
         self._rows = build_profile_rows(
             self._groups,
@@ -414,6 +418,8 @@ class ProfilesPage(Gtk.Box):
             self._root_store.splice(0, self._root_store.get_n_items(), items)
 
         self._restore_expanded(expanded)
+        if selected_id is not None:
+            self.select_profile(selected_id)
         self._stack.set_visible_child_name("list" if self._rows else "empty")
 
     def _preserve_scroll(self, rebuild: Callable[[], None]) -> None:
@@ -559,6 +565,17 @@ class ProfilesPage(Gtk.Box):
             if item.is_group and item.row.group_id == group_id:
                 tree_row.set_expanded(not tree_row.get_expanded())
                 return
+
+    def select_profile(self, profile_id: int) -> bool:
+        """Select a visible profile row; False when it is not shown."""
+        if self._tree_model is None:
+            return False
+        for position in range(self._tree_model.get_n_items()):
+            item = self._item_at(position)
+            if item is not None and not item.is_group and item.row.profile_id == profile_id:
+                self._select_position(position)
+                return True
+        return False
 
     def get_selected_profile_id(self) -> int | None:
         """Return the selected profile, or None when a group is selected."""
