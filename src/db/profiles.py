@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -196,6 +197,17 @@ class ProfileManager:
             del self._profiles[profile_id]
             return True
         return False
+
+    def mark_used(self, profile_id: int, now: int | None = None) -> None:
+        """Remember that the profile has just been connected."""
+        entry = self._profiles.get(profile_id)
+        if entry is not None:
+            entry.last_used = int(time.time()) if now is None else now
+
+    def last_used_profile(self) -> ProfileEntry | None:
+        """Return the most recently connected profile, if any."""
+        used = [entry for entry in self._profiles.values() if entry.last_used > 0]
+        return max(used, key=lambda entry: entry.last_used, default=None)
 
     def add_group(self, name: str, is_subscription: bool = False) -> ProfileGroup:
         """Add group."""

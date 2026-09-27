@@ -290,6 +290,28 @@ def test_refresh_keeps_a_collapsed_group_collapsed(page, data):
     assert page.get_visible_row_count() == collapsed
 
 
+def test_refresh_keeps_the_selected_profile(page, data):
+    """Выделенный профиль переживает пересборку списка.
+
+    Отключение перерисовывает страницу, и без переноса выделение уходило на
+    группу: «Подключить» после этого просил выбрать профиль заново.
+    """
+    page.set_data(*data)
+    page.expand_all()
+    page.select_profile(2)
+    assert page.get_selected_profile_id() == 2
+
+    page.set_active_profile(2)
+    page.set_active_profile(-1)
+
+    assert page.get_selected_profile_id() == 2
+
+
+def test_select_profile_ignores_a_hidden_profile(page, data):
+    page.set_data(*data)
+    assert page.select_profile(3) is False
+
+
 def _drain_events() -> None:
     from gi.repository import GLib
 

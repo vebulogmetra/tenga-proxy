@@ -249,6 +249,34 @@ def test_toggle_connection_without_a_selection_says_so(adw_app):
     assert "профиль" in adw_app.last_toast_for_test.lower()
 
 
+def test_connect_without_a_selection_reuses_the_last_profile(adw_app):
+    """После отключения «Подключить» берёт последний использованный профиль."""
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+
+    adw_app.select_profile(entry.id)
+    adw_app.wait_for_connection_for_test()
+    adw_app.get_active_window().profiles_page.column_view.get_model().unselect_all()
+
+    adw_app.activate_action("connect", None)
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", entry.id), ("connect", entry.id)]
+
+
+def test_a_failed_connection_is_not_remembered(adw_app):
+    adw_app.activate()
+    entry = add_profile(adw_app)
+    adw_app.set_connection_service(FakeService([], ok=False, error="нет"))
+
+    adw_app.select_profile(entry.id)
+    adw_app.wait_for_connection_for_test()
+
+    assert adw_app.context.profiles.last_used_profile() is None
+
+
 def test_add_profile_stores_and_saves(adw_app):
     adw_app.activate()
     before = len(adw_app.context.profiles.profiles)
