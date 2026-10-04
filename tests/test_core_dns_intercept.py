@@ -219,3 +219,16 @@ def test_core_accepts_interception_config(context, profile, system, tmp_path):
 
     assert config["inbounds"][0]["protocol"] == "tun"
     assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)
+
+
+def test_tun_gets_an_address_when_dns_is_intercepted(context, profile, system):
+    """systemd-resolved не шлёт запросы через интерфейс без маршрутизируемого адреса."""
+    config = build_session_config(context, profile)
+
+    assert config["inbounds"][0]["settings"]["gateway"] == ["198.18.0.1/30"]
+
+
+def test_tun_has_no_address_without_interception(context, profile):
+    config = build_session_config(context, profile)
+
+    assert "gateway" not in config["inbounds"][0]["settings"]

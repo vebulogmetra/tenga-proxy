@@ -10,6 +10,17 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def _no_system_dns_changes(monkeypatch) -> list[str]:
+    """Подключение в тестах не трогает DNS машины."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "src.core.connection.route_system_dns_to_tun",
+        lambda tun_name: calls.append(tun_name) or (False, "tests: system DNS is not touched"),
+    )
+    return calls
+
+
+@pytest.fixture(autouse=True)
 def _no_system_probing(monkeypatch) -> None:
     """Сборка конфига не должна зависеть от сети машины, на которой идут тесты.
 

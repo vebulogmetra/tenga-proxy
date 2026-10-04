@@ -13,10 +13,11 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.core.config_builder import build_session_config
+from src.core.config_builder import build_session_config, intercepts_dns
 from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import connect_vpn, disconnect_vpn, is_vpn_active
 
@@ -87,10 +88,20 @@ class ConnectionService:
         if not routed.ok:
             return routed
 
+        if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
+            self._route_system_dns()
+
         if context.monitor is not None:
             context.monitor.start()
 
         return ConnectionResult(True)
+
+    def _route_system_dns(self) -> None:
+        """Направить системный DNS в TUN; отказ не срывает подключение."""
+        tun_name = getattr(self._context.config, "tun_name", "xray0")
+        ok, error = route_system_dns_to_tun(tun_name)
+        if not ok:
+            logger.warning("Системный DNS не направлен в %s: %s", tun_name, error)
 
     def _reset_vpn_flag(self) -> None:
         try:
@@ -261,6 +272,10 @@ class ConnectionService:
         if not reloaded:
             logger.error("Error reloading xray-core: %s", error)
             return ConnectionResult(False, error or "Не удалось перезагрузить конфигурацию")
+
+        runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
+        if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
+            self._route_system_dns()
 
         logger.info("Configuration reloaded successfully")
         return ConnectionResult(True)

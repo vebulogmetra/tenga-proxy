@@ -21,7 +21,12 @@ from src.core.geo import (
     asset_dirs,
     load_catalog,
 )
-from src.core.proxy_mode import TUN_INBOUND_TAG, build_inbounds_for_mode, normalize_proxy_mode
+from src.core.proxy_mode import (
+    TUN_ADDRESS,
+    TUN_INBOUND_TAG,
+    build_inbounds_for_mode,
+    normalize_proxy_mode,
+)
 from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import (
     DEFAULT_ROUTING_ORDER,
@@ -414,6 +419,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             socks_port=port,
             tun_name=getattr(context.config, "tun_name", "xray0"),
             tun_mtu=getattr(context.config, "tun_mtu", 1500),
+            tun_address=TUN_ADDRESS if system_resolvers else None,
         )
 
         config = {
@@ -439,6 +445,11 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             e,
         )
         return None
+
+
+def intercepts_dns(config: dict) -> bool:
+    """Собран ли конфиг с перехватом DNS приложений (режим TUN)."""
+    return any(outbound.get("tag") == DNS_OUT_TAG for outbound in config.get("outbounds", []))
 
 
 def reserve_latency_port_pair(host: str) -> int:
