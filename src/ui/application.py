@@ -564,13 +564,16 @@ class TengaApplication(Adw.Application):
                 logger.debug("Latency probe cleanup failed", exc_info=True)
 
     def _default_subscription_updater(self, group_id: int, url: str) -> int:
+        from src.sub.route import local_proxy_url
         from src.sub.updater import update_subscription
 
+        context = self.context
         beans = update_subscription(
             url,
-            config=self.context.config,
-            profiles=self.context.profiles,
+            config=context.config,
+            profiles=context.profiles,
             group_id=group_id,
+            proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
         )
         return len(beans)
 

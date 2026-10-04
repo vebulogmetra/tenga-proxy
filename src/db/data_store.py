@@ -59,7 +59,6 @@ class DataStore(ConfigBase):
     start_minimal: bool = False
     # Subscriptions
     user_agent: str = ""
-    sub_use_proxy: bool = False
     sub_clear: bool = False
     sub_insecure: bool = False
     sub_auto_update: int = -30

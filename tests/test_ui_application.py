@@ -197,6 +197,29 @@ def test_a_denied_update_shows_the_providers_explanation(adw_app):
     assert "403: Превышен лимит устройств" in adw_app.last_toast_for_test
 
 
+def test_the_default_updater_goes_through_the_running_proxy(adw_app):
+    """В режиме системного прокси requests сам его не видит: адрес передаётся явно."""
+    from unittest.mock import Mock, patch
+
+    from src.db.config import ProxyMode
+
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    adw_app.context.proxy_state.set_running(1, mode=ProxyMode.SYSTEM_PROXY)
+
+    response = Mock()
+    response.text = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
+    response.raise_for_status = Mock()
+
+    with patch("src.sub.updater.requests.get", return_value=response) as mock_get:
+        count = adw_app._default_subscription_updater(group.id, "https://sub.example/list")
+
+    assert count == 1
+    assert mock_get.call_args.kwargs["proxies"] == {
+        "http": "http://127.0.0.1:2081",
+        "https": "http://127.0.0.1:2081",
+    }
+
+
 # --- подключение и диалоги (этап 3) ---
 
 LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#Новый"
