@@ -16,7 +16,7 @@ from src.core.config_builder import (
     reserve_latency_port_pair,
 )
 from src.core.context import init_context
-from src.db.config import LOCAL_NETWORKS, ProxyMode, RoutingMode
+from src.db.config import LOCAL_NETWORKS, DnsProvider, ProxyMode, RoutingMode
 from src.db.profiles import ProfileEntry
 from src.fmt import parse_link
 
@@ -141,3 +141,57 @@ def test_dns_settings_reach_the_generated_config(context, profile):
     assert config is not None
     assert "dns" in config
     assert config["dns"].get("servers"), "список DNS-серверов пуст"
+
+
+def _dns_addresses(config: dict) -> list[str]:
+    """Адреса DNS-серверов конфига: строка или поле address объекта."""
+    return [s if isinstance(s, str) else s["address"] for s in config["dns"]["servers"]]
+
+
+def test_doh_server_is_written_as_url(context, profile):
+    """Ядро понимает DoH только URL-строкой в address.
+
+    Запись `{"address": "dns.google:443", "path": ...}` оно читает как UDP-сервер
+    `dns.google:443:53`: каждый запрос висит до таймаута и уходит на localhost.
+    """
+    context.config.dns.provider = DnsProvider.GOOGLE
+    context.config.dns.use_proxy = True
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    assert {"address": "https://dns.google/dns-query"} in config["dns"]["servers"]
+    for server in config["dns"]["servers"]:
+        assert isinstance(server, str) or "path" not in server
+
+
+def test_custom_doh_url_keeps_port_and_path(context, profile):
+    context.config.dns.custom_url = "https://1.1.1.1:8443/custom-query"
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    assert "https://1.1.1.1:8443/custom-query" in _dns_addresses(config)
+
+
+def test_doh_bypasses_proxy_when_dns_via_proxy_is_off(context, profile):
+    """`https+local://` ядро отправляет напрямую, мимо правил маршрутизации."""
+    context.config.dns.provider = DnsProvider.CLOUDFLARE
+    context.config.dns.use_proxy = False
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    assert _dns_addresses(config)[0] == "https+local://cloudflare-dns.com/dns-query"
+
+
+def test_dot_server_is_skipped(context, profile):
+    """DoT в xray-core нет: `tls://` оно прочло бы как имя UDP-сервера."""
+    context.config.dns.custom_url = "tls://dns.google"
+
+    config = build_session_config(context, profile)
+
+    assert config is not None
+    addresses = _dns_addresses(config)
+    assert not any("dns.google" in address for address in addresses)
+    assert "localhost" in addresses

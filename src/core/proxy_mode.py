@@ -4,6 +4,10 @@ from typing import Any
 
 from src.db.config import ProxyMode
 
+# quic обязателен: браузеры ходят по HTTP/3, и без него ядро не извлекает домен
+# из udp:443 — доменные правила маршрутизации для такого трафика молча не работают.
+SNIFFING_DEST_OVERRIDE = ("http", "tls", "quic")
+
 
 def normalize_proxy_mode(mode: str | None) -> str:
     """Normalize runtime proxy mode."""
@@ -39,7 +43,7 @@ def build_inbounds_for_mode(
                 },
                 "sniffing": {
                     "enabled": True,
-                    "destOverride": ["http", "tls"],
+                    "destOverride": list(SNIFFING_DEST_OVERRIDE),
                 },
             }
         ]
@@ -55,7 +59,7 @@ def build_inbounds_for_mode(
             },
             "sniffing": {
                 "enabled": True,
-                "destOverride": ["http", "tls"],
+                "destOverride": list(SNIFFING_DEST_OVERRIDE),
             },
         },
         {
@@ -65,7 +69,7 @@ def build_inbounds_for_mode(
             "settings": {},
             "sniffing": {
                 "enabled": True,
-                "destOverride": ["http", "tls"],
+                "destOverride": list(SNIFFING_DEST_OVERRIDE),
             },
         },
     ]

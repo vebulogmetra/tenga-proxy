@@ -1,3 +1,5 @@
+import pytest
+
 from src.db.config import ProxyMode
 
 
@@ -54,3 +56,20 @@ def test_invalid_proxy_mode_fallbacks_to_tun():
 
     assert len(inbounds) == 1
     assert inbounds[0]["protocol"] == "tun"
+
+
+@pytest.mark.parametrize("mode", ProxyMode.ALL)
+def test_every_inbound_sniffs_quic(mode):
+    """Без quic домен из HTTP/3 не извлекается, и доменные правила молча не срабатывают."""
+    from src.core.proxy_mode import build_inbounds_for_mode
+
+    inbounds = build_inbounds_for_mode(
+        mode=mode,
+        address="127.0.0.1",
+        socks_port=2080,
+        tun_name="xray0",
+        tun_mtu=1500,
+    )
+
+    for inbound in inbounds:
+        assert "quic" in inbound["sniffing"]["destOverride"], inbound["protocol"]

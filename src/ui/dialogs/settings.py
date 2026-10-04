@@ -148,7 +148,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         custom = Adw.PreferencesGroup(
             title="Свой адрес",
             description="Непустое поле перекрывает выбранного провайдера. "
-            "Примеры: 8.8.8.8, https://dns.google/dns-query, tls://dns.google",
+            "Примеры: 8.8.8.8, https://dns.google/dns-query",
         )
         page.add(custom)
 

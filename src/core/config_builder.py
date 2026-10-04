@@ -300,40 +300,25 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 }
             )
         elif dns_url.startswith("https://"):
-            # DoH server
-            from urllib.parse import urlparse
-
-            parsed = urlparse(dns_url)
-            server_host = parsed.netloc.split(":")[0] if ":" in parsed.netloc else parsed.netloc
-            server_port = parsed.port if parsed.port else 443
-            path = parsed.path if parsed.path else "/dns-query"
+            # DoH: ядро принимает его только URL-строкой в address. Отдельные
+            # host:port и path оно читает как имя UDP-сервера — запрос висит до
+            # таймаута и уходит на localhost. `https+local://` идёт напрямую, мимо
+            # маршрутизации; обычный `https://` — через неё, то есть в прокси.
+            doh_url = dns_url
+            if not dns_settings.use_proxy:
+                doh_url = "https+local://" + dns_url[len("https://") :]
 
             dns_servers.append(
                 {
                     "tag": "main-dns",
                     "type": "https",
-                    "server": server_host,
-                    "server_port": server_port,
-                    "path": path,
-                    "detour": dns_detour,
+                    "url": doh_url,
                 }
             )
         elif dns_url.startswith("tls://"):
-            # DoT server
-            server = dns_url.replace("tls://", "").split(":")[0]
-            port = 853
-            if ":" in dns_url.replace("tls://", ""):
-                port = int(dns_url.split(":")[-1])
-
-            dns_servers.append(
-                {
-                    "tag": "main-dns",
-                    "type": "tls",
-                    "server": server,
-                    "server_port": port,
-                    "detour": dns_detour,
-                }
-            )
+            # DoT в xray-core нет: адрес `tls://…` оно прочло бы как имя UDP-сервера.
+            # Сервер пропускаем, запросы достаются local-dns ниже.
+            logger.warning("DNS-over-TLS не поддерживается xray-core, %s пропущен", dns_url)
         else:
             # Plain IP or domain - use UDP
             server = dns_url.replace("udp://", "").replace("tcp://", "")
@@ -558,30 +543,9 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 # Note: xray-core doesn't support detour in DNS config directly
                 # DNS queries routing through VPN is handled via routing rules
                 xray_dns_servers.append(server_config)
-            elif server_type == "tls":
-                addr = server.get("server", "1.1.1.1")
-                port_num = server.get("server_port", 853)
-                server_config = {
-                    "address": f"{addr}:{port_num}",
-                }
-                # Add domains from DNS rules if this server is referenced
-                domains_for_server = []
-                for rule in dns_rules:
-                    if rule.get("server") == server_tag:
-                        if "domain" in rule:
-                            domains_for_server.extend(rule["domain"])
-                        elif "domain_suffix" in rule:
-                            domains_for_server.extend(rule["domain_suffix"])
-                if domains_for_server:
-                    server_config["domains"] = domains_for_server
-                xray_dns_servers.append(server_config)
             elif server_type == "https":
-                addr = server.get("server", "1.1.1.1")
-                port_num = server.get("server_port", 443)
-                path = server.get("path", "/dns-query")
                 server_config = {
-                    "address": f"{addr}:{port_num}",
-                    "path": path,
+                    "address": server["url"],
                 }
                 # Add domains from DNS rules if this server is referenced
                 domains_for_server = []
