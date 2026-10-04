@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+import shutil
+
 import pytest
 
 from src.core import config_builder
 from src.core.config_builder import build_session_config
 from src.db.config import DnsProvider, VpnSettings
 from tests.support.session import (
+    XRAY,
     make_context,
     make_profile,
     use_bundled_geo,
     use_custom_lists,
+    with_socks_inbound,
+    xray_verdict,
+)
+
+needs_xray = pytest.mark.skipif(
+    not XRAY.exists() or not shutil.which(str(XRAY)),
+    reason="бинарник xray недоступен (core/bin/xray)",
 )
 
 IP_SERVER_LINK = "vless://11111111-1111-1111-1111-111111111111@203.0.113.7:443?security=tls#IP"
@@ -49,19 +59,25 @@ def dns_of(context, profile) -> dict:
     return config["dns"]
 
 
+DOH = "https://dns.google/dns-query"
+
 # Сервер профиля задан доменом: его имя всегда резолвит системный резолвер,
 # иначе DNS через прокси ждал бы соединения с прокси, а оно — DNS.
-BOOTSTRAP = {"address": "localhost", "domains": ["proxy.example.org"]}
+BOOTSTRAP = {"address": "localhost", "domains": ["full:proxy.example.org"], "skipFallback": True}
+
+
+def direct_dns(*domains: str) -> dict:
+    return {"address": "localhost", "domains": list(domains), "skipFallback": True}
 
 
 @pytest.mark.parametrize(
     ("settings", "expected"),
     [
-        ({}, [{"address": "https://dns.google/dns-query"}, BOOTSTRAP]),
-        ({"use_proxy": False}, [{"address": "https+local://dns.google/dns-query"}, BOOTSTRAP]),
-        ({"provider": DnsProvider.SYSTEM}, ["localhost", BOOTSTRAP]),
-        ({"custom_url": "8.8.8.8"}, [{"address": "8.8.8.8", "port": 53}, BOOTSTRAP]),
-        ({"custom_url": "tls://dns.google"}, [BOOTSTRAP]),
+        ({}, [BOOTSTRAP, {"address": DOH}]),
+        ({"use_proxy": False}, [BOOTSTRAP, {"address": "https+local://dns.google/dns-query"}]),
+        ({"provider": DnsProvider.SYSTEM}, [BOOTSTRAP, "localhost"]),
+        ({"custom_url": "8.8.8.8"}, [BOOTSTRAP, {"address": "8.8.8.8", "port": 53}]),
+        ({"custom_url": "tls://dns.google"}, [BOOTSTRAP, "localhost"]),
     ],
     ids=["doh", "doh-direct", "system", "udp", "dot-skipped"],
 )
@@ -75,14 +91,74 @@ def test_main_server_follows_dns_settings(context, profile, settings, expected):
 def test_ip_server_needs_no_bootstrap_rule(context):
     profile = make_profile(context, IP_SERVER_LINK)
 
-    assert dns_of(context, profile) == {
-        "servers": [{"address": "https://dns.google/dns-query"}, "localhost"]
-    }
+    assert dns_of(context, profile) == {"servers": [{"address": DOH}]}
+
+
+def test_system_resolver_is_not_a_fallback_for_remote_dns(context, profile):
+    """Упал туннель — имена не должны утекать системному резолверу.
+
+    `skipFallback` оставляет системному резолверу только его домены; общего
+    `localhost` после удалённого сервера нет.
+    """
+    use_custom_lists(context, direct=["direct.example"])
+
+    servers = dns_of(context, profile)["servers"]
+
+    assert "localhost" not in servers
+    assert all(s.get("skipFallback") for s in servers if s["address"] == "localhost")
+
+
+def test_direct_list_domains_use_the_system_resolver(context, profile):
+    """Трафик идёт напрямую — и имя должен резолвить DNS той же сети.
+
+    Иначе запрос ушёл бы через прокси, и CDN вернул бы адрес чужого региона.
+    """
+    use_custom_lists(context, direct=["direct.example", "geosite:category-ru", "1.2.3.0/24"])
+
+    assert dns_of(context, profile)["servers"] == [
+        BOOTSTRAP,
+        direct_dns("domain:direct.example", "geosite:category-ru"),
+        {"address": DOH},
+    ]
+
+
+def test_proxy_list_domains_use_the_remote_dns(context, profile):
+    """Домен из proxy-списка не должен достаться системному резолверу.
+
+    Сервер с доменами proxy-списка стоит по порядку групп: при порядке
+    «прокси → напрямую» домен из обоих списков резолвится удалённо.
+    """
+    use_custom_lists(context, direct=["ru.example"], proxy=["blocked.ru.example"])
+    context.config.routing.rule_order = ["proxy", "direct", "vpn"]
+
+    assert dns_of(context, profile)["servers"] == [
+        BOOTSTRAP,
+        {"address": DOH, "domains": ["domain:blocked.ru.example"]},
+        direct_dns("domain:ru.example"),
+        {"address": DOH},
+    ]
+
+
+def test_dns_servers_follow_the_rule_order(context, profile):
+    use_custom_lists(context, direct=["ru.example"], proxy=["blocked.ru.example"])
+    context.config.routing.rule_order = ["direct", "vpn", "proxy"]
+
+    addresses = [s["address"] for s in dns_of(context, profile)["servers"]]
+
+    assert addresses == ["localhost", "localhost", DOH, DOH]
+
+
+def test_proxy_list_needs_no_own_server_with_system_dns(context, profile):
+    """Удалённого DNS нет — отдельный сервер для proxy-списка ничего бы не изменил."""
+    context.config.dns.provider = DnsProvider.SYSTEM
+    use_custom_lists(context, proxy=["blocked.example"])
+
+    assert dns_of(context, profile)["servers"] == [BOOTSTRAP, "localhost"]
 
 
 def test_active_vpn_replaces_doh_with_system_resolver(context, profile, vpn):
     """DoH поверх VPN даёт кольцевую зависимость: резолвит системный резолвер."""
-    assert dns_of(context, profile) == {"servers": ["localhost", BOOTSTRAP]}
+    assert dns_of(context, profile) == {"servers": [BOOTSTRAP, "localhost"]}
 
 
 @pytest.mark.parametrize(
@@ -100,9 +176,15 @@ def test_vpn_list_domains_use_the_vpn_dns_server(
     use_custom_lists(context, vpn=["corp.example", "10.14.0.0/16"], direct=["direct.example"])
 
     assert dns_of(context, profile)["servers"] == [
-        "localhost",
         BOOTSTRAP,
-        {"address": address, "port": port, "domains": ["domain:corp.example"]},
+        direct_dns("domain:direct.example"),
+        {
+            "address": address,
+            "port": port,
+            "domains": ["domain:corp.example"],
+            "skipFallback": True,
+        },
+        "localhost",
     ]
 
 
@@ -111,9 +193,9 @@ def test_vpn_without_dns_servers_resolves_its_domains_locally(context, profile, 
     use_custom_lists(context, vpn=["corp.example"])
 
     assert dns_of(context, profile)["servers"] == [
-        "localhost",
         BOOTSTRAP,
-        {"address": "localhost", "domains": ["domain:corp.example"]},
+        direct_dns("domain:corp.example"),
+        "localhost",
     ]
 
 
@@ -123,8 +205,30 @@ def test_unreadable_vpn_dns_address_falls_back_to_public_resolver(
     monkeypatch.setattr(config_builder, "get_vpn_dns_servers", lambda _name: ["not-an-address"])
     use_custom_lists(context, vpn=["corp.example"])
 
-    assert dns_of(context, profile)["servers"][-1] == {
+    assert dns_of(context, profile)["servers"][1] == {
         "address": "8.8.8.8",
         "port": 53,
         "domains": ["domain:corp.example"],
+        "skipFallback": True,
     }
+
+
+def test_vpn_list_is_ignored_while_the_vpn_is_down(context, profile):
+    use_custom_lists(context, vpn=["corp.example"])
+
+    assert dns_of(context, profile)["servers"] == [BOOTSTRAP, {"address": DOH}]
+
+
+@needs_xray
+@pytest.mark.parametrize("provider", DnsProvider.ALL)
+def test_core_accepts_split_dns(context, profile, tmp_path, provider):
+    context.config.dns.provider = provider
+    use_custom_lists(
+        context,
+        direct=["direct.example", "geosite:category-ru", "geoip:ru"],
+        proxy=["*.blocked.example", "geosite:google"],
+    )
+
+    config = build_session_config(context, profile)
+
+    assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)

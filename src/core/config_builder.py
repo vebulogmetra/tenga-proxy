@@ -84,10 +84,13 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 routing.load_lists_from_files(context.config_dir)
 
         route_rules: list[dict] = []
+        try:
+            rule_order = routing.get_rule_order()
+        except AttributeError:
+            rule_order = DEFAULT_ROUTING_ORDER
         vpn_settings = profile.vpn_settings
         vpn_tag = None
         vpn_interface = None
-        over_vpn_domains_for_dns = []
         direct_domains: list[str] = []
         direct_ips: list[str] = []
         vpn_domains: list[str] = []
@@ -140,18 +143,11 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
 
             if routing.vpn_list and vpn_tag and vpn_interface:
                 vpn_domains, vpn_ips = _parse_list(routing, routing.vpn_list, catalog, "vpn")
-                if vpn_domains:
-                    over_vpn_domains_for_dns = vpn_domains
 
             if routing.proxy_list:
                 proxy_domains, proxy_ips = _parse_list(
                     routing, routing.proxy_list, catalog, "proxy"
                 )
-
-            try:
-                rule_order = routing.get_rule_order()
-            except AttributeError:
-                rule_order = DEFAULT_ROUTING_ORDER
 
             for group in rule_order:
                 if group == "direct":
@@ -306,13 +302,16 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             logger.info("Profile configuration: No VPN settings, proxy only")
         vpn_active = bool(vpn_tag and vpn_interface)
         vpn_dns_servers: list[str] = []
-        if vpn_active and over_vpn_domains_for_dns:
+        if vpn_active and vpn_domains:
             vpn_dns_servers = get_vpn_dns_servers(vpn_settings.connection_name)
+        # Серверы DNS идут в том же порядке, что и группы правил: имя должен
+        # резолвить DNS той сети, в которую уйдёт сам трафик.
+        domains_by_group = {"direct": direct_domains, "vpn": vpn_domains, "proxy": proxy_domains}
         dns = build_dns(
             context.config.dns,
             proxy_host=profile.bean.server_address if profile.bean else "",
+            domain_groups=[(group, domains_by_group[group]) for group in rule_order],
             vpn_active=vpn_active,
-            vpn_domains=over_vpn_domains_for_dns,
             vpn_dns_servers=vpn_dns_servers,
         )
 

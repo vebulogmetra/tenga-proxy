@@ -182,7 +182,7 @@ def test_doh_bypasses_proxy_when_dns_via_proxy_is_off(context, profile):
     config = build_session_config(context, profile)
 
     assert config is not None
-    assert _dns_addresses(config)[0] == "https+local://cloudflare-dns.com/dns-query"
+    assert _dns_addresses(config)[-1] == "https+local://cloudflare-dns.com/dns-query"
 
 
 def test_dot_server_is_skipped(context, profile):

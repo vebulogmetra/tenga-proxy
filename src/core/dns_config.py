@@ -1,14 +1,27 @@
 """Блок `dns` конфига xray-core.
 
 Сервер описывается сразу в формате ядра: строка `"localhost"` либо объект
-`{"address", "port"?, "domains"?}`. Ядро сначала спрашивает серверы, у которых
-`domains` совпал с именем, затем остальные по порядку.
+`{"address", "port"?, "domains"?, "skipFallback"?}`. Ядро сначала спрашивает
+серверы, у которых `domains` совпал с именем, затем остальные по порядку;
+сервер со `skipFallback` чужих имён не получает вовсе.
+
+Раскладка (split-DNS):
+
+1. имя сервера профиля — системный резолвер;
+2. домены списков — по порядку групп маршрутизации: «напрямую» резолвит
+   системный резолвер, «через VPN» — DNS-сервер VPN, «через прокси» —
+   удалённый DNS;
+3. всё остальное — основной DNS из настроек.
+
+Системный резолвер помечен `skipFallback`: если удалённый DNS недоступен
+(туннель упал), остальные имена не утекают провайдеру.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from src.db.config import DnsSettings
@@ -38,15 +51,19 @@ def parse_dns_endpoint(raw: str) -> tuple[str, int] | None:
 
 
 def _server(
-    address: str, *, port: int | None = None, domains: list[str] | None = None
+    address: str,
+    *,
+    port: int | None = None,
+    domains: list[str] | None = None,
 ) -> DnsServer:
-    if address == LOCALHOST and not domains:
-        return LOCALHOST
+    """Сервер в формате ядра; с `domains` он обслуживает только их."""
+    if not domains:
+        return address if port is None else {"address": address, "port": port}
     server: dict[str, Any] = {"address": address}
     if port is not None:
         server["port"] = port
-    if domains:
-        server["domains"] = list(domains)
+    server["domains"] = list(domains)
+    server["skipFallback"] = True
     return server
 
 
@@ -61,7 +78,7 @@ def _main_server(dns_url: str, *, through_proxy: bool) -> DnsServer | None:
         # маршрутизации; обычный `https://` — через неё, то есть в прокси.
         if not through_proxy:
             dns_url = "https+local://" + dns_url[len("https://") :]
-        return _server(dns_url)
+        return {"address": dns_url}
     if dns_url.startswith("tls://"):
         # DoT в xray-core нет: адрес `tls://…` оно прочло бы как имя UDP-сервера.
         logger.warning("DNS-over-TLS не поддерживается xray-core, %s пропущен", dns_url)
@@ -88,8 +105,8 @@ def build_dns(
     settings: DnsSettings,
     *,
     proxy_host: str,
+    domain_groups: Sequence[tuple[str, list[str]]] = (),
     vpn_active: bool = False,
-    vpn_domains: list[str] | None = None,
     vpn_dns_servers: list[str] | None = None,
 ) -> dict[str, Any]:
     """Собрать блок `dns`.
@@ -97,8 +114,9 @@ def build_dns(
     Args:
         settings: настройки DNS приложения.
         proxy_host: адрес сервера профиля; домен резолвится системным резолвером.
+        domain_groups: доменные правила списков по группам (`direct`, `vpn`,
+            `proxy`) в порядке групп маршрутизации.
         vpn_active: поднят VPN NetworkManager, привязанный к профилю.
-        vpn_domains: доменные правила списка «через VPN».
         vpn_dns_servers: DNS-серверы VPN-подключения, как их отдал NetworkManager.
     """
     dns_url = settings.get_dns_url()
@@ -108,18 +126,33 @@ def build_dns(
         logger.info("VPN активен: DoH/DoT заменён системным резолвером")
         dns_url = "local"
 
-    servers: list[DnsServer] = []
+    # Без удалённого сервера (системный DNS, пропущенный DoT) всё резолвит
+    # системный резолвер — тогда он законный сервер по умолчанию.
+    main = _main_server(dns_url, through_proxy=settings.use_proxy) or LOCALHOST
+    main_is_remote = main != LOCALHOST
 
-    main = _main_server(dns_url, through_proxy=settings.use_proxy)
-    if main is not None:
-        servers.append(main)
+    servers: list[DnsServer] = []
 
     # Имя сервера профиля резолвит системный резолвер: DNS через прокси ждал бы
     # соединения с прокси, а оно — этого самого ответа.
-    bootstrap = [proxy_host] if proxy_host and not proxy_host[0].isdigit() else []
-    servers.append(_server(LOCALHOST, domains=bootstrap))
+    if proxy_host and not proxy_host[0].isdigit():
+        servers.append(_server(LOCALHOST, domains=[f"full:{proxy_host}"]))
 
-    if vpn_active and vpn_domains:
-        servers.append(_vpn_server(vpn_dns_servers or [], vpn_domains))
+    for group, domains in domain_groups:
+        if not domains:
+            continue
+        if group == "direct":
+            servers.append(_server(LOCALHOST, domains=domains))
+        elif group == "vpn":
+            servers.append(_vpn_server(vpn_dns_servers or [], domains))
+        elif group == "proxy" and main_is_remote:
+            # Иначе домен из proxy-списка мог бы совпасть с доменами direct-сервера
+            # ниже и отрезолвиться в сети провайдера.
+            servers.append({**_as_object(main), "domains": list(domains)})
 
+    servers.append(main)
     return {"servers": servers}
+
+
+def _as_object(server: DnsServer) -> dict[str, Any]:
+    return {"address": server} if isinstance(server, str) else dict(server)
