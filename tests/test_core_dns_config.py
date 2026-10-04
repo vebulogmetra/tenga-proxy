@@ -245,3 +245,64 @@ def test_ru_direct_resolves_russian_sites_with_the_system_resolver(context, prof
         direct_dns("geosite:category-ru", "geosite:category-gov-ru"),
         {"address": DOH},
     ]
+
+
+VPN_DNS_RULE = {"type": "field", "ip": ["10.222.0.7"], "port": "53", "outboundTag": "vpn"}
+
+
+def rules_of(context, profile) -> list[dict]:
+    config = build_session_config(context, profile)
+    assert config is not None
+    return config["routing"]["rules"]
+
+
+def test_queries_to_the_vpn_dns_server_go_through_the_vpn(context, profile, vpn):
+    """Сервер VPN доступен только через VPN: без правила запрос DNS-модуля к нему
+    ушёл бы в прокси, а с «локальными сетями напрямую» — мимо VPN в direct."""
+    use_custom_lists(context, vpn=["corp.example"])
+
+    rules = rules_of(context, profile)
+
+    assert rules[0] == VPN_DNS_RULE
+    assert any(
+        rule["outboundTag"] == "direct" and "10.0.0.0/8" in rule.get("ip", []) for rule in rules
+    )
+
+
+def test_vpn_dns_rule_follows_the_interception_rules(context, profile, vpn, monkeypatch):
+    """Правило перехвата обязано быть первым — правило сервера VPN идёт за ним."""
+    monkeypatch.setattr(config_builder, "system_dns_servers", lambda _iface: ["192.168.0.1"])
+    context.config.proxy_mode = "tun"
+    use_custom_lists(context, vpn=["corp.example"])
+
+    rules = rules_of(context, profile)
+
+    assert rules[0]["outboundTag"] == "dns-out"
+    assert rules[2] == VPN_DNS_RULE
+
+
+@pytest.mark.parametrize("reported", [[], ["не адрес"]], ids=["no-servers", "unreadable"])
+def test_no_vpn_dns_rule_without_a_known_vpn_dns_server(
+    context, profile, vpn, monkeypatch, reported
+):
+    monkeypatch.setattr(config_builder, "get_vpn_dns_servers", lambda _name: reported)
+    use_custom_lists(context, vpn=["corp.example"])
+
+    assert not any(rule.get("port") == "53" for rule in rules_of(context, profile))
+
+
+def test_no_vpn_dns_rule_without_vpn_domains(context, profile, vpn):
+    """Домены VPN-списка не заданы — сервер VPN не используется, правило не нужно."""
+    use_custom_lists(context, vpn=["10.14.0.0/16"])
+
+    assert VPN_DNS_RULE not in rules_of(context, profile)
+
+
+@needs_xray
+def test_core_accepts_vpn_dns_rule(context, profile, vpn, tmp_path):
+    use_custom_lists(context, vpn=["corp.example", "10.14.0.0/16"], direct=["direct.example"])
+
+    config = build_session_config(context, profile)
+
+    assert VPN_DNS_RULE in config["routing"]["rules"]
+    assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)

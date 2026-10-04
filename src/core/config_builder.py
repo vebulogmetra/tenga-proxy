@@ -14,7 +14,7 @@ import socket
 
 from src.core.config_validator import exposed_inbounds, validate_session_config
 from src.core.context import AppContext
-from src.core.dns_config import DNS_TAG, build_dns
+from src.core.dns_config import DNS_TAG, build_dns, parse_dns_endpoint
 from src.core.geo import (
     RU_DIRECT_GEOIP,
     RU_DIRECT_GEOSITES,
@@ -429,6 +429,21 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
         vpn_dns_servers: list[str] = []
         if vpn_active and vpn_domains:
             vpn_dns_servers = get_vpn_dns_servers(vpn_settings.connection_name)
+        vpn_dns = parse_dns_endpoint(vpn_dns_servers[0]) if vpn_dns_servers else None
+        if vpn_dns:
+            # Сервер VPN доступен только через VPN. Без правила запрос DNS-модуля к
+            # нему ушёл бы в прокси, а частный адрес — под «локальные сети» в direct.
+            # Правила перехвата DNS, если они есть, остаются первыми.
+            vpn_dns_address, vpn_dns_port = vpn_dns
+            route_rules.insert(
+                2 if system_resolvers else 0,
+                {
+                    "type": "field",
+                    "ip": [vpn_dns_address],
+                    "port": str(vpn_dns_port),
+                    "outboundTag": vpn_tag,
+                },
+            )
         # Серверы DNS идут в том же порядке, что и группы правил: имя должен
         # резолвить DNS той сети, в которую уйдёт сам трафик.
         domains_by_group = {"direct": direct_domains, "vpn": vpn_domains, "proxy": proxy_domains}
