@@ -730,7 +730,9 @@ class TengaApplication(Adw.Application):
         self.toast(f"Обновлено профилей: {total}")
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
-        self.toast(f"Не удалось обновить подписки: {describe_update_error(error)}")
+        sent = self.context.config.sub_send_device_info
+        reason = describe_update_error(error, device_info_sent=sent)
+        self.toast(f"Не удалось обновить подписки: {reason}")
 
     def _toggle_search(self) -> None:
         if self._window is not None:

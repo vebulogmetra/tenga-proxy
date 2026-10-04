@@ -11,6 +11,7 @@ from gi.repository import Adw, GObject, Gtk
 
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
+from src.sub.device import ensure_hwid
 from src.ui.logic.version import UNKNOWN, app_version, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
@@ -215,6 +216,13 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.user_agent_row = Adw.EntryRow(title="User-Agent")
         request.add(self.user_agent_row)
 
+        self.device_info_row = Adw.SwitchRow(
+            title="Отправлять данные устройства",
+            subtitle="Идентификатор, система и модель. Нужны провайдерам, "
+            "которые считают лимит устройств",
+        )
+        request.add(self.device_info_row)
+
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
         self.add(page)
@@ -298,6 +306,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         user_agent = config.user_agent.strip()
         self.user_agent_row.set_text("" if user_agent == LEGACY_USER_AGENT else user_agent)
+        self.device_info_row.set_active(config.sub_send_device_info)
 
     def save(self) -> None:
         """Write the form back into the configuration object."""
@@ -330,6 +339,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         config.mux_default_on = self.mux_row.get_active()
 
         config.user_agent = self.user_agent_row.get_text().strip()
+        config.sub_send_device_info = self.device_info_row.get_active()
+        if config.sub_send_device_info:
+            # Идентификатор сохранится вместе с настройками при закрытии диалога.
+            ensure_hwid(config)
 
         self.emit("settings-saved")
 

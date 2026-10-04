@@ -59,6 +59,9 @@ class DataStore(ConfigBase):
     start_minimal: bool = False
     # Subscriptions
     user_agent: str = ""
+    # HWID создаётся при включении флага и скрыт из repr настроек.
+    sub_send_device_info: bool = False
+    sub_hwid: str = field(default="", repr=False)
     sub_clear: bool = False
     sub_insecure: bool = False
     sub_auto_update: int = -30

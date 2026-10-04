@@ -10,6 +10,7 @@ import requests
 
 from src.db import DataStore
 from src.fmt import ProxyBean, parse_subscription_content
+from src.sub.device import device_headers
 from src.sub.errors import (
     MAX_RESPONSE_SIZE,
     SubscriptionHttpError,
@@ -62,6 +63,8 @@ class SubscriptionUpdater:
             user_agent = self._config.get_user_agent()
             if user_agent:
                 headers["User-Agent"] = user_agent
+            # Не логировать: при включённом флаге здесь лежит HWID.
+            headers.update(device_headers(self._config))
 
         verify = True
         if self._config and self._config.sub_insecure:

@@ -123,7 +123,10 @@ def build_subscription_rows(
     return rows
 
 
-def describe_update_error(error: BaseException) -> str:
+DEVICE_INFO_HINT = "Возможно, провайдеру нужны данные устройства: Настройки → Подписки."
+
+
+def describe_update_error(error: BaseException, *, device_info_sent: bool = True) -> str:
     """Explain a failed update without quoting the subscription address.
 
     Текст ошибок requests содержит полный URL, а в нём — токен подписки:
@@ -139,6 +142,8 @@ def describe_update_error(error: BaseException) -> str:
         text = f"сервер ответил {error.status_code}"
         if error.is_access_denied and error.body_snippet:
             text += f": {error.body_snippet}"
+        if error.is_access_denied and not device_info_sent:
+            text = f"{text.rstrip('.')}. {DEVICE_INFO_HINT}"
         return text
     if isinstance(error, SubscriptionTooLargeError):
         return "ответ сервера больше 10 МБ"

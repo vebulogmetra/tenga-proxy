@@ -221,3 +221,26 @@ def test_unsafe_links_are_not_offered():
 
     assert row.support_url == ""
     assert row.web_page_url == ""
+
+
+def test_access_denied_without_device_data_suggests_enabling_it():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    text = describe_update_error(
+        SubscriptionHttpError(403, "HWID required"), device_info_sent=False
+    )
+
+    assert text.startswith("сервер ответил 403: HWID required")
+    assert "Настройки → Подписки" in text
+
+
+def test_no_hint_when_device_data_is_already_sent_or_the_error_is_different():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    denied = describe_update_error(SubscriptionHttpError(403, "x"), device_info_sent=True)
+    missing = describe_update_error(SubscriptionHttpError(404), device_info_sent=False)
+
+    assert "Настройки" not in denied
+    assert "Настройки" not in missing

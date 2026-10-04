@@ -202,3 +202,25 @@ def test_the_old_default_user_agent_is_shown_as_unset(gtk_ready):
     assert dialog.user_agent_row.get_text() == ""
     dialog.save()
     assert config.user_agent == ""
+
+
+def test_device_info_is_off_by_default(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+
+    assert not dialog.device_info_row.get_active()
+    dialog.save()
+    assert not config.sub_send_device_info
+    assert config.sub_hwid == ""
+
+
+def test_enabling_device_info_creates_the_hwid(gtk_ready):
+    """Идентификатор создаётся здесь, чтобы сохраниться вместе с настройками."""
+    config = make_config()
+    dialog = make_dialog(config)
+
+    dialog.device_info_row.set_active(True)
+    dialog.save()
+
+    assert config.sub_send_device_info
+    assert config.sub_hwid
