@@ -9,6 +9,9 @@ from src.sub.updater import SubscriptionUpdater, update_subscription
 class MockBean:
     display_name: str = "Test"
     proxy_type: str = "test"
+    name: str = "Test"
+    server_address: str = "example.com"
+    server_port: int = 443
 
     def to_dict(self) -> dict[str, str]:
         return {"type": "test"}
@@ -180,3 +183,69 @@ def test_fetch_respects_an_explicit_charset():
         result = SubscriptionUpdater().fetch("http://example.com/sub")
 
     assert result == text
+
+
+# --- Обновление без смены id --------------------------------------------------
+
+LINK_NL = "vless://11111111-1111-1111-1111-111111111111@nl.example.org:443?type=tcp#NL-1"
+LINK_DE = "vless://22222222-2222-2222-2222-222222222222@de.example.org:443?type=tcp#DE-1"
+
+
+def _text_response(text: str) -> Mock:
+    response = Mock()
+    response.text = text
+    response.raise_for_status = Mock()
+    return response
+
+
+def _subscription(tmp_path):
+    from src.db.profiles import ProfileManager
+
+    profiles = ProfileManager(profiles_dir=tmp_path)
+    group = profiles.add_group("Sub", is_subscription=True)
+    return profiles, group
+
+
+def test_update_keeps_the_id_and_latency_of_a_profile_still_in_the_response(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    updater = SubscriptionUpdater(profiles=profiles)
+
+    with patch("src.sub.updater.requests.get") as mock_get:
+        mock_get.return_value = _text_response(f"{LINK_NL}\n{LINK_DE}")
+        updater.update("http://example.com/sub", group_id=group.id)
+        before = {p.name: p for p in profiles.get_profiles_in_group(group.id)}
+        before["NL-1"].latency_ms = 42
+
+        mock_get.return_value = _text_response(LINK_NL)
+        updater.update("http://example.com/sub", group_id=group.id)
+
+    after = profiles.get_profiles_in_group(group.id)
+    assert [p.name for p in after] == ["NL-1"]
+    assert after[0].id == before["NL-1"].id
+    assert after[0].latency_ms == 42
+
+
+def test_update_with_an_empty_response_leaves_the_group_alone(tmp_path):
+    """Пустой ответ — сбой провайдера, а не «серверов больше нет»."""
+    profiles, group = _subscription(tmp_path)
+    updater = SubscriptionUpdater(profiles=profiles)
+
+    with patch("src.sub.updater.requests.get") as mock_get:
+        mock_get.return_value = _text_response(LINK_NL)
+        updater.update("http://example.com/sub", group_id=group.id)
+        mock_get.return_value = _text_response("<html>maintenance</html>")
+        assert updater.update("http://example.com/sub", group_id=group.id) == []
+
+    assert [p.name for p in profiles.get_profiles_in_group(group.id)] == ["NL-1"]
+
+
+def test_update_without_clearing_appends_to_the_group(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    updater = SubscriptionUpdater(profiles=profiles)
+
+    with patch("src.sub.updater.requests.get") as mock_get:
+        mock_get.return_value = _text_response(LINK_NL)
+        updater.update("http://example.com/sub", group_id=group.id)
+        updater.update("http://example.com/sub", group_id=group.id, clear_existing=False)
+
+    assert [p.name for p in profiles.get_profiles_in_group(group.id)] == ["NL-1", "NL-1"]

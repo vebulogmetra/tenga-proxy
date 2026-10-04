@@ -128,10 +128,12 @@ class SubscriptionUpdater:
                 group_id = self._profiles.current_group_id
 
             if clear_existing:
-                self._profiles.clear_group(group_id)
-
-            for bean in beans:
-                self._profiles.add_profile(bean, group_id)
+                # Не clear_group + add_profile: так профили получали новые id, и
+                # подключённый профиль, замеры и персональные настройки терялись.
+                self._profiles.sync_group(group_id, beans)
+            else:
+                for bean in beans:
+                    self._profiles.add_profile(bean, group_id)
 
             self._profiles.save()
 
