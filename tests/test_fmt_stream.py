@@ -276,3 +276,27 @@ def test_apply_to_outbound_with_reality():
     assert ss["realitySettings"]["shortId"] == "test_sid"
     assert ss["realitySettings"]["serverName"] == "example.com"
     assert ss["realitySettings"]["fingerprint"] == "chrome"
+
+
+@pytest.mark.parametrize("network", ["ws", "httpupgrade"])
+def test_build_tls_drops_h2_alpn_for_http1_only_transports(network):
+    """ws и httpupgrade работают только поверх HTTP/1.1: h2 в ALPN ломает апгрейд."""
+    stream = StreamSettings(network=network, security="tls", alpn="h2,http/1.1,h3")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert tls["alpn"] == ["http/1.1"]
+
+
+def test_build_tls_omits_alpn_when_nothing_is_left():
+    stream = StreamSettings(network="ws", security="tls", alpn="h2")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert "alpn" not in tls
+
+
+@pytest.mark.parametrize("network", ["tcp", "grpc", "xhttp"])
+def test_build_tls_keeps_h2_alpn_for_other_transports(network):
+    stream = StreamSettings(network=network, security="tls", alpn="h2,http/1.1")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert tls["alpn"] == ["h2", "http/1.1"]

@@ -9,6 +9,9 @@ from src.db.config import ConfigBase
 
 logger = logging.getLogger("tenga.fmt.stream")
 
+HTTP1_ONLY_NETWORKS = ("ws", "httpupgrade")
+HTTP2_PLUS_ALPN = ("h2", "h3")
+
 
 def parse_json_object(raw: str) -> dict[str, Any]:
     """Разобрать сырой JSON-объект из share-ссылки.
@@ -184,8 +187,13 @@ class StreamSettings(ConfigBase):
             # xray-core uses certificates array
             tls_settings["certificates"] = [{"certificate": self.certificate.strip()}]
 
-        if self.alpn.strip():
-            tls_settings["alpn"] = [x.strip() for x in self.alpn.split(",") if x.strip()]
+        alpn = [x.strip() for x in self.alpn.split(",") if x.strip()]
+        # ws и httpupgrade апгрейдятся только поверх HTTP/1.1.
+        # Пустой список не пишем — ядро само выберет http/1.1.
+        if self.network in HTTP1_ONLY_NETWORKS:
+            alpn = [x for x in alpn if x not in HTTP2_PLUS_ALPN]
+        if alpn:
+            tls_settings["alpn"] = alpn
 
         # uTLS fingerprint
         if self.utls_fingerprint:
