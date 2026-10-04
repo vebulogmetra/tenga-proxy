@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from src.core.config_builder import build_latency_probe_config, build_session_config
+from src.core.batch_probe import build_probe_outbound
+from src.core.config_builder import build_session_config
 from src.core.context import init_context
 from src.core.transport_tweaks import apply_mux, apply_tls_fragment, is_mux_eligible
 from src.db.config import TlsFragmentSettings
@@ -207,18 +208,17 @@ def test_session_config_has_no_tweaks_by_default(context):
     assert "finalmask" not in proxy["streamSettings"]
 
 
-def test_session_and_probe_configs_carry_the_same_tweaks(context):
+def test_session_and_probe_carry_the_same_tweaks(context):
     """Замер задержки обязан идти с теми же tweaks, что и рабочее подключение."""
     context.config.tls_fragment.enabled = True
     context.config.mux_default_on = True
     profile = entry(VLESS_WS)
 
     session = build_session_config(context, profile)
-    probe = build_latency_probe_config(context, profile)
+    probe = build_probe_outbound(profile, context.config)
 
     assert session is not None and probe is not None
-    for config in (session, probe[0]):
-        proxy = config["outbounds"][0]
+    for proxy in (session["outbounds"][0], probe):
         assert proxy["mux"]["enabled"] is True
         assert proxy["streamSettings"]["finalmask"]["tcp"][0]["type"] == "fragment"
 

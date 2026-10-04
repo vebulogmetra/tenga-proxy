@@ -11,9 +11,7 @@ import json
 import pytest
 
 from src.core.config_builder import (
-    build_latency_probe_config,
     build_session_config,
-    reserve_latency_port_pair,
 )
 from src.core.context import init_context
 from src.db.config import LOCAL_NETWORKS, DnsProvider, ProxyMode, RoutingMode
@@ -55,33 +53,6 @@ def test_session_config_has_inbounds_and_tagged_outbounds(context, profile):
 
 def test_session_config_returns_none_without_profile(context):
     assert build_session_config(context, None) is None
-
-
-def test_latency_probe_config_uses_system_proxy_inbounds(context, profile):
-    result = build_latency_probe_config(context, profile)
-
-    assert result is not None
-    config, socks_port = result
-    assert isinstance(socks_port, int)
-    assert 20000 <= socks_port < 65000
-    protocols = {inbound["protocol"] for inbound in config["inbounds"]}
-    assert protocols <= {"socks", "http"}
-    assert "tun" not in protocols
-    ports = {inbound["port"] for inbound in config["inbounds"]}
-    assert ports == {socks_port, socks_port + 1}
-
-
-def test_reserve_latency_port_pair_returns_free_consecutive_ports():
-    import socket
-
-    port = reserve_latency_port_pair("127.0.0.1")
-
-    for candidate in (port, port + 1):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock.bind(("127.0.0.1", candidate))
-        finally:
-            sock.close()
 
 
 def test_custom_routing_mode_builds_direct_and_proxy_rules(context, profile):

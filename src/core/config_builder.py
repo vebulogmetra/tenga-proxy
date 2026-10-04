@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import ipaddress
 import logging
-import random
-import socket
 
 from src.core.config_validator import exposed_inbounds, validate_session_config
 from src.core.context import AppContext
@@ -497,61 +495,3 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
 def intercepts_dns(config: dict) -> bool:
     """Собран ли конфиг с перехватом DNS приложений (режим TUN)."""
     return any(outbound.get("tag") == DNS_OUT_TAG for outbound in config.get("outbounds", []))
-
-
-def reserve_latency_port_pair(host: str) -> int:
-    """
-    Reserve a free consecutive TCP port pair (socks, http=socks+1).
-
-    Args:
-        host: Listen host for xray inbounds
-
-    Returns:
-        Base SOCKS port
-    """
-    start_port = random.randint(20000, 50000)
-
-    for offset in range(15000):
-        port = start_port + offset
-        if port >= 65000:
-            break
-
-        sock_one = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock_two = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            sock_one.bind((host, port))
-            sock_two.bind((host, port + 1))
-            return port
-        except OSError:
-            continue
-        finally:
-            sock_one.close()
-            sock_two.close()
-
-    raise RuntimeError("No free consecutive port pair found for latency test")
-
-
-def build_latency_probe_config(
-    context: AppContext, profile: ProfileEntry | None
-) -> tuple[dict, int] | None:
-    """
-    Create temporary xray config for latency test.
-
-    Uses profile outbound/routing/dns from normal config but forces
-    SYSTEM_PROXY inbounds to avoid TUN conflicts with active session.
-    """
-    config = _build_session_config(context, profile)
-    if not config:
-        return None
-
-    listen_host = context.config.inbound_address
-    socks_port = reserve_latency_port_pair(listen_host)
-    inbounds = build_inbounds_for_mode(
-        mode=ProxyMode.SYSTEM_PROXY,
-        address=listen_host,
-        socks_port=socks_port,
-        tun_name=getattr(context.config, "tun_name", "xray0"),
-        tun_mtu=getattr(context.config, "tun_mtu", 1500),
-    )
-    config["inbounds"] = inbounds
-    return config, socks_port
