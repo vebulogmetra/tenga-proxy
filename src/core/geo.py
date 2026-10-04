@@ -18,13 +18,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
-from src.core.config import BUNDLE_DIR
+from src.core.config import BUNDLE_DIR, CORE_DIR
 
 logger = logging.getLogger("tenga.core.geo")
 
 GEOSITE_FILE = "geosite.dat"
 GEOIP_FILE = "geoip.dat"
 ASSET_ENV = "XRAY_LOCATION_ASSET"
+# Базы, скачанные пользователем по кнопке «Обновить» (src/core/geo_update.py).
+USER_GEO_DIR = CORE_DIR / "geo"
 # Базы из комплекта приложения: в AppImage и в дереве исходников они лежат здесь.
 BUNDLED_GEO_DIR = BUNDLE_DIR / "core" / "bin"
 # Куда ядро заглядывает, если рядом с бинарником файла нет.
@@ -32,6 +34,13 @@ SYSTEM_ASSET_DIRS = (Path("/usr/local/share/xray"), Path("/usr/share/xray"))
 
 GEOSITE_PREFIX = "geosite:"
 GEOIP_PREFIX = "geoip:"
+
+# Готовые правила «Российские сайты» ссылаются на эти категории. Они проходят по
+# каталогу, как и пользовательские: без них в базе правило просто не пишется.
+RU_DIRECT_GEOSITES = ("geosite:category-ru", "geosite:category-gov-ru")
+RU_DIRECT_GEOIP = "geoip:ru"
+# Без этих категорий базу устанавливать нельзя.
+REQUIRED_RULES = (*RU_DIRECT_GEOSITES, RU_DIRECT_GEOIP, "geoip:private")
 
 # Поле 1, тип «строка байтов» — и у записи списка, и у названия внутри записи.
 _LENGTH_DELIMITED_FIELD_1 = 0x0A
@@ -48,7 +57,13 @@ def _read_varint(data: memoryview, pos: int) -> tuple[int, int]:
         shift += 7
 
 
-def _parse_categories(data: memoryview) -> frozenset[str]:
+def parse_categories(raw: bytes | memoryview) -> frozenset[str]:
+    """Названия категорий базы в нижнем регистре.
+
+    Raises:
+        ValueError, IndexError, UnicodeDecodeError: содержимое — не геобаза.
+    """
+    data = memoryview(raw)
     names: set[str] = set()
     pos, size = 0, len(data)
     while pos < size:
@@ -74,11 +89,11 @@ def _parse_categories(data: memoryview) -> frozenset[str]:
 def read_categories(path: Path) -> frozenset[str]:
     """Названия категорий базы в нижнем регистре; пусто, если файла нет или он битый."""
     try:
-        data = memoryview(path.read_bytes())
+        data = path.read_bytes()
     except OSError:
         return frozenset()
     try:
-        return _parse_categories(data)
+        return parse_categories(data)
     except (ValueError, IndexError, UnicodeDecodeError) as e:
         logger.warning("Геобаза %s повреждена: %s", path, e)
         return frozenset()
@@ -113,14 +128,33 @@ def _has_bases(directory: Path) -> bool:
     return (directory / GEOSITE_FILE).is_file() and (directory / GEOIP_FILE).is_file()
 
 
+def missing_required(catalog: GeoCatalog) -> list[str]:
+    """Категории готовых правил, которых нет в базах."""
+    return [rule for rule in REQUIRED_RULES if not catalog.knows(rule)]
+
+
+def _downloaded_bases_usable() -> bool:
+    """Годны ли базы из каталога обновлений.
+
+    Битый или неполный файл там не должен ломать запуск: тогда каталог
+    пропускается и работают базы из комплекта.
+    """
+    if not _has_bases(USER_GEO_DIR):
+        return False
+    return not missing_required(load_catalog([USER_GEO_DIR]))
+
+
 def asset_dir_for_core(binary_path: str | Path | None) -> Path | None:
     """Каталог геобаз, который надо назвать ядру через `XRAY_LOCATION_ASSET`.
 
     None — называть нечего: каталог уже задан пользователем, базы лежат рядом с
-    бинарником (там ядро найдёт их само) или их нет нигде.
+    бинарником (там ядро найдёт их само) или их нет нигде. Обновлённые
+    пользователем базы главнее тех, что рядом с бинарником.
     """
     if os.environ.get(ASSET_ENV):
         return None
+    if _downloaded_bases_usable():
+        return USER_GEO_DIR
     if binary_path and _has_bases(Path(binary_path).parent):
         return None
     if _has_bases(BUNDLED_GEO_DIR):
@@ -132,14 +166,17 @@ def asset_dirs(binary_path: str | Path | None) -> list[Path]:
     """Каталоги, где окажутся геобазы ядра, в порядке поиска.
 
     Повторяет поиск самого ядра (`XRAY_LOCATION_ASSET`, иначе каталог бинарника,
-    затем системные) с одной поправкой: если рядом с бинарником баз нет, ядру
-    называется каталог комплекта приложения — см. `asset_dir_for_core`.
+    затем системные) с поправкой на то, что называет ядру `asset_dir_for_core`:
+    годные базы из каталога обновлений, а если рядом с бинарником баз нет —
+    каталог комплекта приложения.
     """
     dirs: list[Path] = []
     env_dir = os.environ.get(ASSET_ENV)
     if env_dir:
         dirs.append(Path(env_dir))
     else:
+        if _downloaded_bases_usable():
+            dirs.append(USER_GEO_DIR)
         if binary_path:
             dirs.append(Path(binary_path).parent)
         dirs.append(BUNDLED_GEO_DIR)
