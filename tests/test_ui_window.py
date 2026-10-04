@@ -201,6 +201,51 @@ def test_subscription_update_reaches_the_application(window, adw_app):
     assert updated == [group.id]
 
 
+def _subscription_with_links(adw_app, **links):
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+    for name, value in links.items():
+        setattr(group, name, value)
+    return group
+
+
+def test_the_subscription_page_link_is_opened(window, adw_app, monkeypatch):
+    from gi.repository import GLib
+
+    group = _subscription_with_links(adw_app, sub_web_page_url="https://provider.example/account")
+    opened: list[str] = []
+    monkeypatch.setattr(window, "_launch_uri", opened.append)
+
+    window.lookup_action("open-subscription-page").activate(GLib.Variant("i", group.id))
+
+    assert opened == ["https://provider.example/account"]
+
+
+def test_the_support_link_is_opened(window, adw_app, monkeypatch):
+    from gi.repository import GLib
+
+    group = _subscription_with_links(adw_app, sub_support_url="tg://resolve?domain=provider")
+    opened: list[str] = []
+    monkeypatch.setattr(window, "_launch_uri", opened.append)
+
+    window.lookup_action("open-subscription-support").activate(GLib.Variant("i", group.id))
+
+    assert opened == ["tg://resolve?domain=provider"]
+
+
+def test_an_unsafe_link_is_not_opened(window, adw_app, monkeypatch):
+    """profiles.json можно поправить руками: ссылка проверяется и перед открытием."""
+    from gi.repository import GLib
+
+    group = _subscription_with_links(adw_app, sub_web_page_url="file:///etc/passwd")
+    opened: list[str] = []
+    monkeypatch.setattr(window, "_launch_uri", opened.append)
+
+    window.lookup_action("open-subscription-page").activate(GLib.Variant("i", group.id))
+
+    assert opened == []
+
+
 # --- действия строк (этап 3) ---
 
 ROW_ACTIONS = {
@@ -215,6 +260,8 @@ ROW_ACTIONS = {
     "update-subscription",
     "edit-subscription",
     "delete-subscription",
+    "open-subscription-page",
+    "open-subscription-support",
 }
 
 

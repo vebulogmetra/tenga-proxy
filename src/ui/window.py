@@ -224,6 +224,8 @@ class MainWindow(Adw.ApplicationWindow):
         "update-subscription",
         "edit-subscription",
         "delete-subscription",
+        "open-subscription-page",
+        "open-subscription-support",
     )
 
     def _register_row_actions(self) -> None:
@@ -384,6 +386,32 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _row_delete_subscription(self, group_id: int) -> None:
         self._row_delete_group(group_id)
+
+    def _row_open_subscription_page(self, group_id: int) -> None:
+        from src.sub.metadata import is_safe_web_page_url
+
+        self._open_subscription_link(group_id, "sub_web_page_url", is_safe_web_page_url)
+
+    def _row_open_subscription_support(self, group_id: int) -> None:
+        from src.sub.metadata import is_safe_support_url
+
+        self._open_subscription_link(group_id, "sub_support_url", is_safe_support_url)
+
+    def _open_subscription_link(self, group_id: int, field: str, is_safe) -> None:
+        """Open a link the provider attached to the subscription.
+
+        Проверка повторяется перед самым открытием: ссылка лежит в файле
+        профилей, который можно изменить в обход приложения.
+        """
+        group = self._context.profiles.get_group(group_id)
+        url = getattr(group, field, "") if group is not None else ""
+        if not url or not is_safe(url):
+            self.toast("Ссылка недоступна")
+            return
+        self._launch_uri(url)
+
+    def _launch_uri(self, uri: str) -> None:
+        Gtk.UriLauncher.new(uri).launch(self, None, None)
 
     def _on_subscription_edit(self, _page, group_id: int) -> None:
         self._row_edit_subscription(group_id)

@@ -35,6 +35,8 @@ class SubscriptionsPage(Gtk.Box):
         self._row_widgets: dict[int, Adw.ActionRow] = {}
         self._update_buttons: dict[int, Gtk.Button] = {}
         self._menu_buttons: dict[int, Gtk.MenuButton] = {}
+        self._details_labels: dict[int, Gtk.Label] = {}
+        self._announce_labels: dict[int, Gtk.Label] = {}
 
         self._build_search_bar()
         self._build_stack()
@@ -80,6 +82,8 @@ class SubscriptionsPage(Gtk.Box):
         self._row_widgets.clear()
         self._update_buttons.clear()
         self._menu_buttons.clear()
+        self._details_labels.clear()
+        self._announce_labels.clear()
 
         self._rows = build_subscription_rows(self._groups, self._counts, query=self._query)
 
@@ -100,10 +104,22 @@ class SubscriptionsPage(Gtk.Box):
             "activated", lambda _row, gid=row.group_id: self.emit("subscription-activated", gid)
         )
 
-        meta = Gtk.Label(label=f"{row.profile_count} · {row.updated_text}")
+        if row.announce:
+            action_row.add_suffix(self._build_announce_button(row))
+
+        meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        meta = Gtk.Label(label=f"{row.profile_count} · {row.updated_text}", xalign=1.0)
         meta.add_css_class("dim-label")
         meta.add_css_class("caption")
-        action_row.add_suffix(meta)
+        meta_box.append(meta)
+        if row.details_text:
+            details = Gtk.Label(label=row.details_text, xalign=1.0)
+            details.add_css_class("caption")
+            # Истёкшую подписку видно сразу: серверов в ней обычно уже нет.
+            details.add_css_class("error" if row.expired else "dim-label")
+            meta_box.append(details)
+            self._details_labels[row.group_id] = details
+        action_row.add_suffix(meta_box)
 
         button = Gtk.Button(icon_name="view-refresh-symbolic")
         button.set_valign(Gtk.Align.CENTER)
@@ -118,7 +134,7 @@ class SubscriptionsPage(Gtk.Box):
         menu_button.set_valign(Gtk.Align.CENTER)
         menu_button.set_tooltip_text("Действия")
         menu_button.add_css_class("flat")
-        menu_button.set_menu_model(self._menu_model_for(row.group_id))
+        menu_button.set_menu_model(self._menu_model_for(row))
         action_row.add_suffix(menu_button)
 
         self._row_widgets[row.group_id] = action_row
@@ -126,17 +142,43 @@ class SubscriptionsPage(Gtk.Box):
         self._menu_buttons[row.group_id] = menu_button
         return action_row
 
+    def _build_announce_button(self, row: SubscriptionRow) -> Gtk.MenuButton:
+        """A button revealing the provider's announcement in a popover."""
+        # Обычная метка, не разметка: текст объявления пишет провайдер.
+        label = Gtk.Label(label=row.announce, wrap=True, max_width_chars=40, xalign=0.0)
+        label.set_selectable(True)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(label, f"set_margin_{side}")(6)
+
+        popover = Gtk.Popover()
+        popover.set_child(label)
+
+        button = Gtk.MenuButton(icon_name="dialog-information-symbolic")
+        button.set_valign(Gtk.Align.CENTER)
+        button.set_tooltip_text("Объявление провайдера")
+        button.add_css_class("flat")
+        button.set_popover(popover)
+
+        self._announce_labels[row.group_id] = label
+        return button
+
     @staticmethod
-    def _menu_model_for(group_id: int) -> Gio.Menu:
+    def _menu_model_for(row: SubscriptionRow) -> Gio.Menu:
         """Build the menu of one subscription row.
 
         Идентификатор группы вшит в каждое действие: у строк общий набор
         пунктов, и без параметра действие ушло бы в текущее выделение, а не в
         ту подписку, у которой открыли меню.
         """
+        group_id = row.group_id
         menu = Gio.Menu()
         menu.append("Обновить", f"win.update-subscription({group_id})")
         menu.append("Редактировать", f"win.edit-subscription({group_id})")
+        # Ссылки провайдера есть не у каждой подписки: пустой пункт не показываем.
+        if row.web_page_url:
+            menu.append("Страница подписки", f"win.open-subscription-page({group_id})")
+        if row.support_url:
+            menu.append("Поддержка", f"win.open-subscription-support({group_id})")
         menu.append("Удалить", f"win.delete-subscription({group_id})")
         return menu
 
@@ -174,6 +216,18 @@ class SubscriptionsPage(Gtk.Box):
 
     def get_subtitles(self) -> list[str]:
         return [widget.get_subtitle() for widget in self._row_widgets.values()]
+
+    def get_details_for_test(self, *, group_id: int) -> str:
+        label = self._details_labels.get(group_id)
+        return label.get_text() if label is not None else ""
+
+    def is_expired_for_test(self, *, group_id: int) -> bool:
+        label = self._details_labels.get(group_id)
+        return label is not None and label.has_css_class("error")
+
+    def get_announce_for_test(self, *, group_id: int) -> str:
+        label = self._announce_labels.get(group_id)
+        return label.get_text() if label is not None else ""
 
     def click_update_for_test(self, *, group_id: int) -> None:
         self._update_buttons[group_id].emit("clicked")
