@@ -46,6 +46,28 @@ The "Monitoring" tab displays:
 - Last check time
 - Manual connection check capability
 
+The proxy status is not "the core process is running" but the result of a
+request through the profile's server: the application reaches the test URL via
+a service inbound of the core on `127.0.0.1`, protected by a one-time password.
+Routing rules do not apply to this request, so "server does not respond" means
+the server itself, even when the test URL is on your direct list.
+
+### Failover
+
+Settings → Monitoring has an automatic failover switch (off by default). After
+the configured number of failed checks in a row the application connects
+another profile of the same group — the one with the lowest measured latency
+first — and tells you with a notification. It does not return to a profile that
+has just stopped responding for 15 minutes. When no suitable profile is left
+the connection is kept: traffic must not suddenly go direct.
+
+### Core updates
+
+Settings → About shows the xray core version and a "core update" row. Every
+three days, and on the "Check" button, the application asks GitHub for the
+release list and tells you when a newer version is out. It never downloads or
+replaces the core itself.
+
 ## System Tray
 
 The icon shows the connection state with three distinct glyphs: a crossed-out

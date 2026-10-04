@@ -126,6 +126,13 @@ For each profile, you can test latency:
 - Comparing profile performance
 - Automatic result updates
 
+A group is measured by one temporary core process: every profile gets its own
+inbound on `127.0.0.1` with a one-time password, and results appear as they
+arrive. Latency is the median of three requests to the test URL through the
+profile's server. A dash instead of a number means one of three things: the
+profile could not be built, the core rejected its settings, or the server did
+not respond.
+
 ## Profile Settings
 
 Each profile can have individual settings:
