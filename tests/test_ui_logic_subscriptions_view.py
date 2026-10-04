@@ -21,6 +21,10 @@ class FakeGroup:
     is_subscription: bool = True
     subscription_url: str = ""
     last_updated: int = 0
+    sub_user_info: str = ""
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
 
 
 @pytest.fixture
@@ -90,3 +94,190 @@ def test_url_is_not_truncated(sample):
     groups[1].subscription_url = "https://sub.example/" + "x" * 200
     rows = build_subscription_rows(groups, counts, query="xxxxx")
     assert rows[0].url == groups[1].subscription_url
+
+
+# --- Сообщение об ошибке обновления -------------------------------------------
+
+
+def test_access_denied_is_described_with_the_providers_text():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    text = describe_update_error(SubscriptionHttpError(403, "Превышен лимит устройств"))
+
+    assert text == "сервер ответил 403: Превышен лимит устройств"
+
+
+def test_other_http_errors_are_described_by_code():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(SubscriptionHttpError(404, "Not Found")) == "сервер ответил 404"
+
+
+def test_too_large_response_is_described():
+    from src.sub.errors import SubscriptionTooLargeError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(SubscriptionTooLargeError(11 * 1024 * 1024)) == (
+        "ответ сервера больше 10 МБ"
+    )
+
+
+def test_network_errors_do_not_leak_the_subscription_address():
+    """Текст ошибки requests содержит полный URL, а в нём — токен подписки."""
+    import requests
+
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    refused = requests.ConnectionError("HTTPSConnectionPool(host='x'): /sub/secret-token")
+    timeout = requests.Timeout("Read timed out: /sub/secret-token")
+
+    assert describe_update_error(refused) == "нет связи с сервером подписки"
+    assert describe_update_error(timeout) == "сервер подписки не ответил вовремя"
+
+
+def test_unknown_errors_fall_back_to_their_text():
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(ValueError("boom")) == "boom"
+
+
+# --- Метаданные провайдера ----------------------------------------------------
+
+GIB = 1024**3
+NOW = 1_760_000_000  # 09.10.2025
+
+
+def _row(**fields):
+    group = FakeGroup(id=1, name="Основная", subscription_url="https://sub.example/main", **fields)
+    return build_subscription_rows({1: group}, {1: 3}, now=NOW)[0]
+
+
+def test_row_without_metadata_has_no_details():
+    row = _row()
+
+    assert row.details_text == ""
+    assert row.announce == ""
+    assert not row.expired
+
+
+def test_usage_shows_used_and_total():
+    row = _row(sub_user_info=f"upload={GIB}; download={2 * GIB}; total={10 * GIB}; expire=0")
+
+    assert row.usage_text == "3.00 GB из 10.00 GB"
+
+
+def test_unlimited_usage_says_so():
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total=0; expire=0")
+
+    assert row.usage_text == "1.00 GB, без лимита"
+
+
+def test_expiry_in_the_future():
+    expire = NOW + 30 * 86400
+    row = _row(sub_user_info=f"upload=0; download=0; total=0; expire={expire}")
+
+    date = datetime.datetime.fromtimestamp(expire).strftime("%d.%m.%Y")
+    assert row.expire_text == f"до {date}"
+    assert not row.expired
+
+
+def test_expiry_in_the_past_is_flagged():
+    expire = NOW - 86400
+    row = _row(sub_user_info=f"upload=0; download=0; total=0; expire={expire}")
+
+    date = datetime.datetime.fromtimestamp(expire).strftime("%d.%m.%Y")
+    assert row.expire_text == f"истекла {date}"
+    assert row.expired
+
+
+def test_details_join_usage_and_expiry():
+    expire = NOW + 86400
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total={2 * GIB}; expire={expire}")
+
+    assert row.details_text == f"{row.usage_text} · {row.expire_text}"
+
+
+def test_garbage_user_info_is_ignored():
+    assert _row(sub_user_info="what is this").details_text == ""
+
+
+def test_announce_and_links_reach_the_row():
+    row = _row(
+        sub_announce="Техработы до 12:00",
+        sub_support_url="https://t.me/provider",
+        sub_web_page_url="https://provider.example/account",
+    )
+
+    assert row.announce == "Техработы до 12:00"
+    assert row.support_url == "https://t.me/provider"
+    assert row.web_page_url == "https://provider.example/account"
+
+
+def test_unsafe_links_are_not_offered():
+    """Файл профилей можно поправить руками: фильтр стоит и при показе."""
+    row = _row(sub_support_url="javascript:alert(1)", sub_web_page_url="http://provider.example")
+
+    assert row.support_url == ""
+    assert row.web_page_url == ""
+
+
+def test_access_denied_without_device_data_suggests_enabling_it():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    text = describe_update_error(
+        SubscriptionHttpError(403, "HWID required"), device_info_sent=False
+    )
+
+    assert text.startswith("сервер ответил 403: HWID required")
+    assert "Настройки → Подписки" in text
+
+
+def test_no_hint_when_device_data_is_already_sent_or_the_error_is_different():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    denied = describe_update_error(SubscriptionHttpError(403, "x"), device_info_sent=True)
+    missing = describe_update_error(SubscriptionHttpError(404), device_info_sent=False)
+
+    assert "Настройки" not in denied
+    assert "Настройки" not in missing
+
+
+# --- Предложение сменить адрес ------------------------------------------------
+
+
+def test_new_address_question_names_the_subscription_and_both_addresses():
+    from src.sub.url_change import REASON_NEW_URL, UrlChangeProposal
+    from src.ui.logic.subscriptions_view import describe_url_change
+
+    proposal = UrlChangeProposal(1, "https://new.example/sub", REASON_NEW_URL)
+    heading, body = describe_url_change("Основная", "https://old.example/sub", proposal)
+
+    assert heading == "Сменить адрес подписки?"
+    assert "«Основная»" in body
+    assert "новый адрес" in body
+    assert "https://new.example/sub" in body
+    assert "https://old.example/sub" in body
+
+
+def test_fallback_address_question_mentions_the_failed_update():
+    from src.sub.url_change import REASON_FALLBACK_URL, UrlChangeProposal
+    from src.ui.logic.subscriptions_view import describe_url_change
+
+    proposal = UrlChangeProposal(1, "https://backup.example/sub", REASON_FALLBACK_URL)
+    _heading, body = describe_url_change("Основная", "https://old.example/sub", proposal)
+
+    assert "не удалось" in body
+    assert "запасной адрес" in body
+
+
+@pytest.mark.parametrize("expire", [10**20, 253402300800])
+def test_out_of_range_expiry_keeps_the_subscription_row(expire):
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total={10 * GIB}; expire={expire}")
+
+    assert row.expire_text == ""
+    assert not row.expired
+    assert row.usage_text == "1.00 GB из 10.00 GB"

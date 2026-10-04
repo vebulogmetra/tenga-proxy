@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import threading
 import time
+from types import SimpleNamespace
 
-from src.ui.logic.latency import LatencyRunner
+import pytest
+
+from src.ui.logic.latency import LatencyRunner, make_batch_probe
 
 
 def _collect(results: dict, done: list):
@@ -135,3 +138,95 @@ def test_runner_delivers_every_result_when_probe_raises_base_exception():
 
     assert results == {1: 10, 2: -1, 3: 30, 4: 40, 5: 50}
     assert done == [True]
+
+
+# --- пакетный режим: один вызов на весь набор ---
+
+
+def test_batch_runner_hands_every_id_to_one_probe_call_and_streams_results():
+    calls: list[list[int]] = []
+
+    def batch_probe(profile_ids, emit) -> None:
+        calls.append(list(profile_ids))
+        for profile_id in reversed(profile_ids):
+            emit(profile_id, profile_id * 10)
+
+    delivered: list = []
+    runner = LatencyRunner(batch_probe=batch_probe, dispatch=lambda _fn, *a: delivered.append(a))
+
+    runner.run([1, 2, 3], on_result=lambda *_: None, on_done=lambda: None)
+    runner.wait(timeout=5)
+
+    assert calls == [[1, 2, 3]]
+    # Результаты уходят в том порядке, в каком их отдал замер; последним — on_done.
+    assert delivered[:3] == [(3, 30), (2, 20), (1, 10)]
+    assert len(delivered) == 4
+
+
+def test_batch_runner_reports_minus_one_for_everything_the_probe_left_out():
+    def batch_probe(profile_ids, emit) -> None:
+        emit(1, 10)
+        raise RuntimeError("ядро не запустилось")
+
+    delivered: list = []
+    runner = LatencyRunner(
+        batch_probe=batch_probe, dispatch=lambda fn, *a: delivered.append((fn, a))
+    )
+    results: dict = {}
+    done: list = []
+    on_result, on_done = _collect(results, done)
+
+    runner.run([1, 2, 3], on_result=on_result, on_done=on_done)
+    runner.wait(timeout=5)
+    for fn, args in delivered:
+        fn(*args)
+
+    assert results == {1: 10, 2: -1, 3: -1}
+    assert done == [True]
+    assert runner.is_busy is False
+
+
+def test_batch_runner_ignores_a_second_result_for_the_same_profile():
+    def batch_probe(profile_ids, emit) -> None:
+        emit(1, 10)
+        emit(1, 99)
+
+    delivered: list = []
+    runner = LatencyRunner(batch_probe=batch_probe, dispatch=lambda _fn, *a: delivered.append(a))
+
+    runner.run([1], on_result=lambda *_: None, on_done=lambda: None)
+    runner.wait(timeout=5)
+
+    assert delivered[0] == (1, 10)
+    assert len(delivered) == 2
+
+
+def test_runner_requires_one_of_the_two_probes():
+    with pytest.raises(ValueError, match="ровно один"):
+        LatencyRunner()
+
+
+def test_make_batch_probe_measures_known_profiles_with_the_app_settings(monkeypatch):
+    seen: dict = {}
+
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result):
+        seen["ids"] = [profile.id for profile in profiles]
+        seen["settings"] = settings
+        seen["binary"] = binary_path
+        for profile in profiles:
+            on_result(profile.id, 42)
+
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", fake_probe_profiles)
+    known = {1: SimpleNamespace(id=1), 3: SimpleNamespace(id=3)}
+    context = SimpleNamespace(
+        profiles=SimpleNamespace(get_profile=known.get),
+        config="настройки",
+        xray_manager=SimpleNamespace(binary_path="/opt/xray"),
+    )
+    results: dict = {}
+
+    make_batch_probe(context)([1, 2, 3], results.__setitem__)
+
+    # Профиля 2 уже нет: в замер он не идёт, а -1 ему допишет сам runner.
+    assert seen == {"ids": [1, 3], "settings": "настройки", "binary": "/opt/xray"}
+    assert results == {1: 42, 3: 42}

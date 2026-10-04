@@ -88,6 +88,38 @@ def test_disabled_monitoring_dims_the_interval(gtk_ready):
     assert not dialog.interval_row.get_sensitive()
 
 
+def test_failover_settings_round_trip(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert not dialog.failover_row.get_active()
+
+    dialog.failover_row.set_active(True)
+    dialog.failover_threshold_row.set_value(5)
+    dialog.save()
+
+    assert config.monitoring.failover_enabled
+    assert config.monitoring.failover_threshold == 5
+
+
+def test_failover_threshold_is_dimmed_until_failover_is_on(gtk_ready):
+    dialog = make_dialog()
+    dialog.monitoring_row.set_active(True)
+    assert not dialog.failover_threshold_row.get_sensitive()
+
+    dialog.failover_row.set_active(True)
+    assert dialog.failover_threshold_row.get_sensitive()
+
+
+def test_disabled_monitoring_dims_failover(gtk_ready):
+    """Без мониторинга проверок нет — переключаться не по чему."""
+    dialog = make_dialog()
+    dialog.failover_row.set_active(True)
+    dialog.monitoring_row.set_active(False)
+
+    assert not dialog.failover_row.get_sensitive()
+    assert not dialog.failover_threshold_row.get_sensitive()
+
+
 def test_the_dns_provider_round_trips(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)
@@ -128,3 +160,220 @@ def test_the_dns_through_proxy_switch_round_trips(gtk_ready):
     dialog.dns_proxy_row.set_active(False)
     dialog.save()
     assert config.dns.use_proxy is False
+
+
+def test_the_dns_interception_switch_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert dialog.dns_intercept_row.get_active()
+
+    dialog.dns_intercept_row.set_active(False)
+    dialog.save()
+
+    assert config.dns.intercept is False
+
+
+def test_the_about_page_shows_geo_bases(gtk_ready):
+    dialog = make_dialog(make_config())
+    assert dialog.geo_row.get_subtitle()
+
+
+def test_the_fragment_settings_round_trip(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.fragment_row.set_active(True)
+    dialog.fragment_packets_row.set_text("1-3")
+    dialog.fragment_length_row.set_text("50-100")
+    dialog.fragment_delay_row.set_text("5")
+    dialog.save()
+
+    assert config.tls_fragment.enabled is True
+    assert config.tls_fragment.packets == "1-3"
+    assert config.tls_fragment.length == "50-100"
+    assert config.tls_fragment.delay == "5"
+
+    reopened = make_dialog(config)
+    assert reopened.fragment_row.get_active()
+    assert reopened.fragment_length_row.get_text() == "50-100"
+
+
+def test_invalid_fragment_values_fall_back_to_defaults(gtk_ready):
+    """Невалидное значение ядро отвергло бы вместе со всем конфигом."""
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.fragment_row.set_active(True)
+    dialog.fragment_length_row.set_text("0-100")
+    dialog.fragment_delay_row.set_text("soon")
+    dialog.save()
+
+    assert config.tls_fragment.length == "100-200"
+    assert config.tls_fragment.delay == "10-20"
+
+
+def test_disabled_fragmentation_dims_its_fields(gtk_ready):
+    dialog = make_dialog()
+    assert not dialog.fragment_length_row.get_sensitive()
+    dialog.fragment_row.set_active(True)
+    assert dialog.fragment_length_row.get_sensitive()
+
+
+def test_the_mux_switch_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.mux_row.set_active(True)
+    dialog.save()
+    assert config.mux_default_on is True
+    assert make_dialog(config).mux_row.get_active()
+
+
+# --- подписки ---
+
+
+def test_the_user_agent_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert dialog.user_agent_row.get_text() == ""
+
+    dialog.user_agent_row.set_text("  MyClient/2.0  ")
+    dialog.save()
+
+    assert config.user_agent == "MyClient/2.0"
+    assert config.get_user_agent() == "MyClient/2.0"
+
+
+def test_the_old_default_user_agent_is_shown_as_unset(gtk_ready):
+    """Прежнее значение по умолчанию — не выбор пользователя: поле остаётся пустым."""
+    config = make_config()
+    config.user_agent = "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
+    dialog = make_dialog(config)
+
+    assert dialog.user_agent_row.get_text() == ""
+    dialog.save()
+    assert config.user_agent == ""
+
+
+def test_device_info_is_off_by_default(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+
+    assert not dialog.device_info_row.get_active()
+    dialog.save()
+    assert not config.sub_send_device_info
+    assert config.sub_hwid == ""
+
+
+def test_enabling_device_info_creates_the_hwid(gtk_ready):
+    """Идентификатор создаётся здесь, чтобы сохраниться вместе с настройками."""
+    config = make_config()
+    dialog = make_dialog(config)
+
+    dialog.device_info_row.set_active(True)
+    dialog.save()
+
+    assert config.sub_send_device_info
+    assert config.sub_hwid
+
+
+def test_geo_update_reports_progress_and_result_without_blocking(gtk_ready, monkeypatch):
+    from src.core.geo import GeoCatalog
+    from src.ui.dialogs import settings
+
+    calls = []
+    monkeypatch.setattr(
+        settings, "run_in_background", lambda fn, **kwargs: calls.append((fn, kwargs))
+    )
+    dialog = make_dialog()
+    dialog.geo_update_button.emit("clicked")
+
+    assert not dialog.geo_update_button.get_sensitive()
+    assert dialog.geo_row.get_subtitle() == "Скачивание…"
+    assert len(calls) == 1
+    calls[0][1]["on_done"](GeoCatalog(geosite=frozenset({"ru"}), geoip=frozenset({"ru"})))
+    assert dialog.geo_update_button.get_sensitive()
+    assert "geosite: 1" in dialog.geo_row.get_subtitle()
+    assert "при сохранении настроек" in dialog.geo_row.get_subtitle()
+
+
+def test_geo_update_error_restores_button_and_shows_plain_text(gtk_ready, monkeypatch):
+    from src.ui.dialogs import settings
+
+    calls = []
+    monkeypatch.setattr(settings, "run_in_background", lambda _fn, **kwargs: calls.append(kwargs))
+    dialog = make_dialog()
+    dialog.geo_update_button.emit("clicked")
+    calls[0]["on_error"](RuntimeError("ошибка <download> & записи"))
+
+    assert dialog.geo_update_button.get_sensitive()
+    assert dialog.geo_row.get_subtitle() == "Не обновлены: ошибка <download> & записи"
+
+
+# --- обновление ядра на странице «О программе» ---
+
+
+def make_about_dialog(config=None, *, core="26.9.9"):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from src.ui.dialogs.settings import SettingsDialog
+
+    context = SimpleNamespace(
+        xray_manager=SimpleNamespace(get_version=lambda: {"version": core}),
+        config_dir="/tmp/tenga-test",
+        save_config=Mock(return_value=True),
+    )
+    return SettingsDialog(config or make_config(), context), context
+
+
+def test_about_page_shows_the_remembered_core_update(gtk_ready):
+    config = make_config()
+    config.core_update_stable = "26.3.27"
+    config.core_update_prerelease = "26.9.30"
+
+    dialog, _context = make_about_dialog(config)
+
+    assert dialog.core_update_row.get_subtitle() == "Доступна версия 26.9.30"
+
+
+def test_about_page_before_the_first_check(gtk_ready):
+    dialog, _context = make_about_dialog()
+
+    assert dialog.core_update_row.get_subtitle() == "Не проверялось"
+
+
+def test_check_button_asks_for_releases_and_updates_the_row(gtk_ready):
+    from src.core.core_update import KnownReleases
+
+    config = make_config()
+    dialog, context = make_about_dialog(config)
+    dialog.set_release_fetcher(lambda: KnownReleases(stable="26.3.27", prerelease="26.9.30"))
+
+    dialog.check_core_update()
+    dialog.wait_for_core_update_for_test()
+
+    assert dialog.core_update_row.get_subtitle() == "Доступна версия 26.9.30"
+    assert config.core_update_checked_at > 0
+    context.save_config.assert_called_once()
+    assert dialog.core_update_button.get_sensitive()
+
+
+def test_failed_check_is_reported_in_the_row(gtk_ready):
+    def offline():
+        raise OSError("нет сети")
+
+    config = make_config()
+    dialog, context = make_about_dialog(config)
+    dialog.set_release_fetcher(offline)
+
+    dialog.check_core_update()
+    dialog.wait_for_core_update_for_test()
+
+    assert dialog.core_update_row.get_subtitle() == "Не удалось проверить обновления"
+    assert config.core_update_checked_at == 0
+    context.save_config.assert_not_called()
+    assert dialog.core_update_button.get_sensitive()
+
+
+def test_core_update_cannot_be_checked_without_a_context(gtk_ready):
+    dialog = make_dialog()
+
+    assert not dialog.core_update_button.get_sensitive()

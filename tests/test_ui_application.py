@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytestmark = pytest.mark.gtk
@@ -159,6 +161,147 @@ def test_refresh_without_subscriptions_is_a_no_op(adw_app):
     adw_app.wait_for_subscriptions_for_test()
 
     assert called == []
+
+
+def test_a_failed_update_explains_the_reason_without_the_address(adw_app):
+    import requests
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/secret-token"
+
+    def failing(_group_id: int, url: str) -> int:
+        raise requests.ConnectionError(f"Max retries exceeded with url: {url}")
+
+    adw_app.set_subscription_updater(failing)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert adw_app.last_toast_for_test == (
+        "Не удалось обновить подписки: нет связи с сервером подписки"
+    )
+
+
+def test_a_denied_update_shows_the_providers_explanation(adw_app):
+    from src.sub.errors import SubscriptionHttpError
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+
+    def denied(_group_id: int, _url: str) -> int:
+        raise SubscriptionHttpError(403, "Превышен лимит устройств")
+
+    adw_app.set_subscription_updater(denied)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert "403: Превышен лимит устройств" in adw_app.last_toast_for_test
+
+
+def test_the_default_updater_goes_through_the_running_proxy(adw_app):
+    """В режиме системного прокси requests сам его не видит: адрес передаётся явно."""
+    from unittest.mock import Mock, patch
+
+    from src.db.config import ProxyMode
+
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    adw_app.context.proxy_state.set_running(1, mode=ProxyMode.SYSTEM_PROXY)
+
+    response = Mock()
+    response.text = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
+    response.raise_for_status = Mock()
+
+    with patch("src.sub.updater.requests.get", return_value=response) as mock_get:
+        count = adw_app._default_subscription_updater(group.id, "https://sub.example/list")
+
+    assert count == 1
+    assert mock_get.call_args.kwargs["proxies"] == {
+        "http": "http://127.0.0.1:2081",
+        "https": "http://127.0.0.1:2081",
+    }
+
+
+# --- предложение сменить адрес подписки ---
+
+OLD_URL = "https://old.example/sub"
+NEW_URL = "https://new.example/sub"
+
+
+def _update_with_response_headers(adw_app, headers: dict[str, str]):
+    """Run the real updater against a canned HTTP response."""
+    from unittest.mock import Mock, patch
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = OLD_URL
+
+    body = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
+    response = Mock()
+    response.text = body
+    response.content = body.encode("utf-8")
+    response.headers = headers
+    response.raise_for_status = Mock()
+
+    with patch("src.sub.updater.requests.get", return_value=response):
+        adw_app.update_subscription(group.id)
+        adw_app.wait_for_subscriptions_for_test()
+    return group
+
+
+def test_a_new_address_is_offered_but_not_applied(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+
+    assert adw_app.current_dialog is not None
+    assert NEW_URL in adw_app.current_dialog.get_body()
+    assert group.subscription_url == OLD_URL
+
+
+def test_confirming_switches_the_subscription_to_the_new_address(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+    updated: list[str] = []
+    adw_app.set_subscription_updater(lambda _gid, url: updated.append(url) or 1)
+
+    adw_app.current_dialog.emit("response", "change")
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert group.subscription_url == NEW_URL
+    # После смены подписка сразу обновляется уже с нового адреса.
+    assert updated == [NEW_URL]
+
+
+def test_declining_keeps_the_old_address(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+
+    adw_app.current_dialog.emit("response", "cancel")
+
+    assert group.subscription_url == OLD_URL
+
+
+def test_an_ordinary_update_asks_nothing(adw_app):
+    _update_with_response_headers(adw_app, {})
+
+    assert adw_app.current_dialog is None
+
+
+def test_a_failed_update_offers_the_fallback_address(adw_app):
+    import requests
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = OLD_URL
+    group.sub_fallback_url = "https://backup.example/sub"
+
+    def failing(_group_id: int, _url: str) -> int:
+        raise requests.ConnectionError("blocked")
+
+    adw_app.set_subscription_updater(failing)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert adw_app.current_dialog is not None
+    assert "https://backup.example/sub" in adw_app.current_dialog.get_body()
+    assert group.subscription_url == OLD_URL
 
 
 # --- подключение и диалоги (этап 3) ---
@@ -550,83 +693,114 @@ def test_a_tray_that_cannot_start_does_not_break_the_application(adw_app, monkey
     assert adw_app.tray is None
 
 
-class _FakeManager:
-    """Стоит вместо XrayManager: замер не должен поднимать настоящий процесс."""
+def test_default_latency_run_measures_the_whole_set_with_one_batch_call(adw_app, monkeypatch):
+    """Без подменённой пробы замер идёт пакетом: один вызов на все профили."""
+    first = add_profile(adw_app)
+    second = add_profile(adw_app)
+    calls: list[list[int]] = []
 
-    instances: list = []
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result):
+        calls.append([profile.id for profile in profiles])
+        for profile in profiles:
+            on_result(profile.id, 42)
 
-    def __init__(self, binary_path=None):
-        self.binary_path = binary_path
-        self.stopped = False
-        self.started_with = None
-        _FakeManager.instances.append(self)
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", fake_probe_profiles)
+    monkeypatch.setattr(
+        type(adw_app.context),
+        "xray_manager",
+        property(lambda _self: SimpleNamespace(binary_path="xray")),
+    )
 
-    def start(self, config):
-        self.started_with = config
-        return True, ""
+    adw_app.activate_action("test-latency", None)
+    adw_app.wait_for_latency_for_test()
 
-    def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
-        return 42
-
-    def stop(self):
-        self.stopped = True
-
-
-def _install_fake_xray(monkeypatch, cls=None):
-    """Replace XrayManager and return the probe's own instance afterwards.
-
-    Экземпляров создаётся два: один лениво заводит `AppContext` ради
-    `binary_path`, второй — сам замер. Замеру принадлежит последний.
-    """
-    _FakeManager.instances = []
-    monkeypatch.setattr("src.core.xray_manager.XrayManager", cls or _FakeManager)
+    store = adw_app.context.profiles
+    assert calls == [[first.id, second.id]]
+    assert store.get_profile(first.id).latency_ms == 42
+    assert store.get_profile(second.id).latency_ms == 42
 
 
-def _probe_manager():
-    assert _FakeManager.instances, "замер обязан был создать экземпляр"
-    return _FakeManager.instances[-1]
+def _silent_server_status():
+    from src.core.monitor import ConnectionStatus
+
+    return ConnectionStatus(proxy_ok=False, proxy_error="Сервер не отвечает", server_probed=True)
 
 
-def test_default_latency_probe_measures_through_a_temporary_xray(adw_app, monkeypatch):
-    _install_fake_xray(monkeypatch)
-    entry = add_profile(adw_app)
+def _watched_monitor(app, *, failover_enabled: bool):
+    from src.core.monitor import attach_monitor
 
-    assert adw_app._default_latency_probe(entry.id) == 42
-    assert _probe_manager().stopped is True
-
-
-def test_default_latency_probe_returns_minus_one_for_a_missing_profile(adw_app, monkeypatch):
-    _install_fake_xray(monkeypatch)
-
-    assert adw_app._default_latency_probe(999999) == -1
-    assert _FakeManager.instances == []
+    context = app.context
+    context.config.monitoring.failover_enabled = failover_enabled
+    context.config.monitoring.failover_threshold = 1
+    monitor = attach_monitor(context)
+    app.watch_monitor()
+    return monitor
 
 
-def test_default_latency_probe_returns_minus_one_when_xray_does_not_start(adw_app, monkeypatch):
-    class Failing(_FakeManager):
-        def start(self, config):
-            return False, "port busy"
+def test_failover_connects_the_next_profile_of_the_group_and_says_so(adw_app):
+    first = add_profile(adw_app)
+    second = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+    adw_app.context.proxy_state.set_running(first.id)
+    monitor = _watched_monitor(adw_app, failover_enabled=True)
 
-    _install_fake_xray(monkeypatch, Failing)
-    entry = add_profile(adw_app)
+    monitor._status = _silent_server_status()
+    monitor._notify_status_changed()
+    adw_app.wait_for_connection_for_test()
 
-    assert adw_app._default_latency_probe(entry.id) == -1
-    assert _probe_manager().stopped is True
+    assert calls == [("connect", second.id)]
+    assert "переключаюсь" in adw_app.last_notification_for_test
 
 
-def test_default_latency_probe_stops_xray_when_the_probe_raises(adw_app, monkeypatch):
-    """Временный процесс гасится и на ошибке: иначе он останется висеть."""
+def test_failover_stays_out_of_the_way_when_disabled(adw_app):
+    first = add_profile(adw_app)
+    add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+    adw_app.context.proxy_state.set_running(first.id)
+    monitor = _watched_monitor(adw_app, failover_enabled=False)
 
-    class Raising(_FakeManager):
-        def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
-            raise RuntimeError("boom")
+    monitor._status = _silent_server_status()
+    monitor._notify_status_changed()
+    adw_app.wait_for_connection_for_test()
 
-    _install_fake_xray(monkeypatch, Raising)
-    entry = add_profile(adw_app)
+    assert calls == []
+    assert adw_app.last_notification_for_test == ""
 
-    with pytest.raises(RuntimeError):
-        adw_app._default_latency_probe(entry.id)
-    assert _probe_manager().stopped is True
+
+def test_core_releases_are_refreshed_on_activation_when_the_check_is_due(adw_app):
+    from src.core.core_update import KnownReleases
+
+    adw_app.set_release_fetcher(lambda: KnownReleases(stable="26.3.27", prerelease="26.9.30"))
+
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    config = adw_app.context.config
+    assert config.core_update_prerelease == "26.9.30"
+    assert config.core_update_checked_at > 0
+
+
+def test_core_releases_are_not_requested_before_the_interval_passes(adw_app):
+    import time
+
+    calls: list = []
+    adw_app.context.config.core_update_checked_at = int(time.time())
+    adw_app.set_release_fetcher(lambda: calls.append(True))
+
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    assert calls == []
+
+
+def test_core_releases_are_never_requested_without_a_fetcher(adw_app):
+    """Сеть включает только `run_app`: тесты и встраивание в неё не ходят."""
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    assert adw_app.context.config.core_update_checked_at == 0
 
 
 def _simulate_close(app, dialog) -> None:
@@ -775,3 +949,17 @@ def test_group_latency_sorts_profiles_while_running(adw_app):
 
     assert page.get_sort_key_for_test() is SortKey.PING
     assert page.get_profile_titles(group_id=group.id) == ["Быстрый", "Медленный"]
+
+
+def test_url_change_confirmation_defaults_to_keeping_the_address(gtk_ready):
+    from src.ui.dialogs.confirm import build_url_change_confirmation
+
+    confirmed = []
+    dialog = build_url_change_confirmation(
+        "Сменить?", "https://e.com/?a=1&b=2", lambda: confirmed.append(True)
+    )
+    assert dialog.get_default_response() == "cancel"
+    assert dialog.get_close_response() == "cancel"
+    assert not dialog.get_body_use_markup()
+    dialog.emit("response", "cancel")
+    assert confirmed == []

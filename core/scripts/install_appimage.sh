@@ -105,6 +105,16 @@ install_appimage() {
         chmod +x "$user_xray_path"
         info "Установлен xray: $user_xray_path"
 
+        # Геобазы ядро ищет рядом с собой.
+        for geo_file in geoip.dat geosite.dat; do
+            if [ -f "$PROJECT_ROOT/core/bin/$geo_file" ]; then
+                cp "$PROJECT_ROOT/core/bin/$geo_file" "$config_bin_dir/$geo_file"
+                info "Установлена геобаза: $config_bin_dir/$geo_file"
+            else
+                warning "Геобаза не найдена: $PROJECT_ROOT/core/bin/$geo_file"
+            fi
+        done
+
         if command -v setcap &>/dev/null; then
             info "Выдача прав для TUN режимa (cap_net_admin, cap_net_raw)..."
             if sudo setcap cap_net_admin,cap_net_raw+ep "$user_xray_path"; then

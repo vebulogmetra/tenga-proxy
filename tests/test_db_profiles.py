@@ -177,3 +177,94 @@ def test_marking_a_missing_profile_is_harmless(tmp_path):
     mgr = ProfileManager(profiles_dir=tmp_path)
     mgr.mark_used(42)
     assert mgr.last_used_profile() is None
+
+
+# --- sync_group: обновление подписки без смены id -----------------------------
+
+
+def _vless(name: str, server: str = "a.example.org", port: int = 443, uuid: str = "u-1"):
+    from src.fmt.protocols import VLESSBean
+
+    return VLESSBean(name=name, server_address=server, server_port=port, uuid=uuid)
+
+
+def test_profile_match_key_is_name_type_server_port():
+    from src.db.profiles import profile_match_key
+
+    assert profile_match_key(_vless("NL-1")) == "NL-1|vless|a.example.org|443"
+
+
+def test_sync_group_keeps_id_and_user_data_of_a_matched_profile(tmp_path):
+    from src.db.config import RoutingSettings, VpnSettings
+
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("Sub", is_subscription=True)
+    entry = manager.add_profile(_vless("NL-1", uuid="old"), group.id)
+    entry.latency_ms = 87
+    entry.last_used = 1_700_000_000
+    entry.vpn_settings = VpnSettings()
+    entry.routing_settings = RoutingSettings()
+
+    manager.sync_group(group.id, [_vless("NL-1", uuid="new")])
+
+    synced = manager.get_profiles_in_group(group.id)
+    assert [p.id for p in synced] == [entry.id]
+    assert synced[0].bean.uuid == "new"
+    assert synced[0].latency_ms == 87
+    assert synced[0].last_used == 1_700_000_000
+    assert synced[0].vpn_settings is entry.vpn_settings
+    assert synced[0].routing_settings is entry.routing_settings
+
+
+def test_sync_group_adds_new_and_removes_missing_profiles(tmp_path):
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("Sub", is_subscription=True)
+    kept = manager.add_profile(_vless("NL-1"), group.id)
+    gone = manager.add_profile(_vless("DE-1", server="b.example.org"), group.id)
+
+    result = manager.sync_group(group.id, [_vless("NL-1"), _vless("FI-1", server="c.example.org")])
+
+    names = {p.name: p.id for p in manager.get_profiles_in_group(group.id)}
+    assert set(names) == {"NL-1", "FI-1"}
+    assert names["NL-1"] == kept.id
+    assert names["FI-1"] not in (kept.id, gone.id)
+    assert manager.get_profile(gone.id) is None
+    assert (result.updated, result.added, result.removed) == (1, 1, 1)
+
+
+def test_sync_group_follows_the_order_of_the_response(tmp_path):
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("Sub", is_subscription=True)
+    manager.add_profile(_vless("B"), group.id)
+    manager.add_profile(_vless("C"), group.id)
+
+    manager.sync_group(group.id, [_vless("A"), _vless("C"), _vless("B")])
+
+    assert [p.name for p in manager.get_profiles_in_group(group.id)] == ["A", "C", "B"]
+
+
+def test_sync_group_does_not_touch_other_groups(tmp_path):
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("Sub", is_subscription=True)
+    other = manager.add_group("Manual")
+    manual = manager.add_profile(_vless("NL-1"), other.id)
+
+    manager.sync_group(group.id, [_vless("NL-1")])
+
+    assert manager.get_profile(manual.id) is manual
+    assert [p.id for p in manager.get_profiles_in_group(other.id)] == [manual.id]
+    assert len(manager.get_profiles_in_group(group.id)) == 1
+
+
+def test_sync_group_keeps_duplicates_from_the_response(tmp_path):
+    """Два одинаковых ключа в ответе — два профиля, как и до перехода на upsert."""
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("Sub", is_subscription=True)
+    first = manager.add_profile(_vless("NL-1", uuid="a"), group.id)
+
+    manager.sync_group(group.id, [_vless("NL-1", uuid="a"), _vless("NL-1", uuid="b")])
+
+    synced = manager.get_profiles_in_group(group.id)
+    assert len(synced) == 2
+    assert synced[0].id == first.id
+    assert synced[1].id != first.id

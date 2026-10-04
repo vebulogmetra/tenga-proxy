@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+import time
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GLib, GObject, Gtk
 
-from src.db.config import DnsProvider, ProxyMode
-from src.ui.logic.version import UNKNOWN, app_version, core_version
+from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
+from src.core.geo import USER_GEO_DIR
+from src.core.geo_update import update_geo_bases
+from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
+from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
+from src.sub.device import ensure_hwid
+from src.ui.logic.async_utils import run_in_background
+from src.ui.logic.routing_form import current_catalog, geo_summary
+from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
@@ -61,10 +70,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.set_title("Настройки")
         self._config = config
         self._context = context
+        self._fetch_releases = fetch_releases
+        self._core_update_thread = None
 
         self._build_general_page()
         self._build_monitoring_page()
         self._build_dns_page()
+        self._build_bypass_page()
+        self._build_subscriptions_page()
         self._build_about_page()
 
         self._load()
@@ -134,6 +147,23 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.interval_row.set_subtitle("Секунд между проверками")
         group.add(self.interval_row)
 
+        failover = Adw.PreferencesGroup(
+            title="Автопереключение",
+            description=(
+                "Если сервер перестал отвечать, подключается другой профиль той же группы"
+            ),
+        )
+        page.add(failover)
+
+        self.failover_row = Adw.SwitchRow(title="Переключаться автоматически")
+        self.failover_row.connect("notify::active", lambda *_: self._sync_monitoring())
+        failover.add(self.failover_row)
+
+        self.failover_threshold_row = Adw.SpinRow.new_with_range(1, 10, 1)
+        self.failover_threshold_row.set_title("Порог")
+        self.failover_threshold_row.set_subtitle("Неудачных проверок подряд")
+        failover.add(self.failover_threshold_row)
+
     def _build_dns_page(self) -> None:
         page = Adw.PreferencesPage(title="DNS", icon_name="network-server-symbolic")
         self.add(page)
@@ -148,7 +178,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         custom = Adw.PreferencesGroup(
             title="Свой адрес",
             description="Непустое поле перекрывает выбранного провайдера. "
-            "Примеры: 8.8.8.8, https://dns.google/dns-query, tls://dns.google",
+            "Примеры: 8.8.8.8, https://dns.google/dns-query",
         )
         page.add(custom)
 
@@ -164,6 +194,68 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         options.add(self.dns_proxy_row)
 
+        self.dns_intercept_row = Adw.SwitchRow(
+            title="Перехватывать DNS приложений",
+            subtitle="Режим TUN: запросы приложений обрабатывает ядро — "
+            "действуют списки маршрутизации и блокировка",
+        )
+        options.add(self.dns_intercept_row)
+
+    def _build_bypass_page(self) -> None:
+        page = Adw.PreferencesPage(title="Обход блокировок", icon_name="security-high-symbolic")
+        self.add(page)
+
+        fragment = Adw.PreferencesGroup(
+            title="Фрагментация TLS",
+            description="Делит начало TLS-соединения на части, чтобы фильтр не разобрал "
+            "имя сервера. Действует на профили с TLS и Reality. Применяется при сохранении настроек.",
+        )
+        page.add(fragment)
+
+        self.fragment_row = Adw.SwitchRow(title="Включить фрагментацию")
+        self.fragment_row.connect("notify::active", lambda *_: self._sync_fragment())
+        fragment.add(self.fragment_row)
+
+        self.fragment_packets_row = Adw.EntryRow(title="Пакеты: tlshello или номера, 1-3")
+        fragment.add(self.fragment_packets_row)
+
+        self.fragment_length_row = Adw.EntryRow(title="Размер фрагмента, байт: 100-200")
+        fragment.add(self.fragment_length_row)
+
+        self.fragment_delay_row = Adw.EntryRow(title="Пауза между фрагментами, мс: 10-20")
+        fragment.add(self.fragment_delay_row)
+
+        mux = Adw.PreferencesGroup(title="Мультиплексирование")
+        page.add(mux)
+
+        self.mux_row = Adw.SwitchRow(
+            title="Включить mux",
+            subtitle="Несколько потоков в одном соединении. Только VLESS и Trojan, "
+            "кроме XHTTP и Vision",
+        )
+        mux.add(self.mux_row)
+
+    def _build_subscriptions_page(self) -> None:
+        page = Adw.PreferencesPage(title="Подписки", icon_name="folder-download-symbolic")
+        self.add(page)
+
+        request = Adw.PreferencesGroup(
+            title="Запрос к провайдеру",
+            description=f"Пустое поле — {DEFAULT_USER_AGENT}: так представляется большинство "
+            "клиентов, и провайдеры отдают ему обычный список серверов.",
+        )
+        page.add(request)
+
+        self.user_agent_row = Adw.EntryRow(title="User-Agent")
+        request.add(self.user_agent_row)
+
+        self.device_info_row = Adw.SwitchRow(
+            title="Отправлять данные устройства",
+            subtitle="Идентификатор, система и модель. Нужны провайдерам, "
+            "которые считают лимит устройств",
+        )
+        request.add(self.device_info_row)
+
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
         self.add(page)
@@ -173,7 +265,17 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         group.add(self._value_row("Версия", app_version()))
         manager = getattr(self._context, "xray_manager", None) if self._context else None
-        group.add(self._value_row("Ядро xray", core_version(manager)))
+        self._core_version = core_version(manager)
+        group.add(self._value_row("Ядро xray", self._core_version))
+
+        self.core_update_row = Adw.ActionRow(title="Обновление ядра")
+        self.core_update_button = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER)
+        self.core_update_button.connect("clicked", lambda _button: self.check_core_update())
+        self.core_update_button.set_sensitive(self._context is not None)
+        self.core_update_row.add_suffix(self.core_update_button)
+        group.add(self.core_update_row)
+        self._show_core_update()
+
         if self._context is not None:
             group.add(self._value_row("Конфигурация", str(self._context.config_dir)))
 
@@ -189,6 +291,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.clear_logs_row.add_suffix(clear)
         self.clear_logs_row.set_sensitive(self._context is not None)
         actions.add(self.clear_logs_row)
+
+        self.geo_row = Adw.ActionRow(title="Геобазы")
+        self.geo_row.set_use_markup(False)
+        self.geo_row.set_subtitle(geo_summary(current_catalog()))
+        self.geo_update_button = Gtk.Button(label="Обновить", valign=Gtk.Align.CENTER)
+        self.geo_update_button.connect("clicked", self._on_update_geo)
+        self.geo_row.add_suffix(self.geo_update_button)
+        actions.add(self.geo_row)
 
     @staticmethod
     def _value_row(title: str, value: str) -> Adw.ActionRow:
@@ -206,7 +316,17 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_mtu_row.set_sensitive(tun)
 
     def _sync_monitoring(self) -> None:
-        self.interval_row.set_sensitive(self.monitoring_row.get_active())
+        monitoring = self.monitoring_row.get_active()
+        self.interval_row.set_sensitive(monitoring)
+        # Без мониторинга проверок нет — переключаться не по чему.
+        self.failover_row.set_sensitive(monitoring)
+        self.failover_threshold_row.set_sensitive(monitoring and self.failover_row.get_active())
+
+    def _sync_fragment(self) -> None:
+        active = self.fragment_row.get_active()
+        self.fragment_packets_row.set_sensitive(active)
+        self.fragment_length_row.set_sensitive(active)
+        self.fragment_delay_row.set_sensitive(active)
 
     def _load(self) -> None:
         config = self._config
@@ -224,12 +344,27 @@ class SettingsDialog(Adw.PreferencesDialog):
         monitoring = config.monitoring
         self.monitoring_row.set_active(monitoring.enabled)
         self.interval_row.set_value(float(monitoring.check_interval_seconds))
+        self.failover_row.set_active(monitoring.failover_enabled)
+        self.failover_threshold_row.set_value(float(monitoring.failover_threshold))
         self._sync_monitoring()
 
         dns = config.dns
         self._dns.select(dns.provider)
         self.dns_url_row.set_text(dns.custom_url)
         self.dns_proxy_row.set_active(dns.use_proxy)
+        self.dns_intercept_row.set_active(getattr(dns, "intercept", True))
+
+        fragment = config.tls_fragment
+        self.fragment_row.set_active(fragment.enabled)
+        self.fragment_packets_row.set_text(fragment.packets)
+        self.fragment_length_row.set_text(fragment.length)
+        self.fragment_delay_row.set_text(fragment.delay)
+        self._sync_fragment()
+        self.mux_row.set_active(config.mux_default_on)
+
+        user_agent = config.user_agent.strip()
+        self.user_agent_row.set_text("" if user_agent == LEGACY_USER_AGENT else user_agent)
+        self.device_info_row.set_active(config.sub_send_device_info)
 
     def save(self) -> None:
         """Write the form back into the configuration object."""
@@ -247,10 +382,28 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         config.monitoring.enabled = self.monitoring_row.get_active()
         config.monitoring.check_interval_seconds = int(self.interval_row.get_value())
+        config.monitoring.failover_enabled = self.failover_row.get_active()
+        config.monitoring.failover_threshold = int(self.failover_threshold_row.get_value())
 
         config.dns.provider = self._dns.selected()
         config.dns.custom_url = self.dns_url_row.get_text().strip()
         config.dns.use_proxy = self.dns_proxy_row.get_active()
+        config.dns.intercept = self.dns_intercept_row.get_active()
+
+        # sanitized(): невалидное поле ядро отвергло бы вместе со всем конфигом.
+        config.tls_fragment = TlsFragmentSettings(
+            enabled=self.fragment_row.get_active(),
+            packets=self.fragment_packets_row.get_text(),
+            length=self.fragment_length_row.get_text(),
+            delay=self.fragment_delay_row.get_text(),
+        ).sanitized()
+        config.mux_default_on = self.mux_row.get_active()
+
+        config.user_agent = self.user_agent_row.get_text().strip()
+        config.sub_send_device_info = self.device_info_row.get_active()
+        if config.sub_send_device_info:
+            # Идентификатор сохранится вместе с настройками при закрытии диалога.
+            ensure_hwid(config)
 
         self.emit("settings-saved")
 
@@ -268,6 +421,70 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def select_log_level(self, key: str) -> None:
         self._log_level.select(key)
+
+    def _on_update_geo(self, _button: Gtk.Button) -> None:
+        # Скачивание — десятки мегабайт: в главном потоке окно бы замерло.
+        self.geo_update_button.set_sensitive(False)
+        self.geo_row.set_subtitle("Скачивание…")
+        run_in_background(
+            lambda: update_geo_bases(USER_GEO_DIR),
+            on_done=self._on_geo_updated,
+            on_error=self._on_geo_update_failed,
+            name="tenga-geo-update",
+        )
+
+    def _on_geo_updated(self, catalog) -> None:
+        self.geo_update_button.set_sensitive(True)
+        self.geo_row.set_subtitle(f"{geo_summary(catalog)} — применятся при сохранении настроек")
+
+    def _on_geo_update_failed(self, error: BaseException) -> None:
+        self.geo_update_button.set_sensitive(True)
+        self.geo_row.set_subtitle(f"Не обновлены: {error}")
+
+    # --- обновление ядра ---
+
+    def _show_core_update(self) -> None:
+        status = evaluate(self._core_version, known_releases(self._config))
+        self.core_update_row.set_subtitle(core_update_text(status))
+
+    def set_release_fetcher(self, fetch) -> None:
+        """Replace the function asking GitHub about releases (tests)."""
+        self._fetch_releases = fetch
+
+    def check_core_update(self) -> None:
+        """Ask for the releases in the background and redraw the row."""
+        if self._context is None:
+            return
+
+        self.core_update_button.set_sensitive(False)
+        self.core_update_row.set_subtitle("Проверяю…")
+        self._core_update_thread = run_in_background(
+            lambda: refresh_known_releases(
+                self._config, now=time.time(), fetch=self._fetch_releases
+            ),
+            on_done=self._on_core_update_checked,
+            on_error=self._on_core_update_failed,
+            name="tenga-core-update",
+        )
+
+    def _on_core_update_checked(self, _releases) -> None:
+        self.core_update_button.set_sensitive(True)
+        self._show_core_update()
+        # Время проверки хранится в настройках: иначе при следующем запуске
+        # приложение спросило бы GitHub снова.
+        self._context.save_config()
+
+    def _on_core_update_failed(self, _error: BaseException) -> None:
+        self.core_update_button.set_sensitive(True)
+        self.core_update_row.set_subtitle("Не удалось проверить обновления")
+
+    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
+        if self._core_update_thread is not None:
+            self._core_update_thread.join(timeout)
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
 
     def _on_clear_logs(self, _button: Gtk.Button) -> None:
         if self._context is None:

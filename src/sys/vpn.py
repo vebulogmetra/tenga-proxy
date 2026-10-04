@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from collections.abc import Iterable
 
 logger = logging.getLogger("tenga.sys.vpn")
 
@@ -376,16 +377,21 @@ def list_network_interfaces() -> list[str]:
         return []
 
 
-def get_default_interface(vpn_interface: str | None = None) -> str | None:
+def get_default_interface(
+    vpn_interface: str | None = None, exclude: Iterable[str] = ()
+) -> str | None:
     """
     Get default network interface.
 
     Args:
         vpn_interface: VPN interface name to exclude
+        exclude: other interfaces to skip — собственный TUN приложения: на
+            поднятом туннеле маршрут по умолчанию указывает именно на него
 
     Returns:
         Default interface name or None
     """
+    skipped = set(exclude)
     try:
         result = subprocess.run(
             ["ip", "route", "show", "default"],
@@ -405,6 +411,8 @@ def get_default_interface(vpn_interface: str | None = None) -> str | None:
                             interface = parts[idx + 1]
                             # Exclude VPN interfaces
                             if vpn_interface and interface == vpn_interface:
+                                continue
+                            if interface in skipped:
                                 continue
                             if interface.startswith(("tun", "tap")):
                                 continue
@@ -428,6 +436,8 @@ def get_default_interface(vpn_interface: str | None = None) -> str | None:
                     if interface == "lo":
                         continue
                     if vpn_interface and interface == vpn_interface:
+                        continue
+                    if interface in skipped:
                         continue
                     if interface.startswith(("tun", "tap")):
                         continue

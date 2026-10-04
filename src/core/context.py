@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from src.core.config import CORE_DIR, LOG_DIR, find_xray_binary
 
 if TYPE_CHECKING:
+    from src.core.http_probe import ProbeEndpoint
     from src.core.log_manager import LogManager
     from src.core.monitor import ConnectionMonitor
     from src.core.xray_manager import XrayManager
@@ -25,6 +26,8 @@ class ProxyState:
     download_bytes: int = 0
     vpn_auto_connected: bool = False
     started_mode: str = "tun"
+    # Служебный inbound работающего ядра: через него монитор проверяет сервер.
+    health_endpoint: ProbeEndpoint | None = None
 
     # Listeners
     _state_listeners: list[Callable[[ProxyState], None]] = field(default_factory=list)
@@ -61,6 +64,7 @@ class ProxyState:
         self.upload_bytes = 0
         self.download_bytes = 0
         self.started_mode = "tun"
+        self.health_endpoint = None
         self.notify_listeners()
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import time
 from typing import TYPE_CHECKING
 
 import gi
@@ -14,10 +15,13 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core.context import AppContext, get_context
+from src.core.core_update import fetch_releases, is_check_due, refresh_known_releases
+from src.core.failover import FailoverController
 from src.ui.logic.async_utils import run_in_background
-from src.ui.logic.latency import LatencyRunner
+from src.ui.logic.latency import LatencyRunner, make_batch_probe
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
+from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version, core_version
 from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
 
@@ -30,6 +34,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tenga.ui.application")
 
 APP_ID = "ru.tenga.Proxy"
+FAILOVER_NOTIFICATION_ID = "failover"
+
+
+def _network_available() -> bool:
+    """Whether the machine has a network at all, as the desktop sees it."""
+    return Gio.NetworkMonitor.get_default().get_network_available()
+
 
 # Действия и их ускорители. Один набор обслуживает меню, контекстные меню,
 # клавиатуру и трей — как описано в дизайн-документе.
@@ -66,11 +77,18 @@ class TengaApplication(Adw.Application):
         self._latency_probe: Callable[[int], int] | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
+        # Предложения сменить адрес подписки: копятся в фоновом потоке,
+        # показываются в главном, по одному и только с подтверждением.
+        self._url_proposals: list = []
         self._profile_activation_handler: Callable[[int], None] | None = None
         self._connection_service = None
         self._connection_thread = None
         self._dialog = None
+        self._failover: FailoverController | None = None
+        self._release_fetcher: Callable[[], object] | None = None
+        self._core_update_thread = None
         self.last_toast_for_test = ""
+        self.last_notification_for_test = ""
 
     # Жизненный цикл
 
@@ -80,6 +98,7 @@ class TengaApplication(Adw.Application):
         load_css()
         self._register_actions()
         self._setup_signal_handlers()
+        self.watch_monitor()
         if self._with_tray:
             self.start_tray()
 
@@ -88,6 +107,7 @@ class TengaApplication(Adw.Application):
             self._window = MainWindow(application=self, context=self.context)
         self._window.present()
         self.resume_monitoring()
+        self._refresh_core_releases_if_due()
 
     def resume_monitoring(self) -> None:
         """Start watching a proxy that is already running.
@@ -100,6 +120,73 @@ class TengaApplication(Adw.Application):
         if monitor is None or not self.context.proxy_state.is_running:
             return
         monitor.start()
+
+    def set_release_fetcher(self, fetch: Callable[[], object] | None) -> None:
+        """Install the function asking GitHub about core releases.
+
+        Без неё приложение в сеть за релизами не ходит: её ставит только
+        `run_app`, поэтому тесты и встраивание остаются без сетевых запросов.
+        """
+        self._release_fetcher = fetch
+
+    def _refresh_core_releases_if_due(self) -> None:
+        """Remember the newest core releases, at most once in a few days.
+
+        Только запоминает: о новой версии говорит страница «О программе».
+        """
+        fetch = self._release_fetcher
+        config = self.context.config
+        if fetch is None or not is_check_due(config, time.time()):
+            return
+        if self._core_update_thread is not None and self._core_update_thread.is_alive():
+            return
+
+        self._core_update_thread = run_in_background(
+            lambda: refresh_known_releases(config, now=time.time(), fetch=fetch),
+            on_done=lambda _releases: self.context.save_config(),
+            # Нет сети — спросим при следующем запуске.
+            on_error=lambda _error: None,
+            name="tenga-core-update",
+        )
+
+    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
+        if self._core_update_thread is not None:
+            self._core_update_thread.join(timeout)
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
+
+    def watch_monitor(self) -> None:
+        """Hand the monitor's verdicts to the failover controller.
+
+        Контроллер сам смотрит в настройки и при выключенном автопереключении
+        ничего не делает, поэтому подписка ставится безусловно.
+        """
+        monitor = self.context.monitor
+        if monitor is None:
+            return
+
+        self._failover = FailoverController(
+            self.context,
+            switch_to=self.connect_profile,
+            notify=self.notify_user,
+            network_available=_network_available,
+        )
+        monitor.set_on_status_changed(self._failover.handle_status)
+
+    def notify_user(self, text: str) -> None:
+        """Tell the user something they must not miss.
+
+        Тост виден только в открытом окне, а приложение обычно свёрнуто в
+        трей — поэтому сообщение дублируется уведомлением рабочего стола.
+        """
+        self.last_notification_for_test = text
+        self.toast(text)
+
+        notification = Gio.Notification.new("Tenga Proxy")
+        notification.set_body(text)
+        self.send_notification(FAILOVER_NOTIFICATION_ID, notification)
 
     def do_shutdown(self) -> None:
         # Выход по SIGTERM не эмитирует close-request, поэтому геометрия
@@ -525,57 +612,83 @@ class TengaApplication(Adw.Application):
         updater = self._subscription_updater or self._default_subscription_updater
         url = group.subscription_url
 
+        def work() -> int:
+            try:
+                return updater(group_id, url)
+            except Exception:
+                self._propose_fallback_url(group_id, url)
+                raise
+
         self.toast(f"Обновляю: {group.name}")
         self._subscriptions_thread = run_in_background(
-            lambda: updater(group_id, url),
+            work,
             on_done=self._on_subscriptions_updated,
             on_error=self._on_subscriptions_failed,
             name="tenga-subscription",
         )
 
-    def _default_latency_probe(self, profile_id: int) -> int:
-        from src.core.config_builder import build_latency_probe_config
-        from src.core.xray_manager import XrayManager
-
-        profile = self.context.profiles.get_profile(profile_id)
-        if profile is None:
-            return -1
-
-        built = build_latency_probe_config(self.context, profile)
-        if built is None:
-            return -1
-
-        config, socks_port = built
-        manager = XrayManager(binary_path=self.context.xray_manager.binary_path)
-        try:
-            started, error = manager.start(config)
-            if not started:
-                logger.warning("Latency probe could not start xray: %s", error)
-                return -1
-            return manager.test_delay_realistic(
-                proxy_address=self.context.config.inbound_address,
-                proxy_port=socks_port,
-            )
-        finally:
-            try:
-                manager.stop()
-            except Exception:
-                logger.debug("Latency probe cleanup failed", exc_info=True)
-
     def _default_subscription_updater(self, group_id: int, url: str) -> int:
-        from src.sub.updater import update_subscription
+        from src.sub.route import local_proxy_url
+        from src.sub.updater import SubscriptionUpdater
+        from src.sub.url_change import REASON_NEW_URL, propose_url_change
 
-        beans = update_subscription(
-            url,
-            config=self.context.config,
-            profiles=self.context.profiles,
-            group_id=group_id,
+        context = self.context
+        updater = SubscriptionUpdater(
+            config=context.config,
+            profiles=context.profiles,
+            proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
         )
+        beans = updater.update(url, group_id)
+
+        proposal = propose_url_change(group_id, url, updater.new_url, REASON_NEW_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
         return len(beans)
+
+    def _propose_fallback_url(self, group_id: int, url: str) -> None:
+        """Queue the provider's fallback address after a failed update."""
+        from src.sub.url_change import REASON_FALLBACK_URL, propose_url_change
+
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            return
+        proposal = propose_url_change(group_id, url, group.sub_fallback_url, REASON_FALLBACK_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
+
+    def _offer_url_change(self) -> None:
+        """Ask about one queued address change; the rest come back with the next update."""
+        if not self._url_proposals:
+            return
+        proposal = self._url_proposals[0]
+        self._url_proposals.clear()
+
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None or self._window is None:
+            return
+
+        from src.ui.dialogs.confirm import build_url_change_confirmation
+
+        heading, body = describe_url_change(group.name, group.subscription_url, proposal)
+        self.present_dialog(
+            build_url_change_confirmation(heading, body, lambda: self._apply_url_change(proposal))
+        )
+
+    def _apply_url_change(self, proposal) -> None:
+        """Switch the subscription to the confirmed address and refresh it."""
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None:
+            return
+        self.update_group(proposal.group_id, name=group.name, url=proposal.new_url)
+        self.update_subscription(proposal.group_id)
 
     def _ensure_latency_runner(self) -> LatencyRunner:
         if self._latency_runner is None:
-            self._latency_runner = LatencyRunner(self._latency_probe or self._default_latency_probe)
+            if self._latency_probe is not None:
+                self._latency_runner = LatencyRunner(self._latency_probe)
+            else:
+                # Весь набор меряет один временный процесс ядра.
+                self._latency_runner = LatencyRunner(batch_probe=make_batch_probe(self.context))
         return self._latency_runner
 
     def _test_latency(self) -> None:
@@ -704,7 +817,8 @@ class TengaApplication(Adw.Application):
                 try:
                     total += updater(group_id, url)
                 except Exception as e:
-                    logger.warning("Subscription %s failed: %s", group_id, e)
+                    logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
+                    self._propose_fallback_url(group_id, url)
             return total
 
         self.toast(f"Обновляю подписки: {len(targets)}")
@@ -724,9 +838,13 @@ class TengaApplication(Adw.Application):
         if self._window is not None:
             self._window.refresh_pages()
         self.toast(f"Обновлено профилей: {total}")
+        self._offer_url_change()
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
-        self.toast(f"Не удалось обновить подписки: {error}")
+        sent = self.context.config.sub_send_device_info
+        reason = describe_update_error(error, device_info_sent=sent)
+        self.toast(f"Не удалось обновить подписки: {reason}")
+        self._offer_url_change()
 
     def _toggle_search(self) -> None:
         if self._window is not None:
@@ -802,11 +920,16 @@ class TengaApplication(Adw.Application):
         self._latency_probe = None
         self._subscription_updater = None
         self._subscriptions_thread = None
+        self._url_proposals = []
         self._profile_activation_handler = None
         self._connection_service = None
         self._connection_thread = None
         self._dialog = None
+        self._failover = None
+        self._release_fetcher = None
+        self._core_update_thread = None
         self.last_toast_for_test = ""
+        self.last_notification_for_test = ""
 
     def toast(self, text: str) -> None:
         """Show a message in the window, if there is one."""
@@ -842,4 +965,5 @@ def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     # готовый монитор, но сам его не создаёт.
     attach_monitor(context)
     app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
+    app.set_release_fetcher(fetch_releases)
     return app.run([])

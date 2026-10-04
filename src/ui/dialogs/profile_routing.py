@@ -12,6 +12,7 @@ from gi.repository import Adw, GObject, Gtk
 from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.ui.dialogs.settings import KeyedCombo
 from src.ui.logic.forms import parse_host_list
+from src.ui.logic.routing_form import BLOCK_HINT, LIST_HINT, current_catalog, ru_direct_subtitle
 
 ORDER_PRESETS: dict[str, list[str]] = {
     "direct_vpn_proxy": ["direct", "vpn", "proxy"],
@@ -30,8 +31,6 @@ ORDER_LABELS = {
     "proxy_direct_vpn": "Прокси → Напрямую → VPN",
     "proxy_vpn_direct": "Прокси → VPN → Напрямую",
 }
-
-LIST_HINT = "По одному домену или подсети в строке"
 
 
 def _list_view(title: str, subtitle: str) -> tuple[Adw.PreferencesGroup, Gtk.TextView]:
@@ -146,9 +145,18 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
 
         self.bypass_row = Adw.SwitchRow(
             title="Локальные сети напрямую",
-            subtitle="127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16 и другие",
+            subtitle="127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16 и другие — после ваших списков",
         )
         mode_group.add(self.bypass_row)
+
+        self.ru_direct_row = Adw.SwitchRow(
+            title="Российские сайты и IP напрямую",
+            subtitle=ru_direct_subtitle(current_catalog()),
+        )
+        mode_group.add(self.ru_direct_row)
+
+        self.block_group, self.block_view = _list_view("Блокировать", BLOCK_HINT)
+        page.add(self.block_group)
 
         self.proxy_group, self.proxy_view = _list_view("Через прокси", LIST_HINT)
         page.add(self.proxy_group)
@@ -174,13 +182,15 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
     def _sync_mode(self) -> None:
         # В режиме «весь трафик через прокси» списки не применяются вовсе:
         # оставлять их активными — обещать пользователю несуществующий эффект.
+        # «Локальные сети напрямую» действует в обоих режимах и остаётся активным.
         custom = self._mode.selected() == RoutingMode.CUSTOM
         for widget in (
+            self.block_view,
             self.proxy_view,
             self.direct_view,
             self.vpn_view,
             self.order_row,
-            self.bypass_row,
+            self.ru_direct_row,
         ):
             widget.set_sensitive(custom)
 
@@ -202,8 +212,10 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         routing = getattr(profile, "routing_settings", None) or RoutingSettings()
         self._mode.select(routing.mode)
         self.bypass_row.set_active(routing.bypass_local_networks)
+        self.ru_direct_row.set_active(getattr(routing, "ru_direct", False))
         self.select_order(_current_order(routing))
 
+        self.set_block_text("\n".join(getattr(routing, "block_list", None) or []))
         self.set_proxy_text("\n".join(routing.proxy_list or []))
         self.set_direct_text("\n".join(routing.direct_list or []))
         self.set_vpn_text("\n".join(routing.vpn_list or []))
@@ -234,7 +246,9 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         routing = profile.routing_settings
         routing.mode = self._mode.selected()
         routing.bypass_local_networks = self.bypass_row.get_active()
+        routing.ru_direct = self.ru_direct_row.get_active()
         routing.rule_order = list(self.selected_order())
+        routing.block_list = parse_host_list(self.block_text())
         routing.proxy_list = parse_host_list(self.proxy_text())
         routing.direct_list = parse_host_list(self.direct_text())
         routing.vpn_list = parse_host_list(self.vpn_text())
@@ -261,6 +275,9 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         # Порядок из другой версии или испорченный файл: берём первый пресет.
         self._order.select(next(iter(ORDER_PRESETS)))
 
+    def block_text(self) -> str:
+        return _read(self.block_view)
+
     def proxy_text(self) -> str:
         return _read(self.proxy_view)
 
@@ -269,6 +286,9 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
 
     def vpn_text(self) -> str:
         return _read(self.vpn_view)
+
+    def set_block_text(self, text: str) -> None:
+        self.block_view.get_buffer().set_text(text)
 
     def set_proxy_text(self, text: str) -> None:
         self.proxy_view.get_buffer().set_text(text)

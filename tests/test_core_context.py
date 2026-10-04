@@ -7,6 +7,7 @@ from src.core.context import (
     init_context,
     reset_context,
 )
+from src.core.http_probe import ProbeCredentials, ProbeEndpoint
 
 
 def test_proxy_state_listeners_called():
@@ -22,6 +23,17 @@ def test_proxy_state_listeners_called():
     state.set_stopped()
 
     assert calls == [(True, 42), (False, -1)]
+
+
+def test_proxy_state_forgets_the_health_endpoint_when_stopped():
+    state = ProxyState()
+    state.health_endpoint = ProbeEndpoint(port=41500, credentials=ProbeCredentials("u", "p"))
+    state.set_running(1)
+    assert state.health_endpoint is not None
+
+    state.set_stopped()
+
+    assert state.health_endpoint is None
 
 
 def test_proxy_state_remove_listener():

@@ -5,7 +5,12 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 from src.core.context import AppContext
-from src.core.monitor import ConnectionMonitor, ConnectionStatus
+from src.core.http_probe import ProbeCredentials, ProbeEndpoint
+from src.core.monitor import (
+    HEALTH_PROBE_TIMEOUT_SECONDS,
+    ConnectionMonitor,
+    ConnectionStatus,
+)
 from src.core.xray_manager import TrafficStats
 
 
@@ -731,3 +736,150 @@ def test_resume_monitoring_leaves_a_stopped_proxy_alone(tmp_path):
     TengaApplication.resume_monitoring(SimpleNamespace(context=context))
 
     monitor.start.assert_not_called()
+
+
+# --- настоящая проверка соединения: запрос через служебный inbound ---
+
+HEALTH = ProbeEndpoint(port=41500, credentials=ProbeCredentials("health", "secret"))
+
+
+def _running_context(tmp_path, *, endpoint=HEALTH):
+    """Прокси запущен, процесс ядра жив; сервер — как ответит подменённая проба."""
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    context.proxy_state.is_running = True
+    context.proxy_state.health_endpoint = endpoint
+
+    manager = MagicMock()
+    manager._check_process_alive.return_value = True
+    manager.get_version.return_value = {"version": "26.9.9"}
+    context._xray_manager = manager
+    return context
+
+
+def _background_check(monitor, monkeypatch):
+    """Фоновая проверка целиком, с доставкой результата как из главного цикла."""
+    monkeypatch.setattr("gi.repository.GLib.idle_add", lambda callback, *args: callback(*args))
+    monkeypatch.setattr(monitor, "_check_vpn_status", lambda: (True, ""))
+    monitor._run_check()
+
+
+def test_status_is_error_when_the_process_is_alive_but_the_server_is_silent(tmp_path, monkeypatch):
+    monitor = ConnectionMonitor(_running_context(tmp_path))
+    monkeypatch.setattr("src.core.monitor.measure_latency", lambda *_a, **_k: -1)
+
+    _background_check(monitor, monkeypatch)
+
+    assert monitor.status.proxy_ok is False
+    assert monitor.status.proxy_error == "Сервер не отвечает"
+    assert monitor.status.server_probed is True
+
+
+def test_server_probe_requests_the_configured_url_through_the_health_inbound(tmp_path, monkeypatch):
+    context = _running_context(tmp_path)
+    context.config.monitoring.test_url = "https://example.com/ping"
+    monitor = ConnectionMonitor(context)
+    seen: dict = {}
+
+    def fake_measure(endpoint, url, **kwargs):
+        seen.update(endpoint=endpoint, url=url, **kwargs)
+        return 120
+
+    monkeypatch.setattr("src.core.monitor.measure_latency", fake_measure)
+
+    _background_check(monitor, monkeypatch)
+
+    assert monitor.status.proxy_ok is True
+    assert seen == {
+        "endpoint": HEALTH,
+        "url": "https://example.com/ping",
+        "timeout": HEALTH_PROBE_TIMEOUT_SECONDS,
+        "probes": 1,
+    }
+
+
+def test_dead_process_is_reported_without_probing_the_server(tmp_path, monkeypatch):
+    context = _running_context(tmp_path)
+    context._xray_manager._check_process_alive.return_value = False
+    monitor = ConnectionMonitor(context)
+    probe = Mock(return_value=120)
+    monkeypatch.setattr("src.core.monitor.measure_latency", probe)
+
+    _background_check(monitor, monkeypatch)
+
+    assert monitor.status.proxy_ok is False
+    assert monitor.status.proxy_error == "Процесс xray-core не запущен"
+    assert monitor.status.server_probed is False
+    probe.assert_not_called()
+
+
+def test_without_a_health_endpoint_only_the_process_is_checked(tmp_path, monkeypatch):
+    monitor = ConnectionMonitor(_running_context(tmp_path, endpoint=None))
+    probe = Mock(return_value=-1)
+    monkeypatch.setattr("src.core.monitor.measure_latency", probe)
+
+    _background_check(monitor, monkeypatch)
+
+    assert monitor.status.proxy_ok is True
+    assert monitor.status.server_probed is False
+    probe.assert_not_called()
+
+
+def test_manual_check_does_not_send_requests_from_the_main_loop(tmp_path, monkeypatch):
+    """«Обновить сейчас» не должна замораживать окно на время сетевого запроса."""
+    monitor = ConnectionMonitor(_running_context(tmp_path))
+    probe = Mock(return_value=120)
+    background = Mock()
+    monkeypatch.setattr("src.core.monitor.measure_latency", probe)
+    monkeypatch.setattr(monitor, "_start_background_check", background)
+    monkeypatch.setattr(monitor, "_check_vpn_status", lambda: (True, ""))
+
+    monitor.check_now()
+
+    probe.assert_not_called()
+    background.assert_called_once()
+    assert monitor.status.proxy_ok is True
+    assert monitor.status.server_probed is False
+
+
+def test_manual_check_keeps_the_last_server_verdict(tmp_path, monkeypatch):
+    monitor = ConnectionMonitor(_running_context(tmp_path))
+    monkeypatch.setattr("src.core.monitor.measure_latency", lambda *_a, **_k: -1)
+    _background_check(monitor, monkeypatch)
+    monkeypatch.setattr(monitor, "_start_background_check", Mock())
+
+    monitor.check_now()
+
+    assert monitor.status.proxy_ok is False
+    assert monitor.status.proxy_error == "Сервер не отвечает"
+
+
+def test_stop_forgets_the_server_verdict(tmp_path, monkeypatch):
+    monitor = ConnectionMonitor(_running_context(tmp_path))
+    monkeypatch.setattr("src.core.monitor.measure_latency", lambda *_a, **_k: -1)
+    _background_check(monitor, monkeypatch)
+
+    monitor.stop()
+    monkeypatch.setattr(monitor, "_start_background_check", Mock())
+    monitor.check_now()
+
+    assert monitor.status.proxy_ok is True
+
+
+def test_status_change_wakes_up_the_state_listeners(tmp_path, monkeypatch):
+    """Окно перерисовывается по слушателям состояния: без этого новый статус
+
+    появился бы на странице только со следующим изменением счётчика трафика.
+    """
+    context = _running_context(tmp_path)
+    monitor = ConnectionMonitor(context)
+    woken: list = []
+    context.proxy_state.add_listener(lambda _state: woken.append(True))
+    answers = iter([120, 120, -1])
+    monkeypatch.setattr("src.core.monitor.measure_latency", lambda *_a, **_k: next(answers))
+
+    _background_check(monitor, monkeypatch)  # недоступен → доступен
+    _background_check(monitor, monkeypatch)  # без изменений
+    _background_check(monitor, monkeypatch)  # доступен → сервер молчит
+
+    assert len(woken) == 2

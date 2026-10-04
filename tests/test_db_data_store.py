@@ -1,4 +1,5 @@
 from src.db.data_store import (
+    DEFAULT_USER_AGENT,
     DataStore,
     get_default_config_path,
     load_data_store,
@@ -26,11 +27,32 @@ def test_to_dict_excludes_runtime_fields():
 def test_get_user_agent_default_and_custom():
     store = DataStore()
 
-    assert "Tenga-proxy" in store.get_user_agent()
+    assert store.get_user_agent() == DEFAULT_USER_AGENT
 
     store.user_agent = "MyAgent/1.0"
     assert store.get_user_agent() == "MyAgent/1.0"
-    assert "Tenga-proxy" in store.get_user_agent(use_default=True)
+    assert store.get_user_agent(use_default=True) == DEFAULT_USER_AGENT
+
+
+def test_default_user_agent_is_one_providers_recognise():
+    """Незнакомому клиенту часть провайдеров рвёт соединение или отдаёт Clash YAML."""
+    assert DEFAULT_USER_AGENT == "v2rayNG/1.8.23"
+    assert "clash" not in DEFAULT_USER_AGENT.lower()
+
+
+def test_the_old_default_user_agent_is_not_treated_as_a_custom_one():
+    """Прежнее значение по умолчанию могло попасть в settings.json как «своё»."""
+    store = DataStore()
+    store.user_agent = "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
+
+    assert store.get_user_agent() == DEFAULT_USER_AGENT
+
+
+def test_a_blank_user_agent_falls_back_to_the_default():
+    store = DataStore()
+    store.user_agent = "   "
+
+    assert store.get_user_agent() == DEFAULT_USER_AGENT
 
 
 def test_update_started_id_and_remember():

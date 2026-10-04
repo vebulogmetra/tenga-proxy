@@ -49,23 +49,67 @@ List of domains and IP addresses whose traffic:
 
 ## Entry Formats
 
-### Domain Names
+One entry per line. An entry the core would not understand is skipped: a single
+bad rule would otherwise break the whole connection.
 
-- `example.com` - specific domain
-- `*.example.com` - domain subdomains
-- `domain:example.com` - domain type specification
+### Domains
 
-### IP Addresses and Subnets
+| Entry | Matches |
+|---|---|
+| `example.com` | the domain and all its subdomains |
+| `*.example.com`, `.example.com` | the same |
+| `full:example.com` | the domain itself only |
+| `google` | any name containing the word (no dot means substring) |
+| `keyword:video` | the same, explicitly |
+| `regexp:^ads\d+\.example\.com$` | regular expression |
+| `geosite:category-ru` | a category from geosite.dat |
 
-- `192.168.1.1` - specific IP address
-- `192.168.1.0/24` - subnet
-- `geoip:cn` - geographic location (if supported)
+### Addresses and Networks
 
-### Patterns and Masks
+| Entry | Matches |
+|---|---|
+| `192.168.1.1`, `2001:db8::1` | a single address |
+| `192.168.1.0/24`, `fc00::/7` | a subnet |
+| `geoip:ru` | a country from geoip.dat |
 
-- Support for various formats
-- Regular expression support
-- Compatibility with popular subscription formats
+`geoip:private` is allowed in the Direct list only; private networks have a
+ready-made rule (see below).
+
+A category missing from the geo databases is skipped with a warning in the log.
+The state of the databases is shown in Settings → About, next to the Update
+button.
+
+## Blocking
+
+The Block list drops connections and makes names unresolvable (NXDOMAIN). It is
+applied before all other lists, whatever the group order.
+
+## Ready-made Rules
+
+They come after the user lists: an explicit entry always wins.
+
+- **Local networks direct** — `127.0.0.0/8`, `10.0.0.0/8`, `192.168.0.0/16` and
+  other private ranges. On by default, works in both modes.
+- **Russian sites and IPs direct** — `geosite:category-ru`,
+  `geosite:category-gov-ru`, `geoip:ru`. Off by default, works in the lists
+  mode. Requires geo databases.
+
+## DNS
+
+A name is resolved by the DNS of the network its traffic will use:
+
+- Direct-list domains and Russian sites of the ready-made rule — your network's DNS;
+- VPN-list domains — the VPN DNS server (queried through the VPN);
+- Proxy-list domains and everything else — the DNS from settings (DoH through
+  the proxy by default).
+
+If the configured DNS is unreachable, names do not leak to the provider: the
+system resolver serves its own domains only.
+
+In TUN mode application queries are intercepted and handled by the same rules
+(Settings → DNS → Intercept application DNS). On systems with systemd-resolved
+this needs the installed route helper (`python cli.py install`); query types
+other than A and AAAA are forwarded to your network's DNS unchanged.
 
 ## Rule Priority
 
@@ -107,8 +151,8 @@ VPN: *.company.com
 ### Complex Example
 
 ```
-DIRECT: geoip:private, domain:local, domain:localhost
-PROXY: geosite:geolocation-!cn
+DIRECT: geosite:category-ru, geoip:ru, domain:local
+PROXY: geosite:google, blocked.example
 VPN: domain:restricted-site.com, 10.10.10.0/24
 ```
 
