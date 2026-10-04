@@ -21,6 +21,10 @@ class FakeGroup:
     is_subscription: bool = True
     subscription_url: str = ""
     last_updated: int = 0
+    sub_user_info: str = ""
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
 
 
 @pytest.fixture
@@ -137,3 +141,83 @@ def test_unknown_errors_fall_back_to_their_text():
     from src.ui.logic.subscriptions_view import describe_update_error
 
     assert describe_update_error(ValueError("boom")) == "boom"
+
+
+# --- Метаданные провайдера ----------------------------------------------------
+
+GIB = 1024**3
+NOW = 1_760_000_000  # 09.10.2025
+
+
+def _row(**fields):
+    group = FakeGroup(id=1, name="Основная", subscription_url="https://sub.example/main", **fields)
+    return build_subscription_rows({1: group}, {1: 3}, now=NOW)[0]
+
+
+def test_row_without_metadata_has_no_details():
+    row = _row()
+
+    assert row.details_text == ""
+    assert row.announce == ""
+    assert not row.expired
+
+
+def test_usage_shows_used_and_total():
+    row = _row(sub_user_info=f"upload={GIB}; download={2 * GIB}; total={10 * GIB}; expire=0")
+
+    assert row.usage_text == "3.00 GB из 10.00 GB"
+
+
+def test_unlimited_usage_says_so():
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total=0; expire=0")
+
+    assert row.usage_text == "1.00 GB, без лимита"
+
+
+def test_expiry_in_the_future():
+    expire = NOW + 30 * 86400
+    row = _row(sub_user_info=f"upload=0; download=0; total=0; expire={expire}")
+
+    date = datetime.datetime.fromtimestamp(expire).strftime("%d.%m.%Y")
+    assert row.expire_text == f"до {date}"
+    assert not row.expired
+
+
+def test_expiry_in_the_past_is_flagged():
+    expire = NOW - 86400
+    row = _row(sub_user_info=f"upload=0; download=0; total=0; expire={expire}")
+
+    date = datetime.datetime.fromtimestamp(expire).strftime("%d.%m.%Y")
+    assert row.expire_text == f"истекла {date}"
+    assert row.expired
+
+
+def test_details_join_usage_and_expiry():
+    expire = NOW + 86400
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total={2 * GIB}; expire={expire}")
+
+    assert row.details_text == f"{row.usage_text} · {row.expire_text}"
+
+
+def test_garbage_user_info_is_ignored():
+    assert _row(sub_user_info="what is this").details_text == ""
+
+
+def test_announce_and_links_reach_the_row():
+    row = _row(
+        sub_announce="Техработы до 12:00",
+        sub_support_url="https://t.me/provider",
+        sub_web_page_url="https://provider.example/account",
+    )
+
+    assert row.announce == "Техработы до 12:00"
+    assert row.support_url == "https://t.me/provider"
+    assert row.web_page_url == "https://provider.example/account"
+
+
+def test_unsafe_links_are_not_offered():
+    """Файл профилей можно поправить руками: фильтр стоит и при показе."""
+    row = _row(sub_support_url="javascript:alert(1)", sub_web_page_url="http://provider.example")
+
+    assert row.support_url == ""
+    assert row.web_page_url == ""

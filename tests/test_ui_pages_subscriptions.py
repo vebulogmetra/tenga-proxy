@@ -16,6 +16,10 @@ class FakeGroup:
     is_subscription: bool = True
     subscription_url: str = ""
     last_updated: int = 0
+    sub_user_info: str = ""
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
 
 
 @pytest.fixture
