@@ -12,9 +12,16 @@ import random
 import socket
 
 from src.core.context import AppContext
+from src.core.geo import GeoCatalog, asset_dirs, load_catalog
 from src.core.proxy_mode import build_inbounds_for_mode
 from src.core.transport_tweaks import apply_transport_tweaks
-from src.db.config import DEFAULT_ROUTING_ORDER, LOCAL_NETWORKS, ProxyMode, RoutingMode
+from src.db.config import (
+    DEFAULT_ROUTING_ORDER,
+    LOCAL_NETWORKS,
+    ProxyMode,
+    RoutingMode,
+    RoutingSettings,
+)
 from src.db.profiles import ProfileEntry
 from src.sys.vpn import (
     get_default_interface,
@@ -24,6 +31,28 @@ from src.sys.vpn import (
 )
 
 logger = logging.getLogger("tenga.core.config_builder")
+
+
+def _parse_list(
+    routing: RoutingSettings, entries: list[str], catalog: GeoCatalog, list_name: str
+) -> tuple[list[str], list[str]]:
+    """Разобрать список на доменные и сетевые правила, отсеяв неизвестные geo-категории.
+
+    Категория, которой нет в geosite.dat / geoip.dat, роняет ядро вместе со всем
+    конфигом. Из списка запись не удаляется: появится база с этой категорией —
+    правило заработает.
+    """
+    domains, ips = routing.parse_entries(entries)
+    domains, dropped_domains = catalog.split(domains)
+    ips, dropped_ips = catalog.split(ips)
+    dropped = dropped_domains + dropped_ips
+    if dropped:
+        logger.warning(
+            "Список «%s»: категорий нет в геобазах, записи пропущены: %s",
+            list_name,
+            ", ".join(dropped),
+        )
+    return domains, ips
 
 
 def build_session_config(context: AppContext, profile: ProfileEntry | None) -> dict | None:
@@ -96,6 +125,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 )
                 logger.debug("Added local networks bypass rule for PROXY_ALL mode")
         elif routing.mode == RoutingMode.CUSTOM:
+            catalog = load_catalog(asset_dirs(context.find_xray_binary()))
             direct_list = list(routing.direct_list) if routing.direct_list else []
 
             if routing.bypass_local_networks:
@@ -105,15 +135,17 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                         direct_list.append(network)
 
             if direct_list:
-                direct_domains, direct_ips = routing.parse_entries(direct_list)
+                direct_domains, direct_ips = _parse_list(routing, direct_list, catalog, "direct")
 
             if routing.vpn_list and vpn_tag and vpn_interface:
-                vpn_domains, vpn_ips = routing.parse_entries(routing.vpn_list)
+                vpn_domains, vpn_ips = _parse_list(routing, routing.vpn_list, catalog, "vpn")
                 if vpn_domains:
                     over_vpn_domains_for_dns = vpn_domains
 
             if routing.proxy_list:
-                proxy_domains, proxy_ips = routing.parse_entries(routing.proxy_list)
+                proxy_domains, proxy_ips = _parse_list(
+                    routing, routing.proxy_list, catalog, "proxy"
+                )
 
             try:
                 rule_order = routing.get_rule_order()
