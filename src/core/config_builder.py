@@ -12,6 +12,7 @@ import random
 import socket
 
 from src.core.context import AppContext
+from src.core.dns_config import build_dns
 from src.core.geo import GeoCatalog, asset_dirs, load_catalog
 from src.core.proxy_mode import build_inbounds_for_mode
 from src.core.transport_tweaks import apply_transport_tweaks
@@ -303,295 +304,17 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 logger.info("Profile configuration: VPN disabled, proxy + direct rules (if any)")
         else:
             logger.info("Profile configuration: No VPN settings, proxy only")
-        # DNS (xray-core format)
-        dns_settings = context.config.dns
-        dns_url = dns_settings.get_dns_url()
-        dns_detour = proxy_tag if dns_settings.use_proxy else "direct"
-
-        # Extract proxy server address from profile bean (not from outbound config)
-        # For VLESS/VMess/etc the server is in settings.vnext[0].address, not in outbound.server
-        vps_server = profile.bean.server_address if profile.bean else ""
-
-        # IMPORTANT: When VPN is enabled, disable DoH/DoT to avoid circular DNS dependencies
-        # VPN already provides DNS privacy through its tunnel
-        if vpn_tag and vpn_interface and dns_url.startswith(("https://", "tls://")):
-            logger.info(
-                "VPN enabled: switching from DoH/DoT to localhost DNS "
-                "to avoid circular dependencies"
-            )
-            dns_url = "local"
-
-        # Build DNS servers list (new format: type + server instead of address)
-        dns_servers = []
-
-        # Main DNS server
-        if dns_url == "local":
-            dns_servers.append(
-                {
-                    "tag": "main-dns",
-                    "type": "local",
-                    "detour": dns_detour,
-                }
-            )
-        elif dns_url.startswith("https://"):
-            # DoH: ядро принимает его только URL-строкой в address. Отдельные
-            # host:port и path оно читает как имя UDP-сервера — запрос висит до
-            # таймаута и уходит на localhost. `https+local://` идёт напрямую, мимо
-            # маршрутизации; обычный `https://` — через неё, то есть в прокси.
-            doh_url = dns_url
-            if not dns_settings.use_proxy:
-                doh_url = "https+local://" + dns_url[len("https://") :]
-
-            dns_servers.append(
-                {
-                    "tag": "main-dns",
-                    "type": "https",
-                    "url": doh_url,
-                }
-            )
-        elif dns_url.startswith("tls://"):
-            # DoT в xray-core нет: адрес `tls://…` оно прочло бы как имя UDP-сервера.
-            # Сервер пропускаем, запросы достаются local-dns ниже.
-            logger.warning("DNS-over-TLS не поддерживается xray-core, %s пропущен", dns_url)
-        else:
-            # Plain IP or domain - use UDP
-            server = dns_url.replace("udp://", "").replace("tcp://", "")
-            dns_servers.append(
-                {
-                    "tag": "main-dns",
-                    "type": "udp",
-                    "server": server,
-                    "detour": dns_detour,
-                }
-            )
-
-        # Local DNS server (no detour needed for local type)
-        dns_servers.append(
-            {
-                "tag": "local-dns",
-                "type": "local",
-            }
-        )
-
-        if vpn_tag and vpn_interface and over_vpn_domains_for_dns:
-            # Get DNS servers from VPN connection settings
+        vpn_active = bool(vpn_tag and vpn_interface)
+        vpn_dns_servers: list[str] = []
+        if vpn_active and over_vpn_domains_for_dns:
             vpn_dns_servers = get_vpn_dns_servers(vpn_settings.connection_name)
-
-            if vpn_dns_servers:
-                # Use first DNS server from VPN settings
-                vpn_dns_ip = vpn_dns_servers[0]
-                logger.debug("Raw VPN DNS server from NetworkManager: %s", vpn_dns_ip)
-
-                # Clean up the address: remove protocol prefixes, brackets, etc.
-                clean_ip = vpn_dns_ip.strip()
-
-                # Remove protocol prefixes
-                for prefix in ["udp://", "tcp://", "tls://", "https://"]:
-                    if clean_ip.startswith(prefix):
-                        clean_ip = clean_ip[len(prefix) :]
-
-                # Remove brackets if present
-                clean_ip = clean_ip.strip("[]")
-
-                # Handle NetworkManager format like "IP4.DNS[1]:10.222.0.7:53" or "IP4.DNS[1]:10.222.0.7"
-                # Extract IP address and port using regex-like approach
-                import re
-
-                # Pattern to match IP address (IPv4 or IPv6) with optional port
-                ip_pattern = r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::(\d+))?"
-                ipv6_pattern = r"([0-9a-fA-F:]+)(?::(\d+))?"
-
-                # Try to find IP address in the string
-                match = re.search(ip_pattern, clean_ip)
-                if not match:
-                    match = re.search(ipv6_pattern, clean_ip)
-
-                if match:
-                    server_ip = match.group(1)
-                    server_port = int(match.group(2)) if match.group(2) else 53
-                    logger.debug(
-                        "Extracted IP: %s, port: %d from: %s",
-                        server_ip,
-                        server_port,
-                        vpn_dns_ip,
-                    )
-                else:
-                    # Fallback: try to extract by splitting on colons
-                    # Remove any non-IP prefix (like "IP4.DNS[1]:")
-                    parts = clean_ip.split(":")
-                    # Find the part that looks like an IP address
-                    for part in parts:
-                        # Check if part looks like an IP (contains dots or is IPv6)
-                        if "." in part or ":" in part:
-                            # This might be the IP
-                            ip_candidate = part
-                            port_candidate = 53
-                            # Check if next part is a number (port)
-                            part_idx = parts.index(part)
-                            if part_idx + 1 < len(parts):
-                                try:
-                                    port_candidate = int(parts[part_idx + 1])
-                                except (ValueError, IndexError):
-                                    pass
-
-                            # Validate IP format
-                            if re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", ip_candidate):
-                                server_ip = ip_candidate
-                                server_port = port_candidate
-                                logger.debug(
-                                    "Extracted IP (fallback): %s, port: %d from: %s",
-                                    server_ip,
-                                    server_port,
-                                    vpn_dns_ip,
-                                )
-                                break
-                    else:
-                        # No valid IP found, use fallback
-                        logger.error("Could not extract IP address from: %s", vpn_dns_ip)
-                        server_ip = "8.8.8.8"
-                        server_port = 53
-
-                # Final validation: server_ip should be a valid IP format
-                if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", server_ip):
-                    logger.error(
-                        "Invalid VPN DNS server IP format: %s (from: %s)", server_ip, vpn_dns_ip
-                    )
-                    server_ip = "8.8.8.8"  # Fallback
-                    server_port = 53
-
-                logger.info(
-                    "Using VPN DNS server %s:%d for over_vpn domains (from connection %s, original: %s, available: %s)",
-                    server_ip,
-                    server_port,
-                    vpn_settings.connection_name,
-                    vpn_dns_ip,
-                    vpn_dns_servers,
-                )
-                # Use detour to VPN outbound for UDP DNS
-                # This routes DNS queries through VPN interface via VPN outbound
-                dns_servers.append(
-                    {
-                        "tag": "vpn-dns",
-                        "type": "udp",
-                        "server": server_ip,
-                        "server_port": server_port,
-                        "detour": vpn_tag,
-                    }
-                )
-            else:
-                # Fallback to local DNS through VPN interface
-                logger.warning(
-                    "No DNS servers found in VPN connection %s settings, using local DNS through VPN interface",
-                    vpn_settings.connection_name,
-                )
-                dns_servers.append(
-                    {
-                        "tag": "vpn-dns",
-                        "type": "local",
-                        "detour": vpn_tag,
-                    }
-                )
-            logger.info("Added VPN DNS server for over_vpn domains")
-
-        dns_rules = []
-
-        # IMPORTANT: DNS rules are evaluated in order, so more specific rules should come first
-        # 1. over_vpn domains should use VPN DNS (highest priority)
-        if vpn_tag and over_vpn_domains_for_dns:
-            # Use domain_suffix for matching subdomains
-            dns_rules.append(
-                {
-                    "domain_suffix": over_vpn_domains_for_dns,
-                    "server": "vpn-dns",
-                }
-            )
-            logger.info(
-                "Added DNS rule for over_vpn domains (VPN DNS): %s", over_vpn_domains_for_dns
-            )
-
-        # 2. VPS server domain should use local DNS (critical for proxy+vpn to avoid bootstrap issues)
-        if vps_server and not vps_server[0].isdigit():
-            dns_rules.append(
-                {
-                    "domain": [vps_server],
-                    "server": "local-dns",
-                }
-            )
-            logger.info("Added DNS rule for proxy server domain (local DNS): %s", vps_server)
-
-        # Note: xray-core DNS configuration uses servers with optional domains, not separate rules
-
-        # Log DNS configuration for debugging (before conversion)
-        logger.info("DNS configuration (before xray-core conversion):")
-        logger.info("  Servers: %s", [s.get("tag", "unknown") for s in dns_servers])
-        logger.info("  Rules: %s", len(dns_rules))
-
-        # Convert DNS config from sing-box format to xray-core format
-        xray_dns_servers = []
-
-        # Convert DNS servers
-        for server in dns_servers:
-            server_type = server.get("type", "local")
-            server_tag = server.get("tag", "")
-
-            if server_type == "local":
-                # Check if this local DNS server has specific domains from rules
-                domains_for_server = []
-                for rule in dns_rules:
-                    if rule.get("server") == server_tag:
-                        if "domain" in rule:
-                            domains_for_server.extend(rule["domain"])
-                        elif "domain_suffix" in rule:
-                            domains_for_server.extend(rule["domain_suffix"])
-
-                if domains_for_server:
-                    # xray-core format: localhost DNS with specific domains
-                    xray_dns_servers.append(
-                        {
-                            "address": "localhost",
-                            "domains": domains_for_server,
-                        }
-                    )
-                else:
-                    # No specific domains, just use simple localhost string
-                    xray_dns_servers.append("localhost")
-            elif server_type == "udp":
-                addr = server.get("server", "8.8.8.8")
-                port_num = server.get("server_port", 53)
-                # xray-core expects UDP DNS servers as object with address and port
-                # or just IP string if port is 53 (default)
-                server_config = {
-                    "address": addr,
-                    "port": port_num,
-                }
-                # Add domains from DNS rules if this server is referenced
-                domains_for_server = []
-                for rule in dns_rules:
-                    if rule.get("server") == server_tag:
-                        if "domain" in rule:
-                            domains_for_server.extend(rule["domain"])
-                        elif "domain_suffix" in rule:
-                            domains_for_server.extend(rule["domain_suffix"])
-                if domains_for_server:
-                    server_config["domains"] = domains_for_server
-                # Note: xray-core doesn't support detour in DNS config directly
-                # DNS queries routing through VPN is handled via routing rules
-                xray_dns_servers.append(server_config)
-            elif server_type == "https":
-                server_config = {
-                    "address": server["url"],
-                }
-                # Add domains from DNS rules if this server is referenced
-                domains_for_server = []
-                for rule in dns_rules:
-                    if rule.get("server") == server_tag:
-                        if "domain" in rule:
-                            domains_for_server.extend(rule["domain"])
-                        elif "domain_suffix" in rule:
-                            domains_for_server.extend(rule["domain_suffix"])
-                if domains_for_server:
-                    server_config["domains"] = domains_for_server
-                xray_dns_servers.append(server_config)
+        dns = build_dns(
+            context.config.dns,
+            proxy_host=profile.bean.server_address if profile.bean else "",
+            vpn_active=vpn_active,
+            vpn_domains=over_vpn_domains_for_dns,
+            vpn_dns_servers=vpn_dns_servers,
+        )
 
         inbounds = build_inbounds_for_mode(
             mode=getattr(context.config, "proxy_mode", None),
@@ -603,9 +326,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
 
         config = {
             "log": {"loglevel": context.config.log_level},
-            "dns": {
-                "servers": xray_dns_servers if xray_dns_servers else ["localhost"],
-            },
+            "dns": dns,
             "inbounds": inbounds,
             "outbounds": outbounds,
             "routing": {
