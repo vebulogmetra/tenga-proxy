@@ -12,6 +12,7 @@ from src.core.batch_probe import (
     build_batch_probe_config,
     build_probe_outbound,
     core_accepts,
+    split_accepted,
 )
 from src.core.http_probe import ProbeCredentials
 from src.db.config import TlsFragmentSettings
@@ -31,6 +32,13 @@ TROJAN = "trojan://pass123@127.0.0.1:443?type=tcp&sni=a.example.com#TR"
 HYSTERIA2 = "hysteria2://pass123@127.0.0.1:8443?sni=a.example.com#H"
 # Транспорт h2 ядро удалило: bean сам сообщает об ошибке сборки.
 VLESS_H2 = f"vless://{UUID}@127.0.0.1:443?type=h2&security=tls&sni=a.example.com#H2"
+# Сборку проходят, а ядро отвергает: короткий ключ REALITY и неизвестный fingerprint.
+VLESS_BAD_REALITY = (
+    f"vless://{UUID}@127.0.0.1:443?type=tcp&security=reality&pbk=abc&sni=a.example.com#BR"
+)
+VLESS_BAD_FINGERPRINT = (
+    f"vless://{UUID}@127.0.0.1:443?type=tcp&security=tls&sni=a.example.com&fp=nosuchfp#BF"
+)
 CREDENTIALS = ProbeCredentials("probe", "secret")
 
 
@@ -138,3 +146,88 @@ def test_core_rejects_a_batch_with_an_unknown_protocol():
     config = build_batch_probe_config([broken], [41001], CREDENTIALS)
 
     assert core_accepts(str(XRAY), config) is False
+
+
+# --- отсев: один плохой профиль не должен ронять весь пакет ---
+
+
+def fake_accepts(bad_ids: set[int], calls: list[int] | None = None):
+    def accepts(chunk) -> bool:
+        if calls is not None:
+            calls.append(len(chunk))
+        return not any(t.profile_id in bad_ids for t in chunk)
+
+    return accepts
+
+
+def numbered_targets(count: int) -> list[ProbeTarget]:
+    return [ProbeTarget(i, {"protocol": "freedom"}) for i in range(1, count + 1)]
+
+
+def test_split_accepted_keeps_everything_when_the_core_agrees():
+    targets = numbered_targets(8)
+    calls: list[int] = []
+
+    accepted, rejected = split_accepted(targets, fake_accepts(set(), calls))
+
+    assert accepted == targets
+    assert rejected == []
+    assert calls == [8]
+
+
+def test_split_accepted_isolates_the_rejected_profiles_and_keeps_order():
+    targets = numbered_targets(9)
+
+    accepted, rejected = split_accepted(targets, fake_accepts({3, 8}))
+
+    assert [t.profile_id for t in accepted] == [1, 2, 4, 5, 6, 7, 9]
+    assert [t.profile_id for t in rejected] == [3, 8]
+
+
+def test_split_accepted_halves_instead_of_checking_one_by_one():
+    targets = numbered_targets(64)
+    calls: list[int] = []
+
+    split_accepted(targets, fake_accepts({40}, calls))
+
+    # 1 проверка целого пакета и по две на каждом из 6 уровней деления.
+    assert len(calls) == 13
+
+
+def test_split_accepted_handles_an_empty_and_a_fully_rejected_batch():
+    assert split_accepted([], fake_accepts(set())) == ([], [])
+
+    targets = numbered_targets(3)
+    accepted, rejected = split_accepted(targets, fake_accepts({1, 2, 3}))
+    assert accepted == []
+    assert rejected == targets
+
+
+@needs_xray
+@pytest.mark.parametrize("bad_link", [VLESS_BAD_REALITY, VLESS_BAD_FINGERPRINT])
+def test_core_rejects_the_whole_batch_because_of_one_profile(bad_link):
+    """Причина отсева: такой профиль проходит сборку, а ядро из-за него не стартует."""
+    targets = [target(1, VLESS_WS), target(2, bad_link), target(3, TROJAN)]
+    config = build_batch_probe_config(targets, [41001, 41002, 41003], CREDENTIALS)
+
+    assert core_accepts(str(XRAY), config) is False
+
+
+@needs_xray
+def test_split_accepted_finds_what_the_real_core_rejects():
+    targets = [
+        target(1, VLESS_WS),
+        target(2, VLESS_BAD_REALITY),
+        target(3, TROJAN),
+        target(4, VLESS_BAD_FINGERPRINT),
+        target(5, HYSTERIA2),
+    ]
+
+    def accepts(chunk) -> bool:
+        ports = list(range(41001, 41001 + len(chunk)))
+        return core_accepts(str(XRAY), build_batch_probe_config(chunk, ports, CREDENTIALS))
+
+    accepted, rejected = split_accepted(targets, accepts)
+
+    assert [t.profile_id for t in accepted] == [1, 3, 5]
+    assert [t.profile_id for t in rejected] == [2, 4]

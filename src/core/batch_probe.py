@@ -12,7 +12,7 @@ import json
 import logging
 import subprocess
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -121,3 +121,28 @@ def core_accepts(binary_path: str, config: dict[str, Any]) -> bool:
         path.unlink(missing_ok=True)
 
     return result.returncode == 0
+
+
+def split_accepted(
+    targets: Sequence[ProbeTarget],
+    accepts: Callable[[Sequence[ProbeTarget]], bool],
+) -> tuple[list[ProbeTarget], list[ProbeTarget]]:
+    """Разделить профили на принятые ядром и отвергнутые, сохраняя порядок.
+
+    Ядро отвергает конфиг целиком из-за одного outbound'а, а сборка такие
+    профили пропускает: ключ REALITY не той длины, неизвестный fingerprint,
+    неверный UUID. Пакет делится пополам, пока виновные не останутся по одному:
+    на один плохой профиль уходит около 2·log2(N) проверок вместо N.
+    """
+    batch = list(targets)
+    if not batch:
+        return [], []
+    if accepts(batch):
+        return batch, []
+    if len(batch) == 1:
+        return [], batch
+
+    middle = len(batch) // 2
+    left_accepted, left_rejected = split_accepted(batch[:middle], accepts)
+    right_accepted, right_rejected = split_accepted(batch[middle:], accepts)
+    return left_accepted + right_accepted, left_rejected + right_rejected
