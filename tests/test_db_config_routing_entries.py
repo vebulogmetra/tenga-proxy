@@ -79,3 +79,28 @@ def test_comma_separated_line_is_split():
 
 def test_blank_entries_are_skipped():
     assert parse("", "  ", ",") == ([], [])
+
+
+def test_block_list_is_saved_next_to_other_lists(tmp_path):
+    routing = RoutingSettings(
+        block_list=["ads.example", "# комментарий"], direct_list=["a.example"]
+    )
+
+    assert routing.save_lists_to_files(tmp_path)
+    assert (tmp_path / "block_list.txt").read_text(encoding="utf-8").splitlines() == [
+        "ads.example",
+        "# комментарий",
+    ]
+
+    loaded = RoutingSettings()
+    loaded.load_lists_from_files(tmp_path)
+    assert loaded.block_list == ["ads.example"]
+    assert loaded.direct_list == ["a.example"]
+
+
+def test_missing_block_list_file_means_empty_list(tmp_path):
+    routing = RoutingSettings(block_list=["stale.example"])
+
+    routing.load_lists_from_files(tmp_path)
+
+    assert routing.block_list == []

@@ -33,6 +33,8 @@ from src.sys.vpn import (
 
 logger = logging.getLogger("tenga.core.config_builder")
 
+BLOCK_TAG = "block"
+
 
 def _parse_list(
     routing: RoutingSettings, entries: list[str], catalog: GeoCatalog, list_name: str
@@ -97,6 +99,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
         vpn_ips: list[str] = []
         proxy_domains: list[str] = []
         proxy_ips: list[str] = []
+        block_domains: list[str] = []
 
         # Process VPN routing rules (only if VPN is enabled and active)
         if vpn_settings and vpn_settings.enabled:
@@ -148,6 +151,15 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                 proxy_domains, proxy_ips = _parse_list(
                     routing, routing.proxy_list, catalog, "proxy"
                 )
+
+            # Блок-лист — раньше пользовательских групп при любом их порядке.
+            block_domains, block_ips = _parse_list(routing, routing.block_list, catalog, "block")
+            if block_domains:
+                route_rules.append(
+                    {"type": "field", "domain": block_domains, "outboundTag": BLOCK_TAG}
+                )
+            if block_ips:
+                route_rules.append({"type": "field", "ip": block_ips, "outboundTag": BLOCK_TAG})
 
             for group in rule_order:
                 if group == "direct":
@@ -288,6 +300,9 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             )
             outbounds.append(vpn_outbound)
 
+        if any(rule["outboundTag"] == BLOCK_TAG for rule in route_rules):
+            outbounds.append({"protocol": "blackhole", "tag": BLOCK_TAG})
+
         if vpn_settings:
             if vpn_settings.enabled:
                 if vpn_tag:
@@ -311,6 +326,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             context.config.dns,
             proxy_host=profile.bean.server_address if profile.bean else "",
             domain_groups=[(group, domains_by_group[group]) for group in rule_order],
+            blocked_domains=block_domains,
             vpn_active=vpn_active,
             vpn_dns_servers=vpn_dns_servers,
         )

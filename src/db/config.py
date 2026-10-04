@@ -424,6 +424,14 @@ def classify_routing_entry(entry: str) -> tuple[str, str] | None:
 ROUTING_GROUPS = ["direct", "vpn", "proxy"]
 DEFAULT_ROUTING_ORDER = ["direct", "vpn", "proxy"]
 
+# Списки общей маршрутизации лежат текстовыми файлами в каталоге конфигурации.
+LIST_FILES = {
+    "proxy_list": "proxy_list.txt",
+    "direct_list": "direct_list.txt",
+    "vpn_list": "vpn_list.txt",
+    "block_list": "block_list.txt",
+}
+
 # Сети, которые никогда не должны уходить в прокси (bypass_local_networks)
 LOCAL_NETWORKS: tuple[str, ...] = (
     "127.0.0.0/8",
@@ -445,6 +453,9 @@ class RoutingSettings(ConfigBase):
     proxy_list: list[str] = field(default_factory=list)
     direct_list: list[str] = field(default_factory=list)
     vpn_list: list[str] = field(default_factory=list)
+    # Блокировка: blackhole для трафика и NXDOMAIN для имён. Применяется раньше
+    # остальных групп и в порядке групп не участвует.
+    block_list: list[str] = field(default_factory=list)
     bypass_local_networks: bool = False
     # direct/vpn/proxy
     rule_order: list[str] = field(default_factory=lambda: DEFAULT_ROUTING_ORDER.copy())
@@ -468,26 +479,16 @@ class RoutingSettings(ConfigBase):
 
     def load_lists_from_files(self, config_dir: Path) -> None:
         """Load routing lists from files in config directory."""
-        proxy_file = config_dir / "proxy_list.txt"
-        direct_file = config_dir / "direct_list.txt"
-        vpn_file = config_dir / "vpn_list.txt"
-
-        self.proxy_list = self.load_list_file(proxy_file)
-        self.direct_list = self.load_list_file(direct_file)
-        self.vpn_list = self.load_list_file(vpn_file)
+        for name in LIST_FILES:
+            setattr(self, name, self.load_list_file(config_dir / LIST_FILES[name]))
 
     def save_lists_to_files(self, config_dir: Path) -> bool:
         """Save routing lists to files in config directory."""
         try:
             config_dir.mkdir(parents=True, exist_ok=True)
 
-            proxy_file = config_dir / "proxy_list.txt"
-            direct_file = config_dir / "direct_list.txt"
-            vpn_file = config_dir / "vpn_list.txt"
-
-            proxy_file.write_text("\n".join(self.proxy_list), encoding="utf-8")
-            direct_file.write_text("\n".join(self.direct_list), encoding="utf-8")
-            vpn_file.write_text("\n".join(self.vpn_list), encoding="utf-8")
+            for name, filename in LIST_FILES.items():
+                (config_dir / filename).write_text("\n".join(getattr(self, name)), encoding="utf-8")
 
             return True
         except Exception:

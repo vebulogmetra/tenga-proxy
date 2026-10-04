@@ -45,9 +45,10 @@ class XrayManager:
     """
 
     # Служебные каналы в счёт трафика не идут: direct — мимо прокси, vpn —
-    # через туннель, api — сам опрос статистики, остальные три — резолвинг DNS.
+    # через туннель, block — в никуда, api — сам опрос статистики, остальные три —
+    # резолвинг DNS.
     # Список отражает теги, которые заводит `src/core/config_builder.py`.
-    _SERVICE_TAGS = frozenset({"direct", "vpn", "api", "main-dns", "local-dns", "vpn-dns"})
+    _SERVICE_TAGS = frozenset({"direct", "vpn", "block", "api", "main-dns", "local-dns", "vpn-dns"})
 
     def __init__(
         self,

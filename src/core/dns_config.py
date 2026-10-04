@@ -30,6 +30,9 @@ logger = logging.getLogger("tenga.core.dns_config")
 
 # Системный резолвер процесса ядра.
 LOCALHOST = "localhost"
+# Значение `hosts`: ответить кодом 3 (NXDOMAIN). Адрес-заглушка вроде 127.0.0.1
+# не годится — он попадает под «локальные сети напрямую».
+NXDOMAIN = "#3"
 # Запасной адрес, когда DNS-сервер VPN не удалось разобрать.
 FALLBACK_VPN_DNS = ("8.8.8.8", 53)
 
@@ -106,6 +109,7 @@ def build_dns(
     *,
     proxy_host: str,
     domain_groups: Sequence[tuple[str, list[str]]] = (),
+    blocked_domains: Sequence[str] = (),
     vpn_active: bool = False,
     vpn_dns_servers: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -116,6 +120,7 @@ def build_dns(
         proxy_host: адрес сервера профиля; домен резолвится системным резолвером.
         domain_groups: доменные правила списков по группам (`direct`, `vpn`,
             `proxy`) в порядке групп маршрутизации.
+        blocked_domains: доменные правила блок-листа — на них отвечаем NXDOMAIN.
         vpn_active: поднят VPN NetworkManager, привязанный к профилю.
         vpn_dns_servers: DNS-серверы VPN-подключения, как их отдал NetworkManager.
     """
@@ -151,7 +156,20 @@ def build_dns(
             servers.append({**_as_object(main), "domains": list(domains)})
 
     servers.append(main)
-    return {"servers": servers}
+
+    dns: dict[str, Any] = {"servers": servers}
+    if blocked_domains:
+        dns["hosts"] = {_hosts_key(rule): NXDOMAIN for rule in blocked_domains}
+    return dns
+
+
+def _hosts_key(rule: str) -> str:
+    """Доменное правило в виде ключа `hosts`.
+
+    Голую строку правило маршрутизации считает подстрокой, а `hosts` — точным
+    именем; чтобы оба блокировали одно и то же, подстроку называем явно.
+    """
+    return rule if ":" in rule else f"keyword:{rule}"
 
 
 def _as_object(server: DnsServer) -> dict[str, Any]:
