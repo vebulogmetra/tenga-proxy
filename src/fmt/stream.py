@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
 from src.db.config import ConfigBase
+
+logger = logging.getLogger("tenga.fmt.stream")
 
 
 def parse_json_object(raw: str) -> dict[str, Any]:
@@ -91,14 +94,10 @@ class StreamSettings(ConfigBase):
                 stream_settings["wsSettings"] = ws_settings
 
         elif transport_type == "http":
-            # HTTP/2
-            http_settings: dict[str, Any] = {}
-            if self.path:
-                http_settings["path"] = self.path
-            if self.host:
-                http_settings["host"] = self.host.split(",")
-            if http_settings:
-                stream_settings["httpSettings"] = http_settings
+            # Ядро удалило транспорт h2 («migrated to XHTTP stream-one») и отвергает
+            # конфиг с ним целиком. Молча подменять его на xhttp не стали: совместимость
+            # stream-one со старым h2-сервером не проверена.
+            raise ValueError("Транспорт HTTP/2 (h2) удалён из xray-core и не поддерживается")
 
         elif transport_type == "xhttp":
             stream_settings["network"] = "splithttp"
@@ -146,14 +145,17 @@ class StreamSettings(ConfigBase):
                 stream_settings["httpupgradeSettings"] = httpupgrade_settings
 
         elif self.network == "tcp" and self.header_type == "http":
-            stream_settings["network"] = "http"
-            http_settings: dict[str, Any] = {}
+            # HTTP-маскировка — заголовок поверх tcp, а не транспорт h2.
+            header: dict[str, Any] = {"type": "http"}
+            request: dict[str, Any] = {}
             if self.path:
-                http_settings["path"] = self.path
+                request["path"] = [p.strip() for p in self.path.split(",") if p.strip()]
             if self.host:
-                http_settings["host"] = self.host.split(",")
-            if http_settings:
-                stream_settings["httpSettings"] = http_settings
+                hosts = [h.strip() for h in self.host.split(",") if h.strip()]
+                request["headers"] = {"Host": hosts}
+            if request:
+                header["request"] = request
+            stream_settings["tcpSettings"] = {"header": header}
 
         return stream_settings
 
@@ -164,8 +166,16 @@ class StreamSettings(ConfigBase):
 
         tls_settings: dict[str, Any] = {}
 
+        # allowInsecure в конфиг не пишем: ядро его удалило и отвергает конфиг целиком
+        # («has been removed and migrated to pinnedPeerCertSha256»). Профиль с
+        # действительным сертификатом подключится как обычно, с самоподписанным —
+        # не пройдёт TLS-рукопожатие.
         if self.allow_insecure or skip_cert:
-            tls_settings["allowInsecure"] = True
+            logger.warning(
+                "allowInsecure больше не поддерживается xray-core: сертификат сервера %s "
+                "будет проверен",
+                self.sni.strip() or "(без SNI)",
+            )
 
         if self.sni.strip():
             tls_settings["serverName"] = self.sni.strip()
@@ -201,7 +211,9 @@ class StreamSettings(ConfigBase):
         if self.reality_short_id:
             reality_settings["shortId"] = self.reality_short_id.split(",")[0]
 
-        if self.reality_spider_x:
+        # Значение без ведущего слэша ядро отвергает вместе со всем конфигом
+        # (`invalid "spiderX"`), пустое подставляет само — поэтому битое отбрасываем.
+        if self.reality_spider_x.startswith("/"):
             reality_settings["spiderX"] = self.reality_spider_x
 
         # uTLS fingerprint (required for Reality)
