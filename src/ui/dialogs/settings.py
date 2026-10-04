@@ -172,7 +172,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         fragment = Adw.PreferencesGroup(
             title="Фрагментация TLS",
             description="Делит начало TLS-соединения на части, чтобы фильтр не разобрал "
-            "имя сервера. Действует на профили с TLS и Reality, со следующего подключения.",
+            "имя сервера. Действует на профили с TLS и Reality. Применяется при сохранении настроек.",
         )
         page.add(fragment)
 
