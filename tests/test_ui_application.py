@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 pytestmark = pytest.mark.gtk
@@ -691,83 +693,31 @@ def test_a_tray_that_cannot_start_does_not_break_the_application(adw_app, monkey
     assert adw_app.tray is None
 
 
-class _FakeManager:
-    """Стоит вместо XrayManager: замер не должен поднимать настоящий процесс."""
+def test_default_latency_run_measures_the_whole_set_with_one_batch_call(adw_app, monkeypatch):
+    """Без подменённой пробы замер идёт пакетом: один вызов на все профили."""
+    first = add_profile(adw_app)
+    second = add_profile(adw_app)
+    calls: list[list[int]] = []
 
-    instances: list = []
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result):
+        calls.append([profile.id for profile in profiles])
+        for profile in profiles:
+            on_result(profile.id, 42)
 
-    def __init__(self, binary_path=None):
-        self.binary_path = binary_path
-        self.stopped = False
-        self.started_with = None
-        _FakeManager.instances.append(self)
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", fake_probe_profiles)
+    monkeypatch.setattr(
+        type(adw_app.context),
+        "xray_manager",
+        property(lambda _self: SimpleNamespace(binary_path="xray")),
+    )
 
-    def start(self, config):
-        self.started_with = config
-        return True, ""
+    adw_app.activate_action("test-latency", None)
+    adw_app.wait_for_latency_for_test()
 
-    def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
-        return 42
-
-    def stop(self):
-        self.stopped = True
-
-
-def _install_fake_xray(monkeypatch, cls=None):
-    """Replace XrayManager and return the probe's own instance afterwards.
-
-    Экземпляров создаётся два: один лениво заводит `AppContext` ради
-    `binary_path`, второй — сам замер. Замеру принадлежит последний.
-    """
-    _FakeManager.instances = []
-    monkeypatch.setattr("src.core.xray_manager.XrayManager", cls or _FakeManager)
-
-
-def _probe_manager():
-    assert _FakeManager.instances, "замер обязан был создать экземпляр"
-    return _FakeManager.instances[-1]
-
-
-def test_default_latency_probe_measures_through_a_temporary_xray(adw_app, monkeypatch):
-    _install_fake_xray(monkeypatch)
-    entry = add_profile(adw_app)
-
-    assert adw_app._default_latency_probe(entry.id) == 42
-    assert _probe_manager().stopped is True
-
-
-def test_default_latency_probe_returns_minus_one_for_a_missing_profile(adw_app, monkeypatch):
-    _install_fake_xray(monkeypatch)
-
-    assert adw_app._default_latency_probe(999999) == -1
-    assert _FakeManager.instances == []
-
-
-def test_default_latency_probe_returns_minus_one_when_xray_does_not_start(adw_app, monkeypatch):
-    class Failing(_FakeManager):
-        def start(self, config):
-            return False, "port busy"
-
-    _install_fake_xray(monkeypatch, Failing)
-    entry = add_profile(adw_app)
-
-    assert adw_app._default_latency_probe(entry.id) == -1
-    assert _probe_manager().stopped is True
-
-
-def test_default_latency_probe_stops_xray_when_the_probe_raises(adw_app, monkeypatch):
-    """Временный процесс гасится и на ошибке: иначе он останется висеть."""
-
-    class Raising(_FakeManager):
-        def test_delay_realistic(self, proxy_address, proxy_port, **kwargs):
-            raise RuntimeError("boom")
-
-    _install_fake_xray(monkeypatch, Raising)
-    entry = add_profile(adw_app)
-
-    with pytest.raises(RuntimeError):
-        adw_app._default_latency_probe(entry.id)
-    assert _probe_manager().stopped is True
+    store = adw_app.context.profiles
+    assert calls == [[first.id, second.id]]
+    assert store.get_profile(first.id).latency_ms == 42
+    assert store.get_profile(second.id).latency_ms == 42
 
 
 def _simulate_close(app, dialog) -> None:

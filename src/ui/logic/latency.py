@@ -10,11 +10,13 @@ import logging
 import threading
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 logger = logging.getLogger("tenga.ui.latency")
 
 ProbeFn = Callable[[int], int]
 ResultFn = Callable[[int, int], None]
+BatchProbeFn = Callable[[list[int], ResultFn], None]
 DispatchFn = Callable[..., object]
 
 
@@ -28,17 +30,48 @@ def _default_dispatch(fn: Callable[..., object], *args: object) -> None:
     GLib.idle_add(_once)
 
 
+def make_batch_probe(context: Any) -> BatchProbeFn:
+    """Batch probe bound to the application context.
+
+    Контекст читается в момент замера, а не при создании: список профилей и
+    настройки транспорта к этому времени могли измениться.
+    """
+
+    def batch_probe(profile_ids: list[int], emit: ResultFn) -> None:
+        from src.core.batch_probe import probe_profiles
+
+        found = (context.profiles.get_profile(profile_id) for profile_id in profile_ids)
+        probe_profiles(
+            [profile for profile in found if profile is not None],
+            settings=context.config,
+            binary_path=context.xray_manager.binary_path,
+            on_result=emit,
+        )
+
+    return batch_probe
+
+
 class LatencyRunner:
-    """Run latency probes for many profiles with bounded parallelism."""
+    """Run latency probes for many profiles in the background.
+
+    Два режима. `batch_probe` получает весь набор сразу и сам отдаёт результаты
+    по мере готовности — так работает замер одним процессом ядра. `probe`
+    меряет по одному профилю в пуле потоков; он остался для подмены в тестах.
+    """
 
     def __init__(
         self,
-        probe: ProbeFn,
+        probe: ProbeFn | None = None,
         *,
+        batch_probe: BatchProbeFn | None = None,
         max_workers: int = 4,
         dispatch: DispatchFn = _default_dispatch,
     ) -> None:
+        if (probe is None) == (batch_probe is None):
+            raise ValueError("нужен ровно один из probe и batch_probe")
+
         self._probe = probe
+        self._batch_probe = batch_probe
         self._max_workers = max_workers
         self._dispatch = dispatch
         self._lock = threading.Lock()
@@ -82,12 +115,38 @@ class LatencyRunner:
                 self._busy = False
             on_done()
 
+        def _run_batch() -> None:
+            reported: set[int] = set()
+
+            def emit(profile_id: int, latency_ms: int) -> None:
+                if profile_id in reported:
+                    return
+                reported.add(profile_id)
+                self._dispatch(on_result, profile_id, int(latency_ms))
+
+            try:
+                self._batch_probe(ids, emit)
+            except BaseException as e:
+                logger.exception("Batch latency probe failed: %s", e)
+            finally:
+                # Что бы ни случилось с замером, ни один профиль не должен
+                # остаться с заглушкой «проверяется».
+                for profile_id in ids:
+                    if profile_id not in reported:
+                        self._dispatch(on_result, profile_id, -1)
+
+        def _run_pool() -> None:
+            with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
+                probes = pool.map(_safe_probe, ids)
+                for profile_id, latency in zip(ids, probes, strict=True):
+                    self._dispatch(on_result, profile_id, latency)
+
         def _worker() -> None:
             try:
-                with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
-                    probes = pool.map(_safe_probe, ids)
-                    for profile_id, latency in zip(ids, probes, strict=True):
-                        self._dispatch(on_result, profile_id, latency)
+                if self._batch_probe is not None:
+                    _run_batch()
+                else:
+                    _run_pool()
             finally:
                 self._dispatch(_finished)
 

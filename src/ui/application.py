@@ -15,7 +15,7 @@ from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core.context import AppContext, get_context
 from src.ui.logic.async_utils import run_in_background
-from src.ui.logic.latency import LatencyRunner
+from src.ui.logic.latency import LatencyRunner, make_batch_probe
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
@@ -544,35 +544,6 @@ class TengaApplication(Adw.Application):
             name="tenga-subscription",
         )
 
-    def _default_latency_probe(self, profile_id: int) -> int:
-        from src.core.config_builder import build_latency_probe_config
-        from src.core.xray_manager import XrayManager
-
-        profile = self.context.profiles.get_profile(profile_id)
-        if profile is None:
-            return -1
-
-        built = build_latency_probe_config(self.context, profile)
-        if built is None:
-            return -1
-
-        config, socks_port = built
-        manager = XrayManager(binary_path=self.context.xray_manager.binary_path)
-        try:
-            started, error = manager.start(config)
-            if not started:
-                logger.warning("Latency probe could not start xray: %s", error)
-                return -1
-            return manager.test_delay_realistic(
-                proxy_address=self.context.config.inbound_address,
-                proxy_port=socks_port,
-            )
-        finally:
-            try:
-                manager.stop()
-            except Exception:
-                logger.debug("Latency probe cleanup failed", exc_info=True)
-
     def _default_subscription_updater(self, group_id: int, url: str) -> int:
         from src.sub.route import local_proxy_url
         from src.sub.updater import SubscriptionUpdater
@@ -630,7 +601,11 @@ class TengaApplication(Adw.Application):
 
     def _ensure_latency_runner(self) -> LatencyRunner:
         if self._latency_runner is None:
-            self._latency_runner = LatencyRunner(self._latency_probe or self._default_latency_probe)
+            if self._latency_probe is not None:
+                self._latency_runner = LatencyRunner(self._latency_probe)
+            else:
+                # Весь набор меряет один временный процесс ядра.
+                self._latency_runner = LatencyRunner(batch_probe=make_batch_probe(self.context))
         return self._latency_runner
 
     def _test_latency(self) -> None:
