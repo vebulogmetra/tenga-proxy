@@ -160,3 +160,10 @@ def test_vpn_connection_row_is_active_when_configured_and_up():
     )
     vpn_row = next(row for row in view.connection if row.title == "VPN")
     assert vpn_row.value == "Активен"
+
+
+def test_custom_counts_ready_made_rules():
+    routing = FakeRouting(mode="custom", direct_list=["a.example"], bypass_local_networks=True)
+    routing.ru_direct = True
+
+    assert values(routing_rows(routing))["DIRECT"] == "активен (3 правил)"

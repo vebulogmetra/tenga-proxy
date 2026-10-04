@@ -168,6 +168,13 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         options.add(self.dns_proxy_row)
 
+        self.dns_intercept_row = Adw.SwitchRow(
+            title="Перехватывать DNS приложений",
+            subtitle="Режим TUN: запросы приложений обрабатывает ядро — "
+            "действуют списки маршрутизации и блокировка",
+        )
+        options.add(self.dns_intercept_row)
+
     def _build_bypass_page(self) -> None:
         page = Adw.PreferencesPage(title="Обход блокировок", icon_name="security-high-symbolic")
         self.add(page)
@@ -295,6 +302,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._dns.select(dns.provider)
         self.dns_url_row.set_text(dns.custom_url)
         self.dns_proxy_row.set_active(dns.use_proxy)
+        self.dns_intercept_row.set_active(getattr(dns, "intercept", True))
 
         fragment = config.tls_fragment
         self.fragment_row.set_active(fragment.enabled)
@@ -328,6 +336,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         config.dns.provider = self._dns.selected()
         config.dns.custom_url = self.dns_url_row.get_text().strip()
         config.dns.use_proxy = self.dns_proxy_row.get_active()
+        config.dns.intercept = self.dns_intercept_row.get_active()
 
         # sanitized(): невалидное поле ядро отвергло бы вместе со всем конфигом.
         config.tls_fragment = TlsFragmentSettings(

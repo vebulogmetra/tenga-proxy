@@ -130,6 +130,17 @@ def test_the_dns_through_proxy_switch_round_trips(gtk_ready):
     assert config.dns.use_proxy is False
 
 
+def test_the_dns_interception_switch_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert dialog.dns_intercept_row.get_active()
+
+    dialog.dns_intercept_row.set_active(False)
+    dialog.save()
+
+    assert config.dns.intercept is False
+
+
 def test_the_fragment_settings_round_trip(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)

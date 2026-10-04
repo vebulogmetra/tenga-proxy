@@ -73,6 +73,8 @@ def routing_rows(
     direct_count = len(routing.direct_list or [])
     if routing.bypass_local_networks:
         direct_count += 1
+    if getattr(routing, "ru_direct", False):
+        direct_count += 1
     direct = f"активен ({direct_count} правил)" if direct_count else NOT_SET
 
     proxy_count = len(routing.proxy_list or [])
