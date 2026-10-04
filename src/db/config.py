@@ -582,3 +582,7 @@ class MonitoringSettings(ConfigBase):
     enabled: bool = True
     check_interval_seconds: int = 10
     test_url: str = "https://www.google.com/generate_204"
+    # Автопереключение: после стольких неудачных проверок подряд подключается
+    # другой профиль той же группы. Выключено, пока пользователь не включит сам.
+    failover_enabled: bool = False
+    failover_threshold: int = 3

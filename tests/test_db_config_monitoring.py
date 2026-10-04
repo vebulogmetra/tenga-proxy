@@ -101,3 +101,26 @@ def test_monitoring_settings_in_data_store(tmp_path):
     assert loaded.monitoring.enabled is True
     assert loaded.monitoring.check_interval_seconds == 30
     assert loaded.monitoring.test_url == "https://www.google.com/generate_204"
+
+
+def test_failover_is_off_by_default():
+    settings = MonitoringSettings()
+
+    assert settings.failover_enabled is False
+    assert settings.failover_threshold == 3
+
+
+def test_failover_settings_survive_serialization():
+    settings = MonitoringSettings(failover_enabled=True, failover_threshold=5)
+
+    restored = MonitoringSettings.from_dict(settings.to_dict())
+
+    assert restored.failover_enabled is True
+    assert restored.failover_threshold == 5
+
+
+def test_settings_saved_before_failover_existed_still_load():
+    restored = MonitoringSettings.from_dict({"enabled": True, "check_interval_seconds": 15})
+
+    assert restored.failover_enabled is False
+    assert restored.failover_threshold == 3
