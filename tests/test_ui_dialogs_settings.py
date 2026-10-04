@@ -128,3 +128,51 @@ def test_the_dns_through_proxy_switch_round_trips(gtk_ready):
     dialog.dns_proxy_row.set_active(False)
     dialog.save()
     assert config.dns.use_proxy is False
+
+
+def test_the_fragment_settings_round_trip(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.fragment_row.set_active(True)
+    dialog.fragment_packets_row.set_text("1-3")
+    dialog.fragment_length_row.set_text("50-100")
+    dialog.fragment_delay_row.set_text("5")
+    dialog.save()
+
+    assert config.tls_fragment.enabled is True
+    assert config.tls_fragment.packets == "1-3"
+    assert config.tls_fragment.length == "50-100"
+    assert config.tls_fragment.delay == "5"
+
+    reopened = make_dialog(config)
+    assert reopened.fragment_row.get_active()
+    assert reopened.fragment_length_row.get_text() == "50-100"
+
+
+def test_invalid_fragment_values_fall_back_to_defaults(gtk_ready):
+    """Невалидное значение ядро отвергло бы вместе со всем конфигом."""
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.fragment_row.set_active(True)
+    dialog.fragment_length_row.set_text("0-100")
+    dialog.fragment_delay_row.set_text("soon")
+    dialog.save()
+
+    assert config.tls_fragment.length == "100-200"
+    assert config.tls_fragment.delay == "10-20"
+
+
+def test_disabled_fragmentation_dims_its_fields(gtk_ready):
+    dialog = make_dialog()
+    assert not dialog.fragment_length_row.get_sensitive()
+    dialog.fragment_row.set_active(True)
+    assert dialog.fragment_length_row.get_sensitive()
+
+
+def test_the_mux_switch_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    dialog.mux_row.set_active(True)
+    dialog.save()
+    assert config.mux_default_on is True
+    assert make_dialog(config).mux_row.get_active()

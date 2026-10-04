@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk
 
-from src.db.config import DnsProvider, ProxyMode
+from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.ui.logic.version import UNKNOWN, app_version, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
@@ -65,6 +65,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_general_page()
         self._build_monitoring_page()
         self._build_dns_page()
+        self._build_bypass_page()
         self._build_about_page()
 
         self._load()
@@ -164,6 +165,40 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         options.add(self.dns_proxy_row)
 
+    def _build_bypass_page(self) -> None:
+        page = Adw.PreferencesPage(title="Обход блокировок", icon_name="security-high-symbolic")
+        self.add(page)
+
+        fragment = Adw.PreferencesGroup(
+            title="Фрагментация TLS",
+            description="Делит начало TLS-соединения на части, чтобы фильтр не разобрал "
+            "имя сервера. Действует на профили с TLS и Reality, со следующего подключения.",
+        )
+        page.add(fragment)
+
+        self.fragment_row = Adw.SwitchRow(title="Включить фрагментацию")
+        self.fragment_row.connect("notify::active", lambda *_: self._sync_fragment())
+        fragment.add(self.fragment_row)
+
+        self.fragment_packets_row = Adw.EntryRow(title="Пакеты: tlshello или номера, 1-3")
+        fragment.add(self.fragment_packets_row)
+
+        self.fragment_length_row = Adw.EntryRow(title="Размер фрагмента, байт: 100-200")
+        fragment.add(self.fragment_length_row)
+
+        self.fragment_delay_row = Adw.EntryRow(title="Пауза между фрагментами, мс: 10-20")
+        fragment.add(self.fragment_delay_row)
+
+        mux = Adw.PreferencesGroup(title="Мультиплексирование")
+        page.add(mux)
+
+        self.mux_row = Adw.SwitchRow(
+            title="Включить mux",
+            subtitle="Несколько потоков в одном соединении. Только VLESS и Trojan, "
+            "кроме XHTTP и Vision",
+        )
+        mux.add(self.mux_row)
+
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
         self.add(page)
@@ -208,6 +243,12 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _sync_monitoring(self) -> None:
         self.interval_row.set_sensitive(self.monitoring_row.get_active())
 
+    def _sync_fragment(self) -> None:
+        active = self.fragment_row.get_active()
+        self.fragment_packets_row.set_sensitive(active)
+        self.fragment_length_row.set_sensitive(active)
+        self.fragment_delay_row.set_sensitive(active)
+
     def _load(self) -> None:
         config = self._config
 
@@ -231,6 +272,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.dns_url_row.set_text(dns.custom_url)
         self.dns_proxy_row.set_active(dns.use_proxy)
 
+        fragment = config.tls_fragment
+        self.fragment_row.set_active(fragment.enabled)
+        self.fragment_packets_row.set_text(fragment.packets)
+        self.fragment_length_row.set_text(fragment.length)
+        self.fragment_delay_row.set_text(fragment.delay)
+        self._sync_fragment()
+        self.mux_row.set_active(config.mux_default_on)
+
     def save(self) -> None:
         """Write the form back into the configuration object."""
         config = self._config
@@ -251,6 +300,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         config.dns.provider = self._dns.selected()
         config.dns.custom_url = self.dns_url_row.get_text().strip()
         config.dns.use_proxy = self.dns_proxy_row.get_active()
+
+        # sanitized(): невалидное поле ядро отвергло бы вместе со всем конфигом.
+        config.tls_fragment = TlsFragmentSettings(
+            enabled=self.fragment_row.get_active(),
+            packets=self.fragment_packets_row.get_text(),
+            length=self.fragment_length_row.get_text(),
+            delay=self.fragment_delay_row.get_text(),
+        ).sanitized()
+        config.mux_default_on = self.mux_row.get_active()
 
         self.emit("settings-saved")
 
