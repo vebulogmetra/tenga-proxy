@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import re
 from abc import ABC
@@ -364,6 +365,62 @@ class ProxyMode:
     }
 
 
+# Имя geo-категории и атрибута: как в .dat, в нижнем регистре. `!` законен
+# внутри имени (`geolocation-!cn`), но не первым: отрицание не поддерживаем.
+_GEO_NAME = re.compile(r"^[a-z0-9][a-z0-9._!-]{0,63}$")
+# Префиксы доменных правил ядра: такие записи передаются как есть.
+_DOMAIN_RULE_PREFIXES = ("domain:", "full:", "regexp:", "keyword:", "dotless:")
+
+
+def _classify_geo(entry: str) -> tuple[str, str] | None:
+    """`geosite:имя[@атрибут]` — доменное правило, `geoip:имя` — сетевое."""
+    kind, _, rest = entry.lower().partition(":")
+    name, has_attr, attr = rest.partition("@")
+    if not _GEO_NAME.match(name):
+        return None
+    if kind == "geoip":
+        return None if has_attr else ("ip", f"geoip:{name}")
+    if has_attr and not _GEO_NAME.match(attr):
+        return None
+    return ("domain", f"geosite:{rest}")
+
+
+def classify_routing_entry(entry: str) -> tuple[str, str] | None:
+    """Привести запись списка к виду, который понимает ядро.
+
+    Returns:
+        `("domain", правило)`, `("ip", сеть)` или None, если запись не годится.
+        Негодную запись лучше выбросить: непонятное правило ядро отвергает
+        вместе со всем конфигом.
+    """
+    entry = entry.strip()
+    if not entry:
+        return None
+
+    lower = entry.lower()
+    if lower.startswith(("geosite:", "geoip:")):
+        return _classify_geo(entry)
+    if lower.startswith(_DOMAIN_RULE_PREFIXES):
+        return ("domain", entry)
+
+    try:
+        network = ipaddress.ip_network(entry, strict=False)
+    except ValueError:
+        network = None
+    if network is not None:
+        return ("ip", entry if "/" in entry else f"{entry}/{network.prefixlen}")
+    if "/" in entry:
+        return None
+
+    domain = lower.removeprefix("*").lstrip(".")
+    if not domain:
+        return None
+    # Голую строку ядро сравнивает как подстроку: `ok.ru` совпал бы с
+    # `facebook.ru`. `domain:` — сам домен и его поддомены. Слово без точки
+    # оставляем подстрокой: так записывают «всё, где встречается google».
+    return ("domain", f"domain:{domain}" if "." in domain else domain)
+
+
 ROUTING_GROUPS = ["direct", "vpn", "proxy"]
 DEFAULT_ROUTING_ORDER = ["direct", "vpn", "proxy"]
 
@@ -438,7 +495,10 @@ class RoutingSettings(ConfigBase):
 
     def parse_entries(self, entries: list[str]) -> tuple[list[str], list[str]]:
         """
-        Split entries into domains and IP/CIDR.
+        Split entries into domain rules and IP rules of the core.
+
+        `geosite:` уходит в домены, `geoip:` — в сети; негодные записи
+        отбрасываются (см. `classify_routing_entry`).
 
         Returns:
             (domains, ips)
@@ -461,16 +521,11 @@ class RoutingSettings(ConfigBase):
                     ips.extend(part_ips)
                 continue
 
-            if "/" in entry:
-                parts = entry.split("/")
-                if len(parts) == 2 and parts[1].isdigit():
-                    ips.append(entry)
-                    continue
-
-            if entry[0].isdigit() and all(c.isdigit() or c == "." for c in entry):
-                ips.append(entry + "/32")
+            classified = classify_routing_entry(entry)
+            if classified is None:
                 continue
-            domains.append(entry)
+            kind, value = classified
+            (ips if kind == "ip" else domains).append(value)
 
         return domains, ips
 
