@@ -259,6 +259,9 @@ class DnsSettings(ConfigBase):
     custom_url: str = ""
     # DNS via proxy
     use_proxy: bool = True
+    # В режиме TUN отдавать DNS-запросы приложений DNS-модулю ядра: без этого
+    # split-DNS и блок-лист действуют только на внутренний резолв.
+    intercept: bool = True
 
     def get_dns_url(self) -> str:
         """Get DNS server URL."""

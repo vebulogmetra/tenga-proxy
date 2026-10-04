@@ -13,7 +13,7 @@ import random
 import socket
 
 from src.core.context import AppContext
-from src.core.dns_config import build_dns
+from src.core.dns_config import DNS_TAG, build_dns
 from src.core.geo import (
     RU_DIRECT_GEOIP,
     RU_DIRECT_GEOSITES,
@@ -21,7 +21,7 @@ from src.core.geo import (
     asset_dirs,
     load_catalog,
 )
-from src.core.proxy_mode import build_inbounds_for_mode, normalize_proxy_mode
+from src.core.proxy_mode import TUN_INBOUND_TAG, build_inbounds_for_mode, normalize_proxy_mode
 from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import (
     DEFAULT_ROUTING_ORDER,
@@ -32,6 +32,7 @@ from src.db.config import (
     VpnSettings,
 )
 from src.db.profiles import ProfileEntry
+from src.sys.resolver import system_dns_servers
 from src.sys.vpn import (
     get_default_interface,
     get_vpn_dns_servers,
@@ -42,6 +43,7 @@ from src.sys.vpn import (
 logger = logging.getLogger("tenga.core.config_builder")
 
 BLOCK_TAG = "block"
+DNS_OUT_TAG = "dns-out"
 
 
 def _parse_list(
@@ -313,6 +315,44 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             direct_outbound,
         ]
 
+        # Перехват DNS приложений в режиме TUN. Нужны и физический интерфейс, и
+        # адреса настоящих DNS-серверов сети: `localhost` при перехвате дал бы
+        # петлю, а непривязанный прямой запрос мог бы вернуться в TUN.
+        system_resolvers: list[str] = []
+        if runtime_mode == ProxyMode.TUN and context.config.dns.intercept and physical_interface:
+            system_resolvers = system_dns_servers(physical_interface)
+            if not system_resolvers:
+                logger.warning("DNS-серверы сети не определены: DNS приложений не перехватывается")
+        if system_resolvers:
+            route_rules[:0] = [
+                {
+                    "type": "field",
+                    "inboundTag": [TUN_INBOUND_TAG],
+                    "port": "53",
+                    "outboundTag": DNS_OUT_TAG,
+                },
+                {
+                    "type": "field",
+                    "inboundTag": [DNS_TAG],
+                    "ip": system_resolvers,
+                    "port": "53",
+                    "outboundTag": "direct",
+                },
+            ]
+            dns_outbound = {
+                "protocol": "dns",
+                "tag": DNS_OUT_TAG,
+                "settings": {
+                    # A и AAAA отвечает DNS-модуль; остальные типы запросов он не
+                    # умеет — пересылаем их серверу сети, как было до перехвата.
+                    "rewriteAddress": system_resolvers[0],
+                    "rewritePort": 53,
+                    "rules": [{"action": "hijack", "qType": "1,28"}, {"action": "direct"}],
+                },
+            }
+            _bind_to_interface(dns_outbound, physical_interface)
+            outbounds.append(dns_outbound)
+
         if vpn_tag and vpn_interface:
             vpn_outbound = {
                 "protocol": "freedom",
@@ -365,6 +405,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
             blocked_domains=block_domains,
             vpn_active=vpn_active,
             vpn_dns_servers=vpn_dns_servers,
+            system_resolvers=system_resolvers,
         )
 
         inbounds = build_inbounds_for_mode(

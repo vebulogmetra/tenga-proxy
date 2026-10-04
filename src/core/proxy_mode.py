@@ -8,6 +8,8 @@ from src.db.config import ProxyMode
 # из udp:443 — доменные правила маршрутизации для такого трафика молча не работают.
 SNIFFING_DEST_OVERRIDE = ("http", "tls", "quic")
 
+TUN_INBOUND_TAG = "tun-in"
+
 
 def normalize_proxy_mode(mode: str | None) -> str:
     """Normalize runtime proxy mode."""
@@ -32,7 +34,7 @@ def build_inbounds_for_mode(
         mtu = tun_mtu if 576 <= tun_mtu <= 9000 else 1500
         return [
             {
-                "tag": "tun-in",
+                "tag": TUN_INBOUND_TAG,
                 "port": 0,
                 "protocol": "tun",
                 "settings": {
