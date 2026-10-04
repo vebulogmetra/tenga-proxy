@@ -769,6 +769,40 @@ def test_failover_stays_out_of_the_way_when_disabled(adw_app):
     assert adw_app.last_notification_for_test == ""
 
 
+def test_core_releases_are_refreshed_on_activation_when_the_check_is_due(adw_app):
+    from src.core.core_update import KnownReleases
+
+    adw_app.set_release_fetcher(lambda: KnownReleases(stable="26.3.27", prerelease="26.9.30"))
+
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    config = adw_app.context.config
+    assert config.core_update_prerelease == "26.9.30"
+    assert config.core_update_checked_at > 0
+
+
+def test_core_releases_are_not_requested_before_the_interval_passes(adw_app):
+    import time
+
+    calls: list = []
+    adw_app.context.config.core_update_checked_at = int(time.time())
+    adw_app.set_release_fetcher(lambda: calls.append(True))
+
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    assert calls == []
+
+
+def test_core_releases_are_never_requested_without_a_fetcher(adw_app):
+    """Сеть включает только `run_app`: тесты и встраивание в неё не ходят."""
+    adw_app.activate()
+    adw_app.wait_for_core_update_for_test()
+
+    assert adw_app.context.config.core_update_checked_at == 0
+
+
 def _simulate_close(app, dialog) -> None:
     """Release the slot the way the `closed` signal would.
 

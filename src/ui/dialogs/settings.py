@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import time
+
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GLib, GObject, Gtk
 
+from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
 from src.core.geo_update import update_geo_bases
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
@@ -16,7 +19,7 @@ from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
-from src.ui.logic.version import UNKNOWN, app_version, core_version
+from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
@@ -67,6 +70,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.set_title("Настройки")
         self._config = config
         self._context = context
+        self._fetch_releases = fetch_releases
+        self._core_update_thread = None
 
         self._build_general_page()
         self._build_monitoring_page()
@@ -260,7 +265,17 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         group.add(self._value_row("Версия", app_version()))
         manager = getattr(self._context, "xray_manager", None) if self._context else None
-        group.add(self._value_row("Ядро xray", core_version(manager)))
+        self._core_version = core_version(manager)
+        group.add(self._value_row("Ядро xray", self._core_version))
+
+        self.core_update_row = Adw.ActionRow(title="Обновление ядра")
+        self.core_update_button = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER)
+        self.core_update_button.connect("clicked", lambda _button: self.check_core_update())
+        self.core_update_button.set_sensitive(self._context is not None)
+        self.core_update_row.add_suffix(self.core_update_button)
+        group.add(self.core_update_row)
+        self._show_core_update()
+
         if self._context is not None:
             group.add(self._value_row("Конфигурация", str(self._context.config_dir)))
 
@@ -425,6 +440,51 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_geo_update_failed(self, error: BaseException) -> None:
         self.geo_update_button.set_sensitive(True)
         self.geo_row.set_subtitle(f"Не обновлены: {error}")
+
+    # --- обновление ядра ---
+
+    def _show_core_update(self) -> None:
+        status = evaluate(self._core_version, known_releases(self._config))
+        self.core_update_row.set_subtitle(core_update_text(status))
+
+    def set_release_fetcher(self, fetch) -> None:
+        """Replace the function asking GitHub about releases (tests)."""
+        self._fetch_releases = fetch
+
+    def check_core_update(self) -> None:
+        """Ask for the releases in the background and redraw the row."""
+        if self._context is None:
+            return
+
+        self.core_update_button.set_sensitive(False)
+        self.core_update_row.set_subtitle("Проверяю…")
+        self._core_update_thread = run_in_background(
+            lambda: refresh_known_releases(
+                self._config, now=time.time(), fetch=self._fetch_releases
+            ),
+            on_done=self._on_core_update_checked,
+            on_error=self._on_core_update_failed,
+            name="tenga-core-update",
+        )
+
+    def _on_core_update_checked(self, _releases) -> None:
+        self.core_update_button.set_sensitive(True)
+        self._show_core_update()
+        # Время проверки хранится в настройках: иначе при следующем запуске
+        # приложение спросило бы GitHub снова.
+        self._context.save_config()
+
+    def _on_core_update_failed(self, _error: BaseException) -> None:
+        self.core_update_button.set_sensitive(True)
+        self.core_update_row.set_subtitle("Не удалось проверить обновления")
+
+    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
+        if self._core_update_thread is not None:
+            self._core_update_thread.join(timeout)
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
 
     def _on_clear_logs(self, _button: Gtk.Button) -> None:
         if self._context is None:

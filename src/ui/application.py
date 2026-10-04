@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import signal
+import time
 from typing import TYPE_CHECKING
 
 import gi
@@ -14,6 +15,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core.context import AppContext, get_context
+from src.core.core_update import fetch_releases, is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, make_batch_probe
@@ -83,6 +85,8 @@ class TengaApplication(Adw.Application):
         self._connection_thread = None
         self._dialog = None
         self._failover: FailoverController | None = None
+        self._release_fetcher: Callable[[], object] | None = None
+        self._core_update_thread = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
 
@@ -103,6 +107,7 @@ class TengaApplication(Adw.Application):
             self._window = MainWindow(application=self, context=self.context)
         self._window.present()
         self.resume_monitoring()
+        self._refresh_core_releases_if_due()
 
     def resume_monitoring(self) -> None:
         """Start watching a proxy that is already running.
@@ -115,6 +120,42 @@ class TengaApplication(Adw.Application):
         if monitor is None or not self.context.proxy_state.is_running:
             return
         monitor.start()
+
+    def set_release_fetcher(self, fetch: Callable[[], object] | None) -> None:
+        """Install the function asking GitHub about core releases.
+
+        Без неё приложение в сеть за релизами не ходит: её ставит только
+        `run_app`, поэтому тесты и встраивание остаются без сетевых запросов.
+        """
+        self._release_fetcher = fetch
+
+    def _refresh_core_releases_if_due(self) -> None:
+        """Remember the newest core releases, at most once in a few days.
+
+        Только запоминает: о новой версии говорит страница «О программе».
+        """
+        fetch = self._release_fetcher
+        config = self.context.config
+        if fetch is None or not is_check_due(config, time.time()):
+            return
+        if self._core_update_thread is not None and self._core_update_thread.is_alive():
+            return
+
+        self._core_update_thread = run_in_background(
+            lambda: refresh_known_releases(config, now=time.time(), fetch=fetch),
+            on_done=lambda _releases: self.context.save_config(),
+            # Нет сети — спросим при следующем запуске.
+            on_error=lambda _error: None,
+            name="tenga-core-update",
+        )
+
+    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
+        if self._core_update_thread is not None:
+            self._core_update_thread.join(timeout)
+
+        context = GLib.MainContext.default()
+        while context.pending():
+            context.iteration(False)
 
     def watch_monitor(self) -> None:
         """Hand the monitor's verdicts to the failover controller.
@@ -885,6 +926,8 @@ class TengaApplication(Adw.Application):
         self._connection_thread = None
         self._dialog = None
         self._failover = None
+        self._release_fetcher = None
+        self._core_update_thread = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
 
@@ -922,4 +965,5 @@ def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     # готовый монитор, но сам его не создаёт.
     attach_monitor(context)
     app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
+    app.set_release_fetcher(fetch_releases)
     return app.run([])
