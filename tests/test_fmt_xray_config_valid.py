@@ -5,6 +5,7 @@
 `network: "udp"` или настройки в виде `servers[]`, которые ядро молча не принимает.
 """
 
+import base64
 import json
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ pytestmark = pytest.mark.skipif(
     reason="бинарник xray недоступен (core/bin/xray)",
 )
 
+SS_2022_KEY = quote(base64.b64encode(bytes([0xFB, 0xEF, 0xFF] * 10 + [1, 2])).decode(), safe="")
 FM = quote('{"salamander":{"password":"secret"}}')
 EXTRA = quote('{"scMaxEachPostBytes":1000000,"xmux":{"maxConcurrency":"16-32"},"seqKey":"abc"}')
 
@@ -55,6 +57,8 @@ LINKS = {
         "?type=tcp&security=reality&sni=a.example.com"
         "&pbk=7xhH4b_VkliBxGULljcyPOH-bYUA2dl-XAdZAsfhk04&sid=ab&spx=spider&fp=chrome#RS"
     ),
+    "shadowsocks_aead": "ss://YWVzLTI1Ni1nY206cGFzcw@127.0.0.1:8388#SS",
+    "shadowsocks_2022": f"ss://2022-blake3-aes-256-gcm:{SS_2022_KEY}@127.0.0.1:8388#SS22",
     "tcp_http_header": (
         "vless://11111111-1111-1111-1111-111111111111@127.0.0.1:443"
         "?type=tcp&headerType=http&host=a.example.com&path=%2Fx&security=tls"
