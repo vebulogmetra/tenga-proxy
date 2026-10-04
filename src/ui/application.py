@@ -18,6 +18,7 @@ from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
+from src.ui.logic.subscriptions_view import describe_update_error
 from src.ui.logic.version import app_version, core_version
 from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
 
@@ -704,7 +705,7 @@ class TengaApplication(Adw.Application):
                 try:
                     total += updater(group_id, url)
                 except Exception as e:
-                    logger.warning("Subscription %s failed: %s", group_id, e)
+                    logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
             return total
 
         self.toast(f"Обновляю подписки: {len(targets)}")
@@ -726,7 +727,7 @@ class TengaApplication(Adw.Application):
         self.toast(f"Обновлено профилей: {total}")
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
-        self.toast(f"Не удалось обновить подписки: {error}")
+        self.toast(f"Не удалось обновить подписки: {describe_update_error(error)}")
 
     def _toggle_search(self) -> None:
         if self._window is not None:

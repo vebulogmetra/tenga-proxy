@@ -8,6 +8,12 @@ import requests
 
 from src.db import DataStore
 from src.fmt import ProxyBean, parse_subscription_content
+from src.sub.errors import (
+    MAX_RESPONSE_SIZE,
+    SubscriptionHttpError,
+    SubscriptionTooLargeError,
+    snippet_of,
+)
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileManager
@@ -46,8 +52,13 @@ class SubscriptionUpdater:
         for attempt in range(self.MAX_ATTEMPTS):
             try:
                 response = requests.get(url, headers=headers, timeout=30, verify=verify)
-                response.raise_for_status()
-                return self._decode(response)
+                self._raise_for_status(response)
+                content = self._decode(response)
+                # Как в Android: проверяется уже прочитанное тело. Защищает разбор
+                # от гигантского ответа, но не саму загрузку.
+                if len(content) > MAX_RESPONSE_SIZE:
+                    raise SubscriptionTooLargeError(len(content))
+                return content
             except requests.RequestException as e:
                 # Повторяем только сетевые сбои: HTTP-код — окончательный ответ
                 # сервера, повтор лишь задержит обновление.
@@ -66,6 +77,18 @@ class SubscriptionUpdater:
 
         # Недостижимо: последняя попытка либо возвращает результат, либо бросает.
         raise last_error or requests.RequestException("Не удалось загрузить подписку")
+
+    @classmethod
+    def _raise_for_status(cls, response: requests.Response) -> None:
+        """Turn an HTTP error into one carrying the start of the response body."""
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            status = getattr(response, "status_code", 0)
+            raise SubscriptionHttpError(
+                status if isinstance(status, int) else 0,
+                snippet_of(cls._decode(response)),
+            ) from e
 
     @staticmethod
     def _decode(response: requests.Response) -> str:
@@ -93,7 +116,7 @@ class SubscriptionUpdater:
         HTTPError — это ответ сервера (404/403/500), повтор ничего не изменит.
         Обрывы соединения и таймауты обычно разовые.
         """
-        if isinstance(error, requests.HTTPError):
+        if isinstance(error, (requests.HTTPError, SubscriptionTooLargeError)):
             return False
         return isinstance(error, (requests.ConnectionError, requests.Timeout))
 

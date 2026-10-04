@@ -90,3 +90,50 @@ def test_url_is_not_truncated(sample):
     groups[1].subscription_url = "https://sub.example/" + "x" * 200
     rows = build_subscription_rows(groups, counts, query="xxxxx")
     assert rows[0].url == groups[1].subscription_url
+
+
+# --- Сообщение об ошибке обновления -------------------------------------------
+
+
+def test_access_denied_is_described_with_the_providers_text():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    text = describe_update_error(SubscriptionHttpError(403, "Превышен лимит устройств"))
+
+    assert text == "сервер ответил 403: Превышен лимит устройств"
+
+
+def test_other_http_errors_are_described_by_code():
+    from src.sub.errors import SubscriptionHttpError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(SubscriptionHttpError(404, "Not Found")) == "сервер ответил 404"
+
+
+def test_too_large_response_is_described():
+    from src.sub.errors import SubscriptionTooLargeError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(SubscriptionTooLargeError(11 * 1024 * 1024)) == (
+        "ответ сервера больше 10 МБ"
+    )
+
+
+def test_network_errors_do_not_leak_the_subscription_address():
+    """Текст ошибки requests содержит полный URL, а в нём — токен подписки."""
+    import requests
+
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    refused = requests.ConnectionError("HTTPSConnectionPool(host='x'): /sub/secret-token")
+    timeout = requests.Timeout("Read timed out: /sub/secret-token")
+
+    assert describe_update_error(refused) == "нет связи с сервером подписки"
+    assert describe_update_error(timeout) == "сервер подписки не ответил вовремя"
+
+
+def test_unknown_errors_fall_back_to_their_text():
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    assert describe_update_error(ValueError("boom")) == "boom"

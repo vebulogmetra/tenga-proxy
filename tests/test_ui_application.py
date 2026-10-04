@@ -161,6 +161,42 @@ def test_refresh_without_subscriptions_is_a_no_op(adw_app):
     assert called == []
 
 
+def test_a_failed_update_explains_the_reason_without_the_address(adw_app):
+    import requests
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/secret-token"
+
+    def failing(_group_id: int, url: str) -> int:
+        raise requests.ConnectionError(f"Max retries exceeded with url: {url}")
+
+    adw_app.set_subscription_updater(failing)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert adw_app.last_toast_for_test == (
+        "Не удалось обновить подписки: нет связи с сервером подписки"
+    )
+
+
+def test_a_denied_update_shows_the_providers_explanation(adw_app):
+    from src.sub.errors import SubscriptionHttpError
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+
+    def denied(_group_id: int, _url: str) -> int:
+        raise SubscriptionHttpError(403, "Превышен лимит устройств")
+
+    adw_app.set_subscription_updater(denied)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert "403: Превышен лимит устройств" in adw_app.last_toast_for_test
+
+
 # --- подключение и диалоги (этап 3) ---
 
 LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#Новый"

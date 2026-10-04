@@ -68,3 +68,29 @@ def build_subscription_rows(
         )
 
     return rows
+
+
+def describe_update_error(error: BaseException) -> str:
+    """Explain a failed update without quoting the subscription address.
+
+    Текст ошибок requests содержит полный URL, а в нём — токен подписки:
+    сообщение уходит в уведомление и в журнал, поэтому собирается заново.
+    """
+    # Импорт внутри функции: модуль списка подписок не должен тянуть requests
+    # при каждом открытии окна.
+    import requests
+
+    from src.sub.errors import SubscriptionHttpError, SubscriptionTooLargeError
+
+    if isinstance(error, SubscriptionHttpError):
+        text = f"сервер ответил {error.status_code}"
+        if error.is_access_denied and error.body_snippet:
+            text += f": {error.body_snippet}"
+        return text
+    if isinstance(error, SubscriptionTooLargeError):
+        return "ответ сервера больше 10 МБ"
+    if isinstance(error, requests.Timeout):
+        return "сервер подписки не ответил вовремя"
+    if isinstance(error, requests.ConnectionError):
+        return "нет связи с сервером подписки"
+    return str(error)
