@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import re
 from abc import ABC
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import (
     Any,
+    ClassVar,
     TypeVar,
     Union,
     get_args,
@@ -262,6 +264,66 @@ class DnsSettings(ConfigBase):
         if self.custom_url:
             return self.custom_url
         return DnsProvider.URLS.get(self.provider, "local")
+
+
+_FRAGMENT_RANGE = re.compile(r"^(\d{1,5})(?:-(\d{1,5}))?$")
+
+
+def _is_valid_range(value: str, low: int, high: int) -> bool:
+    """Число `N` или диапазон `N-M` в пределах [low, high]."""
+    match = _FRAGMENT_RANGE.match(value)
+    if not match:
+        return False
+    start = int(match.group(1))
+    end = int(match.group(2) or match.group(1))
+    return low <= start <= end <= high
+
+
+@dataclass
+class TlsFragmentSettings(ConfigBase):
+    """Фрагментация TLS ClientHello (tcp-маска `fragment` в finalmask).
+
+    Значения — строки в формате ядра. Стартовые взяты из v2rayN/Happ и на сети
+    с DPI не подбирались: на конкретной сети могут понадобиться другие.
+    """
+
+    PACKETS_TLS_HELLO: ClassVar[str] = "tlshello"
+    DEFAULT_LENGTH: ClassVar[str] = "100-200"
+    DEFAULT_DELAY: ClassVar[str] = "10-20"
+
+    enabled: bool = False
+    # "tlshello" режет только ClientHello; иначе номера пакетов, N или N-M.
+    packets: str = PACKETS_TLS_HELLO
+    # Размер фрагмента в байтах.
+    length: str = DEFAULT_LENGTH
+    # Пауза между фрагментами, миллисекунды.
+    delay: str = DEFAULT_DELAY
+
+    @staticmethod
+    def is_valid_packets(value: str) -> bool:
+        value = value.strip()
+        return value.lower() == TlsFragmentSettings.PACKETS_TLS_HELLO or _is_valid_range(
+            value, 1, 65535
+        )
+
+    @staticmethod
+    def is_valid_length(value: str) -> bool:
+        # Нулевую длину ядро отвергает вместе со всем конфигом.
+        return _is_valid_range(value.strip(), 1, 16384)
+
+    @staticmethod
+    def is_valid_delay(value: str) -> bool:
+        return _is_valid_range(value.strip(), 0, 1000)
+
+    def sanitized(self) -> TlsFragmentSettings:
+        """Копия, где невалидное поле заменено значением по умолчанию."""
+        packets, length, delay = self.packets.strip(), self.length.strip(), self.delay.strip()
+        return TlsFragmentSettings(
+            enabled=self.enabled,
+            packets=packets.lower() if self.is_valid_packets(packets) else self.PACKETS_TLS_HELLO,
+            length=length if self.is_valid_length(length) else self.DEFAULT_LENGTH,
+            delay=delay if self.is_valid_delay(delay) else self.DEFAULT_DELAY,
+        )
 
 
 class RoutingMode:

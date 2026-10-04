@@ -11,6 +11,7 @@ from src.db.config import (
     MonitoringSettings,
     ProxyMode,
     RoutingSettings,
+    TlsFragmentSettings,
     VpnSettings,
 )
 
@@ -95,6 +96,8 @@ class DataStore(ConfigBase):
     vpn: VpnSettings = field(default_factory=VpnSettings)
     # Monitoring settings
     monitoring: MonitoringSettings = field(default_factory=MonitoringSettings)
+    # Обход DPI: фрагментация TLS ClientHello. Mux — поля mux_default_on/mux_concurrency.
+    tls_fragment: TlsFragmentSettings = field(default_factory=TlsFragmentSettings)
     # Misc
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000

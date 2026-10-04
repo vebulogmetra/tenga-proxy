@@ -13,6 +13,7 @@ import socket
 
 from src.core.context import AppContext
 from src.core.proxy_mode import build_inbounds_for_mode
+from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import DEFAULT_ROUTING_ORDER, LOCAL_NETWORKS, ProxyMode, RoutingMode
 from src.db.profiles import ProfileEntry
 from src.sys.vpn import (
@@ -41,6 +42,7 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
         outbound = result["outbound"]
         if "tag" not in outbound:
             outbound["tag"] = "proxy"
+        apply_transport_tweaks(outbound, context.config)
 
         proxy_tag = outbound["tag"]
         port = context.config.inbound_socks_port
