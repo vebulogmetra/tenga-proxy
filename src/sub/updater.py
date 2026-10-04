@@ -135,6 +135,10 @@ class SubscriptionUpdater:
                 for bean in beans:
                     self._profiles.add_profile(bean, group_id)
 
+            group = self._profiles.get_group(group_id)
+            if group is not None:
+                group.last_updated = int(time.time())
+
             self._profiles.save()
 
         return beans

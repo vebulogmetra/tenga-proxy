@@ -249,3 +249,30 @@ def test_update_without_clearing_appends_to_the_group(tmp_path):
         updater.update("http://example.com/sub", group_id=group.id, clear_existing=False)
 
     assert [p.name for p in profiles.get_profiles_in_group(group.id)] == ["NL-1", "NL-1"]
+
+
+# --- Время обновления ---------------------------------------------------------
+
+
+def test_update_records_when_the_subscription_was_refreshed(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    updater = SubscriptionUpdater(profiles=profiles)
+
+    with (
+        patch("src.sub.updater.requests.get", return_value=_text_response(LINK_NL)),
+        patch("src.sub.updater.time.time", return_value=1_800_000_000.7),
+    ):
+        updater.update("http://example.com/sub", group_id=group.id)
+
+    assert group.last_updated == 1_800_000_000
+
+
+def test_an_empty_response_does_not_count_as_a_refresh(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    group.last_updated = 1_700_000_000
+    updater = SubscriptionUpdater(profiles=profiles)
+
+    with patch("src.sub.updater.requests.get", return_value=_text_response("nothing here")):
+        updater.update("http://example.com/sub", group_id=group.id)
+
+    assert group.last_updated == 1_700_000_000
