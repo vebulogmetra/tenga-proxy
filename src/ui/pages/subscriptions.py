@@ -89,7 +89,11 @@ class SubscriptionsPage(Gtk.Box):
         self._stack.set_visible_child_name("list" if self._rows else "empty")
 
     def _build_row(self, row: SubscriptionRow) -> Adw.ActionRow:
-        action_row = Adw.ActionRow(title=row.name, subtitle=row.url)
+        # Имя и адрес приходят извне: амперсанд в query не является разметкой.
+        action_row = Adw.ActionRow()
+        action_row.set_use_markup(False)
+        action_row.set_title(row.name)
+        action_row.set_subtitle(row.url)
         action_row.set_subtitle_lines(1)
         action_row.set_activatable(True)
         action_row.connect(

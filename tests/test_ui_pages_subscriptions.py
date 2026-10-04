@@ -78,6 +78,15 @@ def test_subtitle_carries_the_full_url(page, data):
     assert long_url in page.get_subtitles()
 
 
+def test_an_address_with_an_ampersand_is_still_shown(page, data):
+    """Адрес с query-параметрами должен отображаться как обычный текст."""
+    url = "https://sub.example/list?token=abc&client=tenga"
+    groups, counts = data
+    groups[1].subscription_url = url
+    page.set_data(groups, counts)
+    assert url in page.get_subtitles()
+
+
 def test_update_button_emits_the_group_id(page, data):
     received: list[int] = []
     page.connect("subscription-update", lambda _p, group_id: received.append(group_id))
