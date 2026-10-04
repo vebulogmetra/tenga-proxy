@@ -176,3 +176,29 @@ def test_the_mux_switch_round_trips(gtk_ready):
     dialog.save()
     assert config.mux_default_on is True
     assert make_dialog(config).mux_row.get_active()
+
+
+# --- подписки ---
+
+
+def test_the_user_agent_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert dialog.user_agent_row.get_text() == ""
+
+    dialog.user_agent_row.set_text("  MyClient/2.0  ")
+    dialog.save()
+
+    assert config.user_agent == "MyClient/2.0"
+    assert config.get_user_agent() == "MyClient/2.0"
+
+
+def test_the_old_default_user_agent_is_shown_as_unset(gtk_ready):
+    """Прежнее значение по умолчанию — не выбор пользователя: поле остаётся пустым."""
+    config = make_config()
+    config.user_agent = "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
+    dialog = make_dialog(config)
+
+    assert dialog.user_agent_row.get_text() == ""
+    dialog.save()
+    assert config.user_agent == ""

@@ -10,6 +10,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GObject, Gtk
 
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
+from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.ui.logic.version import UNKNOWN, app_version, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
@@ -66,6 +67,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_monitoring_page()
         self._build_dns_page()
         self._build_bypass_page()
+        self._build_subscriptions_page()
         self._build_about_page()
 
         self._load()
@@ -199,6 +201,20 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         mux.add(self.mux_row)
 
+    def _build_subscriptions_page(self) -> None:
+        page = Adw.PreferencesPage(title="Подписки", icon_name="folder-download-symbolic")
+        self.add(page)
+
+        request = Adw.PreferencesGroup(
+            title="Запрос к провайдеру",
+            description=f"Пустое поле — {DEFAULT_USER_AGENT}: так представляется большинство "
+            "клиентов, и провайдеры отдают ему обычный список серверов.",
+        )
+        page.add(request)
+
+        self.user_agent_row = Adw.EntryRow(title="User-Agent")
+        request.add(self.user_agent_row)
+
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
         self.add(page)
@@ -280,6 +296,9 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._sync_fragment()
         self.mux_row.set_active(config.mux_default_on)
 
+        user_agent = config.user_agent.strip()
+        self.user_agent_row.set_text("" if user_agent == LEGACY_USER_AGENT else user_agent)
+
     def save(self) -> None:
         """Write the form back into the configuration object."""
         config = self._config
@@ -309,6 +328,8 @@ class SettingsDialog(Adw.PreferencesDialog):
             delay=self.fragment_delay_row.get_text(),
         ).sanitized()
         config.mux_default_on = self.mux_row.get_active()
+
+        config.user_agent = self.user_agent_row.get_text().strip()
 
         self.emit("settings-saved")
 
