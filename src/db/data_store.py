@@ -15,6 +15,14 @@ from src.db.config import (
     VpnSettings,
 )
 
+# Так представляется провайдеру подписки Android-версия. v2rayNG знают все панели
+# и отдают ему список ссылок; незнакомому клиенту часть провайдеров рвёт
+# соединение ещё на TLS-рукопожатии.
+DEFAULT_USER_AGENT = "v2rayNG/1.8.23"
+# Значение по умолчанию до этапа 2. Просило Clash YAML, который приложение не
+# разбирает: провайдер был вправе ответить YAML, и подписка давала ноль профилей.
+LEGACY_USER_AGENT = "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
+
 
 @dataclass
 class DataStore(ConfigBase):
@@ -120,9 +128,10 @@ class DataStore(ConfigBase):
 
     def get_user_agent(self, use_default: bool = False) -> str:
         """Get User-Agent."""
-        if use_default or not self.user_agent:
-            return "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
-        return self.user_agent
+        custom = self.user_agent.strip()
+        if use_default or not custom or custom == LEGACY_USER_AGENT:
+            return DEFAULT_USER_AGENT
+        return custom
 
     def update_started_id(self, profile_id: int) -> None:
         """Update started profile ID."""
