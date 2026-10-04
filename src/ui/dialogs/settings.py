@@ -142,6 +142,23 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.interval_row.set_subtitle("Секунд между проверками")
         group.add(self.interval_row)
 
+        failover = Adw.PreferencesGroup(
+            title="Автопереключение",
+            description=(
+                "Если сервер перестал отвечать, подключается другой профиль той же группы"
+            ),
+        )
+        page.add(failover)
+
+        self.failover_row = Adw.SwitchRow(title="Переключаться автоматически")
+        self.failover_row.connect("notify::active", lambda *_: self._sync_monitoring())
+        failover.add(self.failover_row)
+
+        self.failover_threshold_row = Adw.SpinRow.new_with_range(1, 10, 1)
+        self.failover_threshold_row.set_title("Порог")
+        self.failover_threshold_row.set_subtitle("Неудачных проверок подряд")
+        failover.add(self.failover_threshold_row)
+
     def _build_dns_page(self) -> None:
         page = Adw.PreferencesPage(title="DNS", icon_name="network-server-symbolic")
         self.add(page)
@@ -284,7 +301,11 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_mtu_row.set_sensitive(tun)
 
     def _sync_monitoring(self) -> None:
-        self.interval_row.set_sensitive(self.monitoring_row.get_active())
+        monitoring = self.monitoring_row.get_active()
+        self.interval_row.set_sensitive(monitoring)
+        # Без мониторинга проверок нет — переключаться не по чему.
+        self.failover_row.set_sensitive(monitoring)
+        self.failover_threshold_row.set_sensitive(monitoring and self.failover_row.get_active())
 
     def _sync_fragment(self) -> None:
         active = self.fragment_row.get_active()
@@ -308,6 +329,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         monitoring = config.monitoring
         self.monitoring_row.set_active(monitoring.enabled)
         self.interval_row.set_value(float(monitoring.check_interval_seconds))
+        self.failover_row.set_active(monitoring.failover_enabled)
+        self.failover_threshold_row.set_value(float(monitoring.failover_threshold))
         self._sync_monitoring()
 
         dns = config.dns
@@ -344,6 +367,8 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         config.monitoring.enabled = self.monitoring_row.get_active()
         config.monitoring.check_interval_seconds = int(self.interval_row.get_value())
+        config.monitoring.failover_enabled = self.failover_row.get_active()
+        config.monitoring.failover_threshold = int(self.failover_threshold_row.get_value())
 
         config.dns.provider = self._dns.selected()
         config.dns.custom_url = self.dns_url_row.get_text().strip()

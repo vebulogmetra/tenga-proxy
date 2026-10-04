@@ -88,6 +88,38 @@ def test_disabled_monitoring_dims_the_interval(gtk_ready):
     assert not dialog.interval_row.get_sensitive()
 
 
+def test_failover_settings_round_trip(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    assert not dialog.failover_row.get_active()
+
+    dialog.failover_row.set_active(True)
+    dialog.failover_threshold_row.set_value(5)
+    dialog.save()
+
+    assert config.monitoring.failover_enabled
+    assert config.monitoring.failover_threshold == 5
+
+
+def test_failover_threshold_is_dimmed_until_failover_is_on(gtk_ready):
+    dialog = make_dialog()
+    dialog.monitoring_row.set_active(True)
+    assert not dialog.failover_threshold_row.get_sensitive()
+
+    dialog.failover_row.set_active(True)
+    assert dialog.failover_threshold_row.get_sensitive()
+
+
+def test_disabled_monitoring_dims_failover(gtk_ready):
+    """Без мониторинга проверок нет — переключаться не по чему."""
+    dialog = make_dialog()
+    dialog.failover_row.set_active(True)
+    dialog.monitoring_row.set_active(False)
+
+    assert not dialog.failover_row.get_sensitive()
+    assert not dialog.failover_threshold_row.get_sensitive()
+
+
 def test_the_dns_provider_round_trips(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)

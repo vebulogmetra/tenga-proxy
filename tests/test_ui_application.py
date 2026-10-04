@@ -720,6 +720,55 @@ def test_default_latency_run_measures_the_whole_set_with_one_batch_call(adw_app,
     assert store.get_profile(second.id).latency_ms == 42
 
 
+def _silent_server_status():
+    from src.core.monitor import ConnectionStatus
+
+    return ConnectionStatus(proxy_ok=False, proxy_error="Сервер не отвечает", server_probed=True)
+
+
+def _watched_monitor(app, *, failover_enabled: bool):
+    from src.core.monitor import attach_monitor
+
+    context = app.context
+    context.config.monitoring.failover_enabled = failover_enabled
+    context.config.monitoring.failover_threshold = 1
+    monitor = attach_monitor(context)
+    app.watch_monitor()
+    return monitor
+
+
+def test_failover_connects_the_next_profile_of_the_group_and_says_so(adw_app):
+    first = add_profile(adw_app)
+    second = add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+    adw_app.context.proxy_state.set_running(first.id)
+    monitor = _watched_monitor(adw_app, failover_enabled=True)
+
+    monitor._status = _silent_server_status()
+    monitor._notify_status_changed()
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == [("connect", second.id)]
+    assert "переключаюсь" in adw_app.last_notification_for_test
+
+
+def test_failover_stays_out_of_the_way_when_disabled(adw_app):
+    first = add_profile(adw_app)
+    add_profile(adw_app)
+    calls = []
+    adw_app.set_connection_service(FakeService(calls))
+    adw_app.context.proxy_state.set_running(first.id)
+    monitor = _watched_monitor(adw_app, failover_enabled=False)
+
+    monitor._status = _silent_server_status()
+    monitor._notify_status_changed()
+    adw_app.wait_for_connection_for_test()
+
+    assert calls == []
+    assert adw_app.last_notification_for_test == ""
+
+
 def _simulate_close(app, dialog) -> None:
     """Release the slot the way the `closed` signal would.
 

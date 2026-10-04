@@ -14,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core.context import AppContext, get_context
+from src.core.failover import FailoverController
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, make_batch_probe
 from src.ui.logic.profiles_view import SortKey
@@ -31,6 +32,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tenga.ui.application")
 
 APP_ID = "ru.tenga.Proxy"
+FAILOVER_NOTIFICATION_ID = "failover"
+
+
+def _network_available() -> bool:
+    """Whether the machine has a network at all, as the desktop sees it."""
+    return Gio.NetworkMonitor.get_default().get_network_available()
+
 
 # Действия и их ускорители. Один набор обслуживает меню, контекстные меню,
 # клавиатуру и трей — как описано в дизайн-документе.
@@ -74,7 +82,9 @@ class TengaApplication(Adw.Application):
         self._connection_service = None
         self._connection_thread = None
         self._dialog = None
+        self._failover: FailoverController | None = None
         self.last_toast_for_test = ""
+        self.last_notification_for_test = ""
 
     # Жизненный цикл
 
@@ -84,6 +94,7 @@ class TengaApplication(Adw.Application):
         load_css()
         self._register_actions()
         self._setup_signal_handlers()
+        self.watch_monitor()
         if self._with_tray:
             self.start_tray()
 
@@ -104,6 +115,37 @@ class TengaApplication(Adw.Application):
         if monitor is None or not self.context.proxy_state.is_running:
             return
         monitor.start()
+
+    def watch_monitor(self) -> None:
+        """Hand the monitor's verdicts to the failover controller.
+
+        Контроллер сам смотрит в настройки и при выключенном автопереключении
+        ничего не делает, поэтому подписка ставится безусловно.
+        """
+        monitor = self.context.monitor
+        if monitor is None:
+            return
+
+        self._failover = FailoverController(
+            self.context,
+            switch_to=self.connect_profile,
+            notify=self.notify_user,
+            network_available=_network_available,
+        )
+        monitor.set_on_status_changed(self._failover.handle_status)
+
+    def notify_user(self, text: str) -> None:
+        """Tell the user something they must not miss.
+
+        Тост виден только в открытом окне, а приложение обычно свёрнуто в
+        трей — поэтому сообщение дублируется уведомлением рабочего стола.
+        """
+        self.last_notification_for_test = text
+        self.toast(text)
+
+        notification = Gio.Notification.new("Tenga Proxy")
+        notification.set_body(text)
+        self.send_notification(FAILOVER_NOTIFICATION_ID, notification)
 
     def do_shutdown(self) -> None:
         # Выход по SIGTERM не эмитирует close-request, поэтому геометрия
@@ -842,7 +884,9 @@ class TengaApplication(Adw.Application):
         self._connection_service = None
         self._connection_thread = None
         self._dialog = None
+        self._failover = None
         self.last_toast_for_test = ""
+        self.last_notification_for_test = ""
 
     def toast(self, text: str) -> None:
         """Show a message in the window, if there is one."""
