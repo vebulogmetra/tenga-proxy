@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.core.geo import GeoCatalog
-from src.ui.logic.routing_form import LIST_HINT, ru_direct_subtitle
+from src.ui.logic.routing_form import LIST_HINT, geo_summary, ru_direct_subtitle
 
 FULL = GeoCatalog(geosite=frozenset({"category-ru", "category-gov-ru"}), geoip=frozenset({"ru"}))
 
@@ -28,3 +28,11 @@ def test_subtitle_without_geo_bases():
 def test_list_hint_mentions_geo_entries():
     assert "geosite:" in LIST_HINT
     assert "geoip:" in LIST_HINT
+
+
+def test_geo_summary_counts_categories():
+    assert geo_summary(FULL) == "geosite: 2 категорий, geoip: 1"
+
+
+def test_geo_summary_without_bases():
+    assert geo_summary(GeoCatalog()) == "Не найдены: правила geosite: и geoip: не применяются"

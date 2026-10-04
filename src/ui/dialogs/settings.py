@@ -9,9 +9,13 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GObject, Gtk
 
+from src.core.geo import USER_GEO_DIR
+from src.core.geo_update import update_geo_bases
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
+from src.ui.logic.async_utils import run_in_background
+from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.version import UNKNOWN, app_version, core_version
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
@@ -256,6 +260,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.clear_logs_row.set_sensitive(self._context is not None)
         actions.add(self.clear_logs_row)
 
+        self.geo_row = Adw.ActionRow(title="Геобазы")
+        self.geo_row.set_use_markup(False)
+        self.geo_row.set_subtitle(geo_summary(current_catalog()))
+        self.geo_update_button = Gtk.Button(label="Обновить", valign=Gtk.Align.CENTER)
+        self.geo_update_button.connect("clicked", self._on_update_geo)
+        self.geo_row.add_suffix(self.geo_update_button)
+        actions.add(self.geo_row)
+
     @staticmethod
     def _value_row(title: str, value: str) -> Adw.ActionRow:
         row = Adw.ActionRow(title=title, subtitle=value)
@@ -369,6 +381,25 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def select_log_level(self, key: str) -> None:
         self._log_level.select(key)
+
+    def _on_update_geo(self, _button: Gtk.Button) -> None:
+        # Скачивание — десятки мегабайт: в главном потоке окно бы замерло.
+        self.geo_update_button.set_sensitive(False)
+        self.geo_row.set_subtitle("Скачивание…")
+        run_in_background(
+            lambda: update_geo_bases(USER_GEO_DIR),
+            on_done=self._on_geo_updated,
+            on_error=self._on_geo_update_failed,
+            name="tenga-geo-update",
+        )
+
+    def _on_geo_updated(self, catalog) -> None:
+        self.geo_update_button.set_sensitive(True)
+        self.geo_row.set_subtitle(f"{geo_summary(catalog)} — применятся при сохранении настроек")
+
+    def _on_geo_update_failed(self, error: BaseException) -> None:
+        self.geo_update_button.set_sensitive(True)
+        self.geo_row.set_subtitle(f"Не обновлены: {error}")
 
     def _on_clear_logs(self, _button: Gtk.Button) -> None:
         if self._context is None:

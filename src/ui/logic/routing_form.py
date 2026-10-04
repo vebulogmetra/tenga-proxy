@@ -24,3 +24,10 @@ def ru_direct_subtitle(catalog: GeoCatalog) -> str:
     if len(missing) == len(_RU_DIRECT_RULES):
         return "Не сработает: геобазы не найдены"
     return "Не сработает полностью: в геобазах нет " + ", ".join(missing)
+
+
+def geo_summary(catalog: GeoCatalog) -> str:
+    """Строка состояния геобаз для страницы «О программе»."""
+    if not catalog.geosite and not catalog.geoip:
+        return "Не найдены: правила geosite: и geoip: не применяются"
+    return f"geosite: {len(catalog.geosite)} категорий, geoip: {len(catalog.geoip)}"

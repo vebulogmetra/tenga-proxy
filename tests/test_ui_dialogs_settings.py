@@ -141,6 +141,11 @@ def test_the_dns_interception_switch_round_trips(gtk_ready):
     assert config.dns.intercept is False
 
 
+def test_the_about_page_shows_geo_bases(gtk_ready):
+    dialog = make_dialog(make_config())
+    assert dialog.geo_row.get_subtitle()
+
+
 def test_the_fragment_settings_round_trip(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)
@@ -235,3 +240,36 @@ def test_enabling_device_info_creates_the_hwid(gtk_ready):
 
     assert config.sub_send_device_info
     assert config.sub_hwid
+
+
+def test_geo_update_reports_progress_and_result_without_blocking(gtk_ready, monkeypatch):
+    from src.core.geo import GeoCatalog
+    from src.ui.dialogs import settings
+
+    calls = []
+    monkeypatch.setattr(
+        settings, "run_in_background", lambda fn, **kwargs: calls.append((fn, kwargs))
+    )
+    dialog = make_dialog()
+    dialog.geo_update_button.emit("clicked")
+
+    assert not dialog.geo_update_button.get_sensitive()
+    assert dialog.geo_row.get_subtitle() == "Скачивание…"
+    assert len(calls) == 1
+    calls[0][1]["on_done"](GeoCatalog(geosite=frozenset({"ru"}), geoip=frozenset({"ru"})))
+    assert dialog.geo_update_button.get_sensitive()
+    assert "geosite: 1" in dialog.geo_row.get_subtitle()
+    assert "при сохранении настроек" in dialog.geo_row.get_subtitle()
+
+
+def test_geo_update_error_restores_button_and_shows_plain_text(gtk_ready, monkeypatch):
+    from src.ui.dialogs import settings
+
+    calls = []
+    monkeypatch.setattr(settings, "run_in_background", lambda _fn, **kwargs: calls.append(kwargs))
+    dialog = make_dialog()
+    dialog.geo_update_button.emit("clicked")
+    calls[0]["on_error"](RuntimeError("ошибка <download> & записи"))
+
+    assert dialog.geo_update_button.get_sensitive()
+    assert dialog.geo_row.get_subtitle() == "Не обновлены: ошибка <download> & записи"
