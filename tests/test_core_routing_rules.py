@@ -9,7 +9,7 @@ import pytest
 from src.core import config_builder
 from src.core.config_builder import build_session_config
 from src.core.geo import GeoCatalog
-from src.db.config import RoutingMode
+from src.db.config import LOCAL_NETWORKS, RoutingMode, RoutingSettings
 from tests.support.session import (
     XRAY,
     make_context,
@@ -172,3 +172,109 @@ def test_blocked_traffic_is_not_counted_as_proxy_traffic():
     from src.core.xray_manager import XrayManager
 
     assert "block" in XrayManager._SERVICE_TAGS
+
+
+# --- готовые правила ------------------------------------------------------
+
+
+def rule_index(config: dict, key: str, value: str) -> int:
+    for index, rule in enumerate(config["routing"]["rules"]):
+        if value in rule.get(key, []):
+            return index
+    raise AssertionError(f"нет правила с {key}={value}")
+
+
+def test_local_networks_go_direct_by_default():
+    assert RoutingSettings().bypass_local_networks is True
+
+
+def test_local_networks_rule_comes_after_user_lists(context, profile):
+    """Готовое правило не должно перебивать явное: подсеть из списка главнее.
+
+    Иначе `10.14.0.0/16` из списка «через VPN» при порядке «напрямую → VPN» ушла
+    бы напрямую, совпав с `10.0.0.0/8`.
+    """
+    use_custom_lists(context, proxy=["10.14.0.0/16"], direct=["direct.example"])
+    context.config.routing.bypass_local_networks = True
+    context.config.routing.rule_order = ["direct", "vpn", "proxy"]
+
+    config = build_session_config(context, profile)
+
+    assert rule_index(config, "ip", "10.14.0.0/16") < rule_index(config, "ip", "10.0.0.0/8")
+    assert set(LOCAL_NETWORKS) <= set(rule_values(config, "direct", "ip"))
+
+
+def test_local_networks_switch_can_be_turned_off(context, profile):
+    use_custom_lists(context, direct=["direct.example"])
+    context.config.routing.bypass_local_networks = False
+
+    config = build_session_config(context, profile)
+
+    assert "10.0.0.0/8" not in rule_values(config, "direct", "ip")
+
+
+def test_russian_sites_go_through_proxy_by_default(context, profile):
+    use_custom_lists(context, direct=["direct.example"])
+
+    config = build_session_config(context, profile)
+
+    assert RoutingSettings().ru_direct is False
+    assert "geoip:ru" not in str(config["routing"]["rules"])
+
+
+def test_ru_direct_adds_ip_and_domain_rules(context, profile):
+    use_custom_lists(context)
+    context.config.routing.ru_direct = True
+
+    config = build_session_config(context, profile)
+
+    assert "geoip:ru" in rule_values(config, "direct", "ip")
+    assert rule_values(config, "direct", "domain") == [
+        "geosite:category-ru",
+        "geosite:category-gov-ru",
+    ]
+
+
+@pytest.mark.parametrize("order", [["direct", "vpn", "proxy"], ["proxy", "direct", "vpn"]])
+def test_user_proxy_list_beats_ru_direct(context, profile, order):
+    """Российский домен, явно отправленный в прокси, не должен уйти напрямую."""
+    use_custom_lists(context, proxy=["blocked.ru.example", "77.88.0.0/16"])
+    context.config.routing.ru_direct = True
+    context.config.routing.rule_order = order
+
+    config = build_session_config(context, profile)
+
+    ru_rule = rule_index(config, "ip", "geoip:ru")
+    assert rule_index(config, "domain", "domain:blocked.ru.example") < ru_rule
+    assert rule_index(config, "ip", "77.88.0.0/16") < ru_rule
+
+
+def test_ru_direct_is_ignored_in_proxy_all_mode(context, profile):
+    context.config.routing.mode = RoutingMode.PROXY_ALL
+    context.config.routing.ru_direct = True
+
+    config = build_session_config(context, profile)
+
+    assert "geoip:ru" not in str(config["routing"]["rules"])
+
+
+def test_ru_direct_without_geo_bases_adds_nothing(context, profile, monkeypatch):
+    """Старая установка без геобаз: тумблер не должен ронять подключение."""
+    monkeypatch.setattr(config_builder, "load_catalog", lambda _dirs: GeoCatalog())
+    use_custom_lists(context)
+    context.config.routing.ru_direct = True
+
+    config = build_session_config(context, profile)
+
+    assert "geo" not in str(config)
+
+
+@needs_xray
+def test_core_accepts_ready_made_rules(context, profile, tmp_path):
+    use_custom_lists(context, proxy=["blocked.ru.example"], direct=["direct.example"])
+    context.config.routing.ru_direct = True
+    context.config.routing.bypass_local_networks = True
+
+    config = build_session_config(context, profile)
+
+    assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)

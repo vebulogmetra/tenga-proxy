@@ -232,3 +232,16 @@ def test_core_accepts_split_dns(context, profile, tmp_path, provider):
     config = build_session_config(context, profile)
 
     assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)
+
+
+def test_ru_direct_resolves_russian_sites_with_the_system_resolver(context, profile):
+    """Готовое правило стоит после пользовательских: домен из proxy-списка главнее."""
+    use_custom_lists(context, proxy=["blocked.ru.example"])
+    context.config.routing.ru_direct = True
+
+    assert dns_of(context, profile)["servers"] == [
+        BOOTSTRAP,
+        {"address": DOH, "domains": ["domain:blocked.ru.example"]},
+        direct_dns("geosite:category-ru", "geosite:category-gov-ru"),
+        {"address": DOH},
+    ]

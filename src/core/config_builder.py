@@ -14,7 +14,13 @@ import socket
 
 from src.core.context import AppContext
 from src.core.dns_config import build_dns
-from src.core.geo import GeoCatalog, asset_dirs, load_catalog
+from src.core.geo import (
+    RU_DIRECT_GEOIP,
+    RU_DIRECT_GEOSITES,
+    GeoCatalog,
+    asset_dirs,
+    load_catalog,
+)
 from src.core.proxy_mode import build_inbounds_for_mode, normalize_proxy_mode
 from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import (
@@ -156,29 +162,13 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                     vpn_settings.connection_name,
                 )
 
-        if routing.mode == RoutingMode.PROXY_ALL:
-            if routing.bypass_local_networks:
-                local_networks = list(LOCAL_NETWORKS)
-                route_rules.append(
-                    {
-                        "type": "field",
-                        "ip": local_networks,
-                        "outboundTag": "direct",
-                    }
-                )
-                logger.debug("Added local networks bypass rule for PROXY_ALL mode")
-        elif routing.mode == RoutingMode.CUSTOM:
+        if routing.mode == RoutingMode.CUSTOM:
             catalog = load_catalog(asset_dirs(context.find_xray_binary()))
-            direct_list = list(routing.direct_list) if routing.direct_list else []
 
-            if routing.bypass_local_networks:
-                local_networks = list(LOCAL_NETWORKS)
-                for network in local_networks:
-                    if network not in direct_list:
-                        direct_list.append(network)
-
-            if direct_list:
-                direct_domains, direct_ips = _parse_list(routing, direct_list, catalog, "direct")
+            if routing.direct_list:
+                direct_domains, direct_ips = _parse_list(
+                    routing, routing.direct_list, catalog, "direct"
+                )
 
             if routing.vpn_list and vpn_tag and vpn_interface:
                 vpn_domains, vpn_ips = _parse_list(routing, routing.vpn_list, catalog, "vpn")
@@ -280,6 +270,25 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                             proxy_domains,
                         )
 
+        # Готовые правила — после пользовательских групп: явная запись списка
+        # главнее. Подсеть из списка «через VPN» не должна уйти напрямую только
+        # потому, что входит в 10.0.0.0/8.
+        ru_direct_domains: list[str] = []
+        if routing.bypass_local_networks:
+            route_rules.append(
+                {"type": "field", "ip": list(LOCAL_NETWORKS), "outboundTag": "direct"}
+            )
+        if routing.mode == RoutingMode.CUSTOM and routing.ru_direct:
+            ru_direct_domains, ru_direct_ips = _parse_list(
+                routing, [*RU_DIRECT_GEOSITES, RU_DIRECT_GEOIP], catalog, "готовые правила"
+            )
+            if ru_direct_ips:
+                route_rules.append({"type": "field", "ip": ru_direct_ips, "outboundTag": "direct"})
+            if ru_direct_domains:
+                route_rules.append(
+                    {"type": "field", "domain": ru_direct_domains, "outboundTag": "direct"}
+                )
+
         # Outbounds
         runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
         tun_name = getattr(context.config, "tun_name", "xray0")
@@ -349,7 +358,10 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
         dns = build_dns(
             context.config.dns,
             proxy_host=profile.bean.server_address if profile.bean else "",
-            domain_groups=[(group, domains_by_group[group]) for group in rule_order],
+            domain_groups=[
+                *((group, domains_by_group[group]) for group in rule_order),
+                ("direct", ru_direct_domains),
+            ],
             blocked_domains=block_domains,
             vpn_active=vpn_active,
             vpn_dns_servers=vpn_dns_servers,

@@ -456,7 +456,10 @@ class RoutingSettings(ConfigBase):
     # Блокировка: blackhole для трафика и NXDOMAIN для имён. Применяется раньше
     # остальных групп и в порядке групп не участвует.
     block_list: list[str] = field(default_factory=list)
-    bypass_local_networks: bool = False
+    # Готовые правила; оба стоят после пользовательских групп.
+    bypass_local_networks: bool = True
+    # Российские сайты и IP — напрямую (geosite:category-ru, geoip:ru).
+    ru_direct: bool = False
     # direct/vpn/proxy
     rule_order: list[str] = field(default_factory=lambda: DEFAULT_ROUTING_ORDER.copy())
 
