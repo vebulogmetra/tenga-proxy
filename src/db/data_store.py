@@ -112,6 +112,10 @@ class DataStore(ConfigBase):
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000
     check_include_pre: bool = False
+    # Проверка обновлений ядра: новейшие известные релизы и время опроса GitHub.
+    core_update_stable: str = ""
+    core_update_prerelease: str = ""
+    core_update_checked_at: int = 0
     system_proxy_format: str = ""
     # Runtime state (not saved)
     _core_token: str = field(default="", repr=False)
