@@ -7,6 +7,7 @@ AppContext explicitly instead of reading it from `self`.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import random
 import socket
@@ -14,7 +15,7 @@ import socket
 from src.core.context import AppContext
 from src.core.dns_config import build_dns
 from src.core.geo import GeoCatalog, asset_dirs, load_catalog
-from src.core.proxy_mode import build_inbounds_for_mode
+from src.core.proxy_mode import build_inbounds_for_mode, normalize_proxy_mode
 from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import (
     DEFAULT_ROUTING_ORDER,
@@ -22,6 +23,7 @@ from src.db.config import (
     ProxyMode,
     RoutingMode,
     RoutingSettings,
+    VpnSettings,
 )
 from src.db.profiles import ProfileEntry
 from src.sys.vpn import (
@@ -56,6 +58,40 @@ def _parse_list(
             ", ".join(dropped),
         )
     return domains, ips
+
+
+def _physical_interface(
+    *,
+    tun_mode: bool,
+    tun_name: str,
+    vpn_interface: str | None,
+    vpn_settings: VpnSettings | None,
+) -> str | None:
+    """Интерфейс, через который ядро выходит в сеть мимо туннелей.
+
+    None — привязка не нужна (системный прокси без VPN) или интерфейс не найден.
+    """
+    if vpn_interface:
+        explicit = getattr(vpn_settings, "direct_interface", "") or ""
+        return explicit or get_default_interface(vpn_interface, exclude=(tun_name,))
+    if tun_mode:
+        return get_default_interface(exclude=(tun_name,))
+    return None
+
+
+def _is_loopback(host: str) -> bool:
+    """Сервер на этой же машине (локальный обфускатор): через сетевой интерфейс не достать."""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _bind_to_interface(outbound: dict, interface: str) -> None:
+    sockopt = outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})
+    sockopt["interface"] = interface
 
 
 def build_session_config(context: AppContext, profile: ProfileEntry | None) -> dict | None:
@@ -245,35 +281,23 @@ def build_session_config(context: AppContext, profile: ProfileEntry | None) -> d
                         )
 
         # Outbounds
+        runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
+        tun_name = getattr(context.config, "tun_name", "xray0")
         direct_outbound = {"protocol": "freedom", "tag": "direct"}
-        if vpn_tag and vpn_interface and vpn_settings:
-            direct_interface = getattr(vpn_settings, "direct_interface", "") or ""
-            if not direct_interface:
-                direct_interface = get_default_interface(vpn_interface)
-
-            if direct_interface:
-                direct_outbound["streamSettings"] = {
-                    "sockopt": {
-                        "interface": direct_interface,
-                    },
-                }
-                logger.info(
-                    "Direct outbound bound to interface: %s (bypassing VPN %s)",
-                    direct_interface,
-                    vpn_interface,
-                )
-
-                # CRITICAL: Proxy outbound must also use direct interface to reach proxy server
-                # Otherwise it goes through VPN tunnel which may not route to proxy correctly
-                if "streamSettings" not in outbound:
-                    outbound["streamSettings"] = {}
-                if "sockopt" not in outbound["streamSettings"]:
-                    outbound["streamSettings"]["sockopt"] = {}
-                outbound["streamSettings"]["sockopt"]["interface"] = direct_interface
-                logger.info(
-                    "Proxy outbound bound to interface: %s (bypassing VPN to reach proxy server)",
-                    direct_interface,
-                )
+        physical_interface = _physical_interface(
+            tun_mode=runtime_mode == ProxyMode.TUN,
+            tun_name=tun_name,
+            vpn_interface=vpn_interface if vpn_tag else None,
+            vpn_settings=vpn_settings,
+        )
+        if physical_interface:
+            # И прямой выход, и соединение с сервером профиля должны уходить через
+            # физический интерфейс: маршрут по умолчанию ведёт в туннель (TUN
+            # приложения или VPN), и без привязки они вернулись бы в него же.
+            _bind_to_interface(direct_outbound, physical_interface)
+            if not _is_loopback(profile.bean.server_address):
+                _bind_to_interface(outbound, physical_interface)
+            logger.info("Direct and proxy outbounds bound to interface: %s", physical_interface)
 
         outbounds = [
             outbound,

@@ -9,6 +9,18 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_system_probing(monkeypatch) -> None:
+    """Сборка конфига не должна зависеть от сети машины, на которой идут тесты.
+
+    В режиме TUN сборщик спрашивает у системы физический интерфейс. Тест,
+    которому это нужно, подменяет функцию сам.
+    """
+    from src.core import config_builder
+
+    monkeypatch.setattr(config_builder, "get_default_interface", lambda *_a, **_k: None)
+
+
 @pytest.fixture(scope="session")
 def gtk_ready() -> None:
     """Skip the test unless GTK4 can talk to a display."""
