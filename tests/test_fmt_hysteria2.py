@@ -400,3 +400,27 @@ def test_existing_udphop_is_outermost_and_keeps_provider_settings(mport):
     bean = Hysteria2Bean()
     assert bean.try_parse_link(make_link(fm=quote(fm), mport=mport))
     assert bean.build_outbound()["streamSettings"]["finalmask"]["udp"] == [hop, salamander]
+
+
+def test_ipv6_hopping_share_link_roundtrip():
+    bean = Hysteria2Bean()
+    assert bean.try_parse_link("hysteria2://pass@[2001:db8::1]:443,5000-6000")
+    restored = Hysteria2Bean()
+    assert restored.try_parse_link(bean.to_share_link())
+    assert restored.server_address == bean.server_address
+    assert restored.hop_ports == bean.hop_ports
+
+
+@pytest.mark.parametrize(("key", "value"), [("hop-interval", "5%0A"), ("mport", "5000-6000%0A")])
+def test_hopping_parameters_with_trailing_newline_are_rejected(key, value):
+    bean = Hysteria2Bean()
+    assert bean.try_parse_link(make_link(**{key: value}))
+    assert bean.hop_interval == ""
+    assert bean.hop_ports == ""
+
+
+@pytest.mark.parametrize("value", ["%C2%B2", "%D9%A5"])
+def test_non_ascii_bandwidth_is_ignored_without_rejecting_profile(value):
+    bean = Hysteria2Bean()
+    assert bean.try_parse_link(make_link(upmbps=value, downmbps=value))
+    assert (bean.up_mbps, bean.down_mbps) == (0, 0)

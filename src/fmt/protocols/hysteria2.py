@@ -22,7 +22,7 @@ DEFAULT_HOP_INTERVAL_SEC = "30"
 
 def _is_valid_port_spec(spec: str) -> bool:
     """Спецификация портов xray: `443,20000-50000`."""
-    if not _PORT_SPEC.match(spec):
+    if not _PORT_SPEC.fullmatch(spec):
         return False
     for part in spec.split(","):
         bounds = [int(x) for x in part.split("-")]
@@ -33,7 +33,7 @@ def _is_valid_port_spec(spec: str) -> bool:
 
 def _is_valid_hop_interval(value: str) -> bool:
     """Секунды: `30` или диапазон `20-40`."""
-    match = _HOP_INTERVAL.match(value)
+    match = _HOP_INTERVAL.fullmatch(value)
     if not match:
         return False
     low = int(match.group(1))
@@ -42,7 +42,12 @@ def _is_valid_hop_interval(value: str) -> bool:
 
 
 def _positive_int(value: str) -> int:
-    return int(value) if value.isdigit() and int(value) > 0 else 0
+    if not value.isascii() or not value.isdigit():
+        return 0
+    try:
+        return max(int(value), 0)
+    except ValueError:
+        return 0
 
 
 @dataclass
@@ -100,7 +105,7 @@ class Hysteria2Bean(ProxyBean):
             # бросает при чтении port, поэтому отрезаем спецификацию сами: первый
             # порт — основной, вся спецификация — диапазон для хопа.
             userinfo, _, hostport = url.netloc.rpartition("@")
-            multi_port = _MULTI_PORT_AUTHORITY.match(hostport)
+            multi_port = _MULTI_PORT_AUTHORITY.fullmatch(hostport)
             hop_ports = ""
             if multi_port:
                 spec = multi_port.group(2)
@@ -160,7 +165,8 @@ class Hysteria2Bean(ProxyBean):
 
     def to_share_link(self) -> str:
         """Create hysteria2 share link."""
-        url = f"hysteria2://{quote(self.auth, safe='')}@{self.server_address}:{self.server_port}"
+        host = f"[{self.server_address}]" if ":" in self.server_address else self.server_address
+        url = f"hysteria2://{quote(self.auth, safe='')}@{host}:{self.server_port}"
 
         query_params: dict[str, str] = {}
         if self.stream.sni:
