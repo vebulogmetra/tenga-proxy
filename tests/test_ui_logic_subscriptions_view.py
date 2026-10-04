@@ -244,3 +244,31 @@ def test_no_hint_when_device_data_is_already_sent_or_the_error_is_different():
 
     assert "Настройки" not in denied
     assert "Настройки" not in missing
+
+
+# --- Предложение сменить адрес ------------------------------------------------
+
+
+def test_new_address_question_names_the_subscription_and_both_addresses():
+    from src.sub.url_change import REASON_NEW_URL, UrlChangeProposal
+    from src.ui.logic.subscriptions_view import describe_url_change
+
+    proposal = UrlChangeProposal(1, "https://new.example/sub", REASON_NEW_URL)
+    heading, body = describe_url_change("Основная", "https://old.example/sub", proposal)
+
+    assert heading == "Сменить адрес подписки?"
+    assert "«Основная»" in body
+    assert "новый адрес" in body
+    assert "https://new.example/sub" in body
+    assert "https://old.example/sub" in body
+
+
+def test_fallback_address_question_mentions_the_failed_update():
+    from src.sub.url_change import REASON_FALLBACK_URL, UrlChangeProposal
+    from src.ui.logic.subscriptions_view import describe_url_change
+
+    proposal = UrlChangeProposal(1, "https://backup.example/sub", REASON_FALLBACK_URL)
+    _heading, body = describe_url_change("Основная", "https://old.example/sub", proposal)
+
+    assert "не удалось" in body
+    assert "запасной адрес" in body

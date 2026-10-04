@@ -220,6 +220,88 @@ def test_the_default_updater_goes_through_the_running_proxy(adw_app):
     }
 
 
+# --- предложение сменить адрес подписки ---
+
+OLD_URL = "https://old.example/sub"
+NEW_URL = "https://new.example/sub"
+
+
+def _update_with_response_headers(adw_app, headers: dict[str, str]):
+    """Run the real updater against a canned HTTP response."""
+    from unittest.mock import Mock, patch
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = OLD_URL
+
+    body = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
+    response = Mock()
+    response.text = body
+    response.content = body.encode("utf-8")
+    response.headers = headers
+    response.raise_for_status = Mock()
+
+    with patch("src.sub.updater.requests.get", return_value=response):
+        adw_app.update_subscription(group.id)
+        adw_app.wait_for_subscriptions_for_test()
+    return group
+
+
+def test_a_new_address_is_offered_but_not_applied(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+
+    assert adw_app.current_dialog is not None
+    assert NEW_URL in adw_app.current_dialog.get_body()
+    assert group.subscription_url == OLD_URL
+
+
+def test_confirming_switches_the_subscription_to_the_new_address(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+    updated: list[str] = []
+    adw_app.set_subscription_updater(lambda _gid, url: updated.append(url) or 1)
+
+    adw_app.current_dialog.emit("response", "change")
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert group.subscription_url == NEW_URL
+    # После смены подписка сразу обновляется уже с нового адреса.
+    assert updated == [NEW_URL]
+
+
+def test_declining_keeps_the_old_address(adw_app):
+    group = _update_with_response_headers(adw_app, {"new-url": NEW_URL})
+
+    adw_app.current_dialog.emit("response", "cancel")
+
+    assert group.subscription_url == OLD_URL
+
+
+def test_an_ordinary_update_asks_nothing(adw_app):
+    _update_with_response_headers(adw_app, {})
+
+    assert adw_app.current_dialog is None
+
+
+def test_a_failed_update_offers_the_fallback_address(adw_app):
+    import requests
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
+    group.subscription_url = OLD_URL
+    group.sub_fallback_url = "https://backup.example/sub"
+
+    def failing(_group_id: int, _url: str) -> int:
+        raise requests.ConnectionError("blocked")
+
+    adw_app.set_subscription_updater(failing)
+    adw_app.update_subscription(group.id)
+    adw_app.wait_for_subscriptions_for_test()
+
+    assert adw_app.current_dialog is not None
+    assert "https://backup.example/sub" in adw_app.current_dialog.get_body()
+    assert group.subscription_url == OLD_URL
+
+
 # --- подключение и диалоги (этап 3) ---
 
 LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#Новый"
@@ -834,3 +916,17 @@ def test_group_latency_sorts_profiles_while_running(adw_app):
 
     assert page.get_sort_key_for_test() is SortKey.PING
     assert page.get_profile_titles(group_id=group.id) == ["Быстрый", "Медленный"]
+
+
+def test_url_change_confirmation_defaults_to_keeping_the_address(gtk_ready):
+    from src.ui.dialogs.confirm import build_url_change_confirmation
+
+    confirmed = []
+    dialog = build_url_change_confirmation(
+        "Сменить?", "https://e.com/?a=1&b=2", lambda: confirmed.append(True)
+    )
+    assert dialog.get_default_response() == "cancel"
+    assert dialog.get_close_response() == "cancel"
+    assert not dialog.get_body_use_markup()
+    dialog.emit("response", "cancel")
+    assert confirmed == []

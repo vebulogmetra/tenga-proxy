@@ -18,7 +18,7 @@ from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
-from src.ui.logic.subscriptions_view import describe_update_error
+from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version, core_version
 from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
 
@@ -67,6 +67,9 @@ class TengaApplication(Adw.Application):
         self._latency_probe: Callable[[int], int] | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
+        # Предложения сменить адрес подписки: копятся в фоновом потоке,
+        # показываются в главном, по одному и только с подтверждением.
+        self._url_proposals: list = []
         self._profile_activation_handler: Callable[[int], None] | None = None
         self._connection_service = None
         self._connection_thread = None
@@ -526,9 +529,16 @@ class TengaApplication(Adw.Application):
         updater = self._subscription_updater or self._default_subscription_updater
         url = group.subscription_url
 
+        def work() -> int:
+            try:
+                return updater(group_id, url)
+            except Exception:
+                self._propose_fallback_url(group_id, url)
+                raise
+
         self.toast(f"Обновляю: {group.name}")
         self._subscriptions_thread = run_in_background(
-            lambda: updater(group_id, url),
+            work,
             on_done=self._on_subscriptions_updated,
             on_error=self._on_subscriptions_failed,
             name="tenga-subscription",
@@ -565,17 +575,58 @@ class TengaApplication(Adw.Application):
 
     def _default_subscription_updater(self, group_id: int, url: str) -> int:
         from src.sub.route import local_proxy_url
-        from src.sub.updater import update_subscription
+        from src.sub.updater import SubscriptionUpdater
+        from src.sub.url_change import REASON_NEW_URL, propose_url_change
 
         context = self.context
-        beans = update_subscription(
-            url,
+        updater = SubscriptionUpdater(
             config=context.config,
             profiles=context.profiles,
-            group_id=group_id,
             proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
         )
+        beans = updater.update(url, group_id)
+
+        proposal = propose_url_change(group_id, url, updater.new_url, REASON_NEW_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
         return len(beans)
+
+    def _propose_fallback_url(self, group_id: int, url: str) -> None:
+        """Queue the provider's fallback address after a failed update."""
+        from src.sub.url_change import REASON_FALLBACK_URL, propose_url_change
+
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            return
+        proposal = propose_url_change(group_id, url, group.sub_fallback_url, REASON_FALLBACK_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
+
+    def _offer_url_change(self) -> None:
+        """Ask about one queued address change; the rest come back with the next update."""
+        if not self._url_proposals:
+            return
+        proposal = self._url_proposals[0]
+        self._url_proposals.clear()
+
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None or self._window is None:
+            return
+
+        from src.ui.dialogs.confirm import build_url_change_confirmation
+
+        heading, body = describe_url_change(group.name, group.subscription_url, proposal)
+        self.present_dialog(
+            build_url_change_confirmation(heading, body, lambda: self._apply_url_change(proposal))
+        )
+
+    def _apply_url_change(self, proposal) -> None:
+        """Switch the subscription to the confirmed address and refresh it."""
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None:
+            return
+        self.update_group(proposal.group_id, name=group.name, url=proposal.new_url)
+        self.update_subscription(proposal.group_id)
 
     def _ensure_latency_runner(self) -> LatencyRunner:
         if self._latency_runner is None:
@@ -709,6 +760,7 @@ class TengaApplication(Adw.Application):
                     total += updater(group_id, url)
                 except Exception as e:
                     logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
+                    self._propose_fallback_url(group_id, url)
             return total
 
         self.toast(f"Обновляю подписки: {len(targets)}")
@@ -728,11 +780,13 @@ class TengaApplication(Adw.Application):
         if self._window is not None:
             self._window.refresh_pages()
         self.toast(f"Обновлено профилей: {total}")
+        self._offer_url_change()
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
         sent = self.context.config.sub_send_device_info
         reason = describe_update_error(error, device_info_sent=sent)
         self.toast(f"Не удалось обновить подписки: {reason}")
+        self._offer_url_change()
 
     def _toggle_search(self) -> None:
         if self._window is not None:
@@ -808,6 +862,7 @@ class TengaApplication(Adw.Application):
         self._latency_probe = None
         self._subscription_updater = None
         self._subscriptions_thread = None
+        self._url_proposals = []
         self._profile_activation_handler = None
         self._connection_service = None
         self._connection_thread = None

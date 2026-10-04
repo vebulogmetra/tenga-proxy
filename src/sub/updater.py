@@ -50,6 +50,9 @@ class SubscriptionUpdater:
         # Возвращает адрес локального прокси, через который стоит попробовать
         # сначала (src/sub/route.py), или None — тогда запрос идёт напрямую.
         self._proxy_url = proxy_url
+        # Новый адрес, который провайдер сообщил при последнем update(). Сам
+        # адрес подписки не меняется: это решает пользователь.
+        self.new_url = ""
 
     def fetch(self, url: str) -> str:
         """Fetch subscription content."""
@@ -214,8 +217,11 @@ class SubscriptionUpdater:
             List of added profiles
         """
 
+        self.new_url = ""
         fetched = self.fetch_response(url)
         beans = self.parse(fetched.content)
+        metadata = read_metadata(fetched.headers, fetched.content)
+        self.new_url = metadata.new_url
         if not self._profiles:
             return beans
 
@@ -226,7 +232,7 @@ class SubscriptionUpdater:
         # До проверки списка: истёкшая подписка отдаёт ноль серверов, но срок и
         # объявление провайдера в ответе есть — их и нужно показать.
         if group is not None:
-            apply_metadata(group, read_metadata(fetched.headers, fetched.content))
+            apply_metadata(group, metadata)
 
         if beans:
             if clear_existing:

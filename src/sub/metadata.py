@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlsplit
 
 from src.fmt.parsers import decode_base64
+from src.sub.url_change import is_acceptable_subscription_url
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileGroup
@@ -26,6 +27,8 @@ KEY_ANNOUNCE = "announce"
 KEY_SUPPORT_URL = "support-url"
 KEY_PROFILE_TITLE = "profile-title"
 KEY_WEB_PAGE_URL = "profile-web-page-url"
+KEY_NEW_URL = "new-url"
+KEY_FALLBACK_URL = "fallback-url"
 
 KNOWN_KEYS = frozenset(
     {
@@ -35,6 +38,8 @@ KNOWN_KEYS = frozenset(
         KEY_SUPPORT_URL,
         KEY_PROFILE_TITLE,
         KEY_WEB_PAGE_URL,
+        KEY_NEW_URL,
+        KEY_FALLBACK_URL,
     }
 )
 
@@ -97,6 +102,9 @@ class SubscriptionMetadata:
     support_url: str = ""
     title: str = ""
     web_page_url: str = ""
+    # Только предложения: адрес подписки меняет пользователь (src/sub/url_change.py).
+    new_url: str = ""
+    fallback_url: str = ""
 
     def overridden_by(self, body: SubscriptionMetadata) -> SubscriptionMetadata:
         """Values from the body win over headers; empty ones do not erase anything."""
@@ -163,6 +171,8 @@ def parse_metadata(values: Mapping[str, str]) -> SubscriptionMetadata:
         support_url=text(KEY_SUPPORT_URL),
         title=_sanitize_title(text(KEY_PROFILE_TITLE)),
         web_page_url=text(KEY_WEB_PAGE_URL),
+        new_url=text(KEY_NEW_URL),
+        fallback_url=text(KEY_FALLBACK_URL),
     )
 
 
@@ -259,6 +269,10 @@ def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
         group.sub_support_url = metadata.support_url.strip()
     if is_safe_web_page_url(metadata.web_page_url):
         group.sub_web_page_url = metadata.web_page_url.strip()
+    # new_url не сохраняется: это одноразовое предложение по итогам обновления.
+    # Запасной адрес нужен позже — когда обновление не удастся.
+    if is_acceptable_subscription_url(metadata.fallback_url.strip()):
+        group.sub_fallback_url = metadata.fallback_url.strip()
 
     title = metadata.title
     if title and group.name == default_subscription_name(group.subscription_url):

@@ -74,6 +74,7 @@ class ProfileGroup(ConfigBase):
     sub_announce: str = ""
     sub_support_url: str = ""
     sub_web_page_url: str = ""
+    sub_fallback_url: str = ""  # предлагается, если обновление не удалось
 
 
 @dataclass

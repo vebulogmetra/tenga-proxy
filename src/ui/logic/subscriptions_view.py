@@ -152,3 +152,15 @@ def describe_update_error(error: BaseException, *, device_info_sent: bool = True
     if isinstance(error, requests.ConnectionError):
         return "нет связи с сервером подписки"
     return str(error)
+
+
+def describe_url_change(name: str, current_url: str, proposal: Any) -> tuple[str, str]:
+    """Heading and body of the "change the subscription address?" question."""
+    from src.sub.url_change import REASON_FALLBACK_URL
+
+    if proposal.reason == REASON_FALLBACK_URL:
+        lead = f"Обновить подписку «{name}» не удалось. Провайдер оставил запасной адрес:"
+    else:
+        lead = f"Провайдер подписки «{name}» сообщил новый адрес:"
+    body = f"{lead}\n{proposal.new_url}\n\nСейчас используется:\n{current_url}"
+    return "Сменить адрес подписки?", body
