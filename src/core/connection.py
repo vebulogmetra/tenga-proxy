@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.core.config_builder import build_session_config, intercepts_dns
+from src.core.config_builder import UnsafeConfigError, build_session_config, intercepts_dns
 from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
 from src.sys.proxy import clear_system_proxy, set_system_proxy
@@ -30,6 +30,7 @@ logger = logging.getLogger("tenga.core.connection")
 PROFILE_NOT_FOUND = "Профиль не найден"
 NO_CONFIG = "Не удалось построить конфигурацию профиля"
 NOT_RUNNING = "Прокси не запущен"
+UNSAFE_CONFIG = "Конфигурация отклонена"
 
 
 @dataclass(frozen=True)
@@ -65,7 +66,10 @@ class ConnectionService:
         self._auto_connect_vpn(profile, profile_id)
 
         runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
-        config = build_session_config(context, profile)
+        try:
+            config = build_session_config(context, profile)
+        except UnsafeConfigError as e:
+            return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
             logger.error("Could not build a configuration for profile %s", profile_id)
             return ConnectionResult(False, NO_CONFIG)
@@ -256,7 +260,10 @@ class ConnectionService:
             logger.error("Profile %s not found for reload", profile_id)
             return ConnectionResult(False, PROFILE_NOT_FOUND)
 
-        config = build_session_config(context, profile)
+        try:
+            config = build_session_config(context, profile)
+        except UnsafeConfigError as e:
+            return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
             logger.error("Failed to create configuration for reload")
             return ConnectionResult(False, NO_CONFIG)

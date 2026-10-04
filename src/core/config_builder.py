@@ -12,6 +12,7 @@ import logging
 import random
 import socket
 
+from src.core.config_validator import exposed_inbounds, validate_session_config
 from src.core.context import AppContext
 from src.core.dns_config import DNS_TAG, build_dns
 from src.core.geo import (
@@ -48,6 +49,7 @@ from src.sys.vpn import (
 logger = logging.getLogger("tenga.core.config_builder")
 
 BLOCK_TAG = "block"
+GEOIP_PRIVATE = "geoip:private"
 DNS_OUT_TAG = "dns-out"
 
 
@@ -61,6 +63,10 @@ def _parse_list(
     правило заработает.
     """
     domains, ips = routing.parse_entries(entries)
+    if list_name != "direct" and GEOIP_PRIVATE in ips:
+        # Вместе с частными сетями в прокси, VPN или блокировку ушёл бы и loopback.
+        logger.warning("Список «%s»: %s допустим только в direct", list_name, GEOIP_PRIVATE)
+        ips = [ip for ip in ips if ip != GEOIP_PRIVATE]
     domains, dropped_domains = catalog.split(domains)
     ips, dropped_ips = catalog.split(ips)
     dropped = dropped_domains + dropped_ips
@@ -107,8 +113,34 @@ def _bind_to_interface(outbound: dict, interface: str) -> None:
     sockopt["interface"] = interface
 
 
+class UnsafeConfigError(Exception):
+    """Собранный конфиг нарушает инварианты безопасности и запускаться не должен."""
+
+    def __init__(self, violations: list[str]) -> None:
+        super().__init__("; ".join(violations))
+        self.violations = list(violations)
+
+
 def build_session_config(context: AppContext, profile: ProfileEntry | None) -> dict | None:
-    """Create xray-core configuration for profile."""
+    """Create xray-core configuration for profile.
+
+    Raises:
+        UnsafeConfigError: конфиг собран, но не прошёл `validate_session_config`.
+    """
+    config = _build_session_config(context, profile)
+    if config is None:
+        return None
+
+    violations = validate_session_config(config)
+    if violations:
+        logger.error("Конфигурация профиля отклонена: %s", "; ".join(violations))
+        raise UnsafeConfigError(violations)
+    for inbound in exposed_inbounds(config):
+        logger.warning("Локальный вход открыт для сети: %s", inbound)
+    return config
+
+
+def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> dict | None:
     try:
         result = profile.bean.build_core_obj_xray()
 
@@ -493,7 +525,7 @@ def build_latency_probe_config(
     Uses profile outbound/routing/dns from normal config but forces
     SYSTEM_PROXY inbounds to avoid TUN conflicts with active session.
     """
-    config = build_session_config(context, profile)
+    config = _build_session_config(context, profile)
     if not config:
         return None
 
