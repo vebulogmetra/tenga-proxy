@@ -37,6 +37,12 @@ LINKS = {
     "hysteria2_obfs": (
         "hysteria2://pass123@127.0.0.1:8443?obfs=salamander&obfs-password=obfspass#H2O"
     ),
+    # udphop и brutal: нужны ядру новее 26.3.27 (там «unknown config id: udphop»).
+    "hysteria2_hop": (
+        "hysteria2://pass123@127.0.0.1:8443,20000-50000/?sni=cdn.example.com"
+        "&hop-interval=20-40&obfs=salamander&obfs-password=obfspass&upmbps=50&downmbps=100#HH"
+    ),
+    "hysteria2_mport": "hysteria2://pass123@127.0.0.1:8443?mport=20000-50000&upmbps=50#HM",
     "xhttp": (
         "vless://11111111-1111-1111-1111-111111111111@127.0.0.1:443"
         f"?type=xhttp&security=tls&sni=a.example.com&mode=stream-one"
