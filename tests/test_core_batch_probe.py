@@ -2,16 +2,27 @@
 
 from __future__ import annotations
 
+import http.server
 import shutil
+import socket
+import threading
+import time
 from pathlib import Path
 
 import pytest
+import requests
 
+from src.core import batch_probe
 from src.core.batch_probe import (
+    BatchCore,
     ProbeTarget,
     build_batch_probe_config,
     build_probe_outbound,
     core_accepts,
+    measure_targets,
+    probe_profiles,
+    probe_targets,
+    reserve_ports,
     split_accepted,
 )
 from src.core.http_probe import ProbeCredentials
@@ -231,3 +242,228 @@ def test_split_accepted_finds_what_the_real_core_rejects():
 
     assert [t.profile_id for t in accepted] == [1, 3, 5]
     assert [t.profile_id for t in rejected] == [2, 4]
+
+
+# --- запуск ядра и замер ---
+
+FREEDOM = {"protocol": "freedom"}
+BLACKHOLE = {"protocol": "blackhole"}
+
+
+class _Site(http.server.BaseHTTPRequestHandler):
+    def do_HEAD(self):
+        self.send_response(204)
+        self.end_headers()
+
+    def log_message(self, *_args):
+        pass
+
+
+@pytest.fixture
+def local_site():
+    """Локальный сайт вместо интернета: замер идёт ядро → freedom → 127.0.0.1."""
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _Site)
+    thread = threading.Thread(target=server.serve_forever, args=(0.05,), daemon=True)
+    thread.start()
+    yield f"http://127.0.0.1:{server.server_address[1]}/generate_204"
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def core_starts(monkeypatch):
+    """Сколько раз запускался процесс ядра (проверки `-test` не в счёт)."""
+    starts: list[list[str]] = []
+    real_popen = batch_probe.subprocess.Popen
+
+    def counting_popen(args, **kwargs):
+        # subprocess.run тоже идёт через Popen: проверки `-test` отсеиваем.
+        if "run" in args:
+            starts.append(list(args))
+        return real_popen(args, **kwargs)
+
+    monkeypatch.setattr(batch_probe.subprocess, "Popen", counting_popen)
+    return starts
+
+
+def test_reserve_ports_returns_distinct_free_ports():
+    ports = reserve_ports(20)
+
+    assert len(set(ports)) == 20
+    for port in ports:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.bind(("127.0.0.1", port))
+
+
+def test_measure_targets_reports_results_as_they_arrive(monkeypatch):
+    delays = {41001: 0.3, 41002: 0.0, 41003: 0.1}
+
+    def fake_measure(endpoint, url, **_kwargs):
+        time.sleep(delays[endpoint.port])
+        return endpoint.port
+
+    monkeypatch.setattr(batch_probe, "measure_latency", fake_measure)
+    order: list[int] = []
+
+    measure_targets(
+        numbered_targets(3),
+        [41001, 41002, 41003],
+        CREDENTIALS,
+        url="http://example.com/",
+        on_result=lambda profile_id, _latency: order.append(profile_id),
+    )
+
+    assert order == [2, 3, 1]
+
+
+def test_measure_targets_turns_an_unexpected_error_into_minus_one(monkeypatch):
+    def broken(endpoint, url, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(batch_probe, "measure_latency", broken)
+    results: dict[int, int] = {}
+
+    measure_targets(
+        numbered_targets(2),
+        [41001, 41002],
+        CREDENTIALS,
+        url="http://example.com/",
+        on_result=results.__setitem__,
+    )
+
+    assert results == {1: -1, 2: -1}
+
+
+@needs_xray
+def test_one_core_process_measures_the_whole_batch(local_site, core_starts):
+    targets = [ProbeTarget(i, FREEDOM) for i in range(1, 101)]
+    results: dict[int, int] = {}
+
+    probe_targets(
+        targets,
+        binary_path=str(XRAY),
+        on_result=results.__setitem__,
+        url=local_site,
+        probes=1,
+    )
+
+    assert len(core_starts) == 1
+    assert sorted(results) == list(range(1, 101))
+    assert all(latency >= 0 for latency in results.values())
+
+
+@needs_xray
+def test_dead_and_rejected_profiles_get_minus_one_and_the_rest_are_measured(
+    local_site, core_starts
+):
+    targets = [
+        ProbeTarget(1, FREEDOM),
+        target(2, VLESS_BAD_REALITY),
+        ProbeTarget(3, BLACKHOLE),
+        ProbeTarget(4, FREEDOM),
+    ]
+    results: dict[int, int] = {}
+
+    probe_targets(
+        targets,
+        binary_path=str(XRAY),
+        on_result=results.__setitem__,
+        url=local_site,
+        probes=1,
+    )
+
+    assert results[2] == -1  # ядро отвергло профиль
+    assert results[3] == -1  # ядро приняло, но сервер не отвечает
+    assert results[1] >= 0
+    assert results[4] >= 0
+    assert len(core_starts) == 1
+
+
+@needs_xray
+def test_probe_inbound_answers_407_without_valid_credentials(local_site):
+    ports = reserve_ports(1)
+    config = build_batch_probe_config([ProbeTarget(1, FREEDOM)], ports, CREDENTIALS)
+
+    with BatchCore(str(XRAY), config) as core:
+        assert core.wait_ready(ports)
+        statuses = []
+        for proxy in (
+            f"http://127.0.0.1:{ports[0]}",
+            f"http://probe:wrong@127.0.0.1:{ports[0]}",
+            f"http://probe:secret@127.0.0.1:{ports[0]}",
+        ):
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.head(local_site, proxies={"http": proxy}, timeout=5)
+                statuses.append(response.status_code)
+
+    assert statuses == [407, 407, 204]
+
+
+def test_batch_core_cleans_up_its_config_file(monkeypatch):
+    written: list[Path] = []
+    real_write = batch_probe._write_config
+
+    def spy(config):
+        path = real_write(config)
+        written.append(path)
+        return path
+
+    monkeypatch.setattr(batch_probe, "_write_config", spy)
+
+    with BatchCore("/nonexistent/xray", {"inbounds": []}) as core:
+        assert written[0].exists()
+        assert core.wait_ready([41001], timeout=0.2) is False
+
+    assert not written[0].exists()
+
+
+def test_every_profile_gets_minus_one_when_the_core_does_not_start(monkeypatch):
+    # Проверку `-test` ядро «прошло», а процесс завершается сразу после запуска.
+    monkeypatch.setattr(batch_probe, "core_accepts", lambda *_: True)
+    results: dict[int, int] = {}
+
+    probe_targets(
+        numbered_targets(3),
+        binary_path="false",
+        on_result=results.__setitem__,
+        url="http://example.com/",
+    )
+
+    assert results == {1: -1, 2: -1, 3: -1}
+
+
+def test_large_sets_are_measured_in_several_batches(monkeypatch):
+    batches: list[list[int]] = []
+    monkeypatch.setattr(batch_probe, "MAX_BATCH_SIZE", 2)
+    monkeypatch.setattr(
+        batch_probe,
+        "_probe_batch",
+        lambda targets, **_kwargs: batches.append([t.profile_id for t in targets]),
+    )
+
+    probe_targets(numbered_targets(5), binary_path="xray", on_result=lambda *_: None)
+
+    assert batches == [[1, 2], [3, 4], [5]]
+
+
+def test_probe_profiles_reports_unbuildable_profiles_and_measures_the_rest(monkeypatch):
+    measured: list[int] = []
+
+    def fake_probe_targets(targets, *, on_result, **_kwargs):
+        for item in targets:
+            measured.append(item.profile_id)
+            on_result(item.profile_id, 42)
+
+    monkeypatch.setattr(batch_probe, "probe_targets", fake_probe_targets)
+    results: dict[int, int] = {}
+
+    probe_profiles(
+        [entry(1, VLESS_WS), entry(2, VLESS_H2), entry(3, TROJAN)],
+        settings=DataStore(),
+        binary_path="xray",
+        on_result=results.__setitem__,
+    )
+
+    assert measured == [1, 3]
+    assert results == {1: 42, 2: -1, 3: 42}
