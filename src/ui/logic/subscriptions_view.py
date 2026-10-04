@@ -58,7 +58,11 @@ def format_expire(expire: int, now: int) -> tuple[str, bool]:
     """Render the expiry date and tell whether it has passed. Zero means "never"."""
     if expire <= 0:
         return "", False
-    date = datetime.datetime.fromtimestamp(expire).strftime(_DATE_FORMAT)
+    try:
+        date = datetime.datetime.fromtimestamp(expire).strftime(_DATE_FORMAT)
+    except (OverflowError, OSError, ValueError):
+        # Нестандартное значение провайдера не должно ломать весь список.
+        return "", False
     if expire < now:
         return f"истекла {date}", True
     return f"до {date}", False

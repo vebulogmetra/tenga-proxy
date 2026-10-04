@@ -272,3 +272,12 @@ def test_fallback_address_question_mentions_the_failed_update():
 
     assert "не удалось" in body
     assert "запасной адрес" in body
+
+
+@pytest.mark.parametrize("expire", [10**20, 253402300800])
+def test_out_of_range_expiry_keeps_the_subscription_row(expire):
+    row = _row(sub_user_info=f"upload=0; download={GIB}; total={10 * GIB}; expire={expire}")
+
+    assert row.expire_text == ""
+    assert not row.expired
+    assert row.usage_text == "1.00 GB из 10.00 GB"
