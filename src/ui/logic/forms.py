@@ -13,7 +13,6 @@ from typing import Any
 EMPTY_LINK = "Введите ссылку подключения"
 BAD_LINK = "Не удалось разобрать ссылку"
 EMPTY_GROUP_NAME = "Введите название группы"
-EMPTY_SUBSCRIPTION_NAME = "Введите название подписки"
 EMPTY_SUBSCRIPTION_URL = "Введите URL подписки"
 BAD_SUBSCRIPTION_URL = "URL должен начинаться с http:// или https://"
 
@@ -53,16 +52,24 @@ def validate_profile_link(link: str, *, name: str = "") -> FormResult:
 
 
 def validate_subscription(name: str, url: str) -> FormResult:
-    """Check the name and address of a subscription."""
+    """Check the name and address of a subscription.
+
+    Пустое название заменяется хостом адреса; провайдер может заменить
+    такое имя своим ``profile-title``, сохраняя название пользователя.
+    """
     clean_name = (name or "").strip()
     clean_url = (url or "").strip()
 
-    if not clean_name:
-        return FormResult(False, EMPTY_SUBSCRIPTION_NAME)
     if not clean_url:
         return FormResult(False, EMPTY_SUBSCRIPTION_URL)
     if not clean_url.startswith(_HTTP_PREFIXES):
         return FormResult(False, BAD_SUBSCRIPTION_URL)
+
+    if not clean_name:
+        # Импорт внутри функции: `src.sub` тянет requests и разбор протоколов.
+        from src.sub.metadata import default_subscription_name
+
+        clean_name = default_subscription_name(clean_url)
 
     return FormResult(True, value=(clean_name, clean_url))
 

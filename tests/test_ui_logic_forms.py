@@ -53,10 +53,11 @@ def test_a_valid_link_reports_the_protocol():
     assert "VLESS" in result.message
 
 
-def test_a_subscription_needs_a_name():
-    result = validate_subscription("", "https://example.com/sub")
-    assert not result.ok
-    assert "название" in result.message.lower()
+def test_a_subscription_without_a_name_is_named_after_the_host():
+    """Имя-хост может быть заменено названием от провайдера."""
+    result = validate_subscription("  ", "https://provider.example:8443/sub/token")
+    assert result.ok
+    assert result.value == ("provider.example", "https://provider.example:8443/sub/token")
 
 
 def test_a_subscription_needs_a_url():
