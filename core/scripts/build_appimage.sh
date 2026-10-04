@@ -32,6 +32,12 @@ check_deps() {
     if [ ! -f "$PROJECT_ROOT/core/bin/xray" ]; then
         error "xray-core не найден в core/bin/"
     fi
+
+    for geo_file in geoip.dat geosite.dat; do
+        if [ ! -f "$PROJECT_ROOT/core/bin/$geo_file" ]; then
+            error "$geo_file не найден в core/bin/"
+        fi
+    done
     
     if ! command -v wget &>/dev/null && ! command -v curl &>/dev/null; then
         error "Требуется wget или curl"
@@ -81,6 +87,10 @@ create_appdir() {
     mkdir -p "$APPDIR/usr/share/tenga-proxy/core/bin"
     cp "$PROJECT_ROOT/core/bin/xray" "$APPDIR/usr/share/tenga-proxy/core/bin/"
     chmod +x "$APPDIR/usr/share/tenga-proxy/core/bin/xray"
+    # Геобазы: без них правила geosite:/geoip: роняют запуск ядра.
+    for geo_file in geoip.dat geosite.dat; do
+        cp "$PROJECT_ROOT/core/bin/$geo_file" "$APPDIR/usr/share/tenga-proxy/core/bin/"
+    done
 
     
     # Copy assets

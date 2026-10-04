@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
 import time
@@ -19,6 +20,7 @@ from src.core.config import (
     XRAY_LOG_FILE,
     find_xray_binary,
 )
+from src.core.geo import ASSET_ENV, asset_dir_for_core
 from src.core.performance import measure_time
 
 logger = logging.getLogger("tenga.xray_manager")
@@ -80,6 +82,18 @@ class XrayManager:
 
         # Cache xray version on initialization
         self._version_cache = self._fetch_version()
+
+    def _core_env(self) -> dict[str, str] | None:
+        """Окружение процесса ядра; None — унаследовать как есть.
+
+        Геобазы ядро ищет рядом с собой. Если их там нет (установка, сделанная до
+        появления баз в комплекте), называем каталог комплекта: правила с
+        `geosite:`/`geoip:` иначе уронили бы запуск.
+        """
+        asset_dir = asset_dir_for_core(self._binary_path)
+        if asset_dir is None:
+            return None
+        return {**os.environ, ASSET_ENV: str(asset_dir)}
 
     def _wait_for_process_ready(self, timeout: float = 2.0) -> bool:
         """Wait for xray process to be ready.
@@ -272,12 +286,14 @@ class XrayManager:
                     [self._binary_path, "-config", str(self._config_file)],
                     stdout=self._log_file,
                     stderr=subprocess.STDOUT,
+                    env=self._core_env(),
                 )
             else:
                 self._process = subprocess.Popen(
                     [self._binary_path, "-config", str(self._config_file)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env=self._core_env(),
                 )
 
             if not self._wait_for_process_ready(timeout=2.0):

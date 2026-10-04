@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from src.core import geo
 from src.core.geo import (
     GEOIP_FILE,
     GEOSITE_FILE,
     GeoCatalog,
+    asset_dir_for_core,
     asset_dirs,
     load_catalog,
     read_categories,
@@ -115,6 +117,58 @@ def test_bundled_bases_have_the_categories_the_builder_refers_to():
 
     assert {"category-ru", "category-gov-ru"} <= catalog.geosite
     assert {"ru", "private"} <= catalog.geoip
+
+
+# --- где ядро возьмёт базы -------------------------------------------------
+
+
+def put_bases(directory: Path) -> Path:
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / GEOSITE_FILE).write_bytes(make_dat("X"))
+    (directory / GEOIP_FILE).write_bytes(make_dat("X"))
+    return directory
+
+
+def test_bundled_bases_are_a_fallback_after_the_binary_directory(tmp_path, monkeypatch):
+    """Установка без баз рядом с ядром берёт их из комплекта приложения."""
+    monkeypatch.delenv("XRAY_LOCATION_ASSET", raising=False)
+    monkeypatch.setattr(geo, "BUNDLED_GEO_DIR", tmp_path / "bundle")
+
+    dirs = asset_dirs(tmp_path / "bin" / "xray")
+
+    assert dirs[:2] == [tmp_path / "bin", tmp_path / "bundle"]
+
+
+def test_core_needs_no_hint_when_bases_lie_next_to_it(tmp_path, monkeypatch):
+    monkeypatch.delenv("XRAY_LOCATION_ASSET", raising=False)
+    monkeypatch.setattr(geo, "BUNDLED_GEO_DIR", put_bases(tmp_path / "bundle"))
+    put_bases(tmp_path / "bin")
+
+    assert asset_dir_for_core(tmp_path / "bin" / "xray") is None
+
+
+def test_core_is_pointed_at_bundled_bases_when_it_has_none(tmp_path, monkeypatch):
+    """Сам ядро в комплект приложения не заглянет — каталог называем через окружение."""
+    monkeypatch.delenv("XRAY_LOCATION_ASSET", raising=False)
+    bundle = put_bases(tmp_path / "bundle")
+    monkeypatch.setattr(geo, "BUNDLED_GEO_DIR", bundle)
+
+    assert asset_dir_for_core(tmp_path / "bin" / "xray") == bundle
+
+
+def test_user_chosen_asset_directory_is_respected(tmp_path, monkeypatch):
+    monkeypatch.setenv("XRAY_LOCATION_ASSET", str(tmp_path / "mine"))
+    monkeypatch.setattr(geo, "BUNDLED_GEO_DIR", put_bases(tmp_path / "bundle"))
+
+    assert asset_dir_for_core(tmp_path / "bin" / "xray") is None
+
+
+def test_no_bases_anywhere_gives_no_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv("XRAY_LOCATION_ASSET", raising=False)
+    monkeypatch.setattr(geo, "BUNDLED_GEO_DIR", tmp_path / "bundle")
+    monkeypatch.setattr(geo, "SYSTEM_ASSET_DIRS", ())
+
+    assert asset_dir_for_core(tmp_path / "bin" / "xray") is None
 
 
 @pytest.mark.parametrize("data", [b"\x0a\x03\x0a\x04R", b"\x0a\x00\x0a\x03\x0a\x01R"])

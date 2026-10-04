@@ -18,11 +18,15 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
+from src.core.config import BUNDLE_DIR
+
 logger = logging.getLogger("tenga.core.geo")
 
 GEOSITE_FILE = "geosite.dat"
 GEOIP_FILE = "geoip.dat"
 ASSET_ENV = "XRAY_LOCATION_ASSET"
+# Базы из комплекта приложения: в AppImage и в дереве исходников они лежат здесь.
+BUNDLED_GEO_DIR = BUNDLE_DIR / "core" / "bin"
 # Куда ядро заглядывает, если рядом с бинарником файла нет.
 SYSTEM_ASSET_DIRS = (Path("/usr/local/share/xray"), Path("/usr/share/xray"))
 
@@ -105,14 +109,40 @@ class GeoCatalog:
         return kept, dropped
 
 
+def _has_bases(directory: Path) -> bool:
+    return (directory / GEOSITE_FILE).is_file() and (directory / GEOIP_FILE).is_file()
+
+
+def asset_dir_for_core(binary_path: str | Path | None) -> Path | None:
+    """Каталог геобаз, который надо назвать ядру через `XRAY_LOCATION_ASSET`.
+
+    None — называть нечего: каталог уже задан пользователем, базы лежат рядом с
+    бинарником (там ядро найдёт их само) или их нет нигде.
+    """
+    if os.environ.get(ASSET_ENV):
+        return None
+    if binary_path and _has_bases(Path(binary_path).parent):
+        return None
+    if _has_bases(BUNDLED_GEO_DIR):
+        return BUNDLED_GEO_DIR
+    return None
+
+
 def asset_dirs(binary_path: str | Path | None) -> list[Path]:
-    """Каталоги, где ядро ищет геобазы, в порядке его поиска."""
+    """Каталоги, где окажутся геобазы ядра, в порядке поиска.
+
+    Повторяет поиск самого ядра (`XRAY_LOCATION_ASSET`, иначе каталог бинарника,
+    затем системные) с одной поправкой: если рядом с бинарником баз нет, ядру
+    называется каталог комплекта приложения — см. `asset_dir_for_core`.
+    """
     dirs: list[Path] = []
     env_dir = os.environ.get(ASSET_ENV)
     if env_dir:
         dirs.append(Path(env_dir))
-    elif binary_path:
-        dirs.append(Path(binary_path).parent)
+    else:
+        if binary_path:
+            dirs.append(Path(binary_path).parent)
+        dirs.append(BUNDLED_GEO_DIR)
     dirs.extend(SYSTEM_ASSET_DIRS)
     return dirs
 
