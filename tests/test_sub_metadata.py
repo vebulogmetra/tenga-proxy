@@ -198,3 +198,119 @@ def test_body_values_override_headers():
 
     assert metadata.title == "Из тела"
     assert metadata.support_url == "https://t.me/from_header"
+
+
+# --- применение к группе ------------------------------------------------------
+
+
+def _group(name: str = "provider.example", url: str = "https://provider.example/sub/token"):
+    from src.db.profiles import ProfileGroup
+
+    return ProfileGroup(id=1, name=name, is_subscription=True, subscription_url=url)
+
+
+@pytest.mark.parametrize(
+    ("url", "expected"),
+    [
+        ("https://provider.example/sub/token", "provider.example"),
+        ("http://provider.example:8443/sub", "provider.example"),
+        ("not a url", "not a url"),
+        ("", ""),
+    ],
+)
+def test_default_subscription_name_is_the_host(url, expected):
+    from src.sub.metadata import default_subscription_name
+
+    assert default_subscription_name(url) == expected
+
+
+def test_metadata_is_stored_on_the_group():
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    apply_metadata(
+        group,
+        SubscriptionMetadata(
+            user_info=SubscriptionUserInfo(upload=1, download=2, total=3, expire=4),
+            update_interval_hours=12,
+            announce="Техработы",
+            support_url="tg://resolve?domain=provider",
+            web_page_url="https://provider.example/account",
+        ),
+    )
+
+    assert group.sub_user_info == "upload=1; download=2; total=3; expire=4"
+    assert group.sub_update_interval == 12
+    assert group.sub_announce == "Техработы"
+    assert group.sub_support_url == "tg://resolve?domain=provider"
+    assert group.sub_web_page_url == "https://provider.example/account"
+
+
+def test_title_renames_a_group_still_named_after_the_host():
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="provider.example")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN"))
+
+    assert group.name == "Быстрый VPN"
+
+
+def test_title_does_not_overwrite_a_name_chosen_by_the_user():
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="Рабочая")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN"))
+
+    assert group.name == "Рабочая"
+
+
+def test_missing_values_keep_the_last_known_ones():
+    """Заголовки режет CDN: один ответ без них не должен стирать остаток трафика."""
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    group.sub_user_info = "upload=1; download=2; total=3; expire=4"
+    group.sub_update_interval = 12
+    group.sub_support_url = "https://t.me/x"
+    group.sub_web_page_url = "https://provider.example/account"
+
+    apply_metadata(group, SubscriptionMetadata())
+
+    assert group.sub_user_info == "upload=1; download=2; total=3; expire=4"
+    assert group.sub_update_interval == 12
+    assert group.sub_support_url == "https://t.me/x"
+    assert group.sub_web_page_url == "https://provider.example/account"
+
+
+def test_announce_disappears_when_the_provider_removes_it():
+    """Объявление — сообщение «на сейчас»: вчерашние техработы показывать незачем."""
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    group.sub_announce = "Техработы до 12:00"
+
+    apply_metadata(group, SubscriptionMetadata())
+
+    assert group.sub_announce == ""
+
+
+@pytest.mark.parametrize(
+    "url", ["http://provider.example/account", "javascript:alert(1)", "https://", "file:///etc"]
+)
+def test_web_page_link_must_be_https(url):
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    apply_metadata(group, SubscriptionMetadata(web_page_url=url))
+
+    assert group.sub_web_page_url == ""
+
+
+@pytest.mark.parametrize("url", ["javascript:alert(1)", "file:///etc/passwd", "ftp://x", "t.me/x"])
+def test_support_link_must_be_http_or_telegram(url):
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    apply_metadata(group, SubscriptionMetadata(support_url=url))
+
+    assert group.sub_support_url == ""

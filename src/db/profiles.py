@@ -68,7 +68,12 @@ class ProfileGroup(ConfigBase):
     is_subscription: bool = False
     subscription_url: str = ""
     last_updated: int = 0  # timestamp
-    sub_user_info: str = ""
+    # Метаданные провайдера (src/sub/metadata.py). Все — только для показа.
+    sub_user_info: str = ""  # "upload=N; download=N; total=N; expire=N"
+    sub_update_interval: int = 0  # часы
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
 
 
 @dataclass

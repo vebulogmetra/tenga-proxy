@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import requests
@@ -14,11 +16,20 @@ from src.sub.errors import (
     SubscriptionTooLargeError,
     snippet_of,
 )
+from src.sub.metadata import apply_metadata, read_metadata
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileManager
 
 logger = logging.getLogger("tenga.sub.updater")
+
+
+@dataclass(frozen=True)
+class FetchedSubscription:
+    """Тело ответа и его заголовки: в заголовках провайдер передаёт метаданные."""
+
+    content: str
+    headers: Mapping[str, str] = field(default_factory=dict)
 
 
 class SubscriptionUpdater:
@@ -37,6 +48,10 @@ class SubscriptionUpdater:
 
     def fetch(self, url: str) -> str:
         """Fetch subscription content."""
+        return self.fetch_response(url).content
+
+    def fetch_response(self, url: str) -> FetchedSubscription:
+        """Fetch subscription content together with the response headers."""
         headers = {}
 
         if self._config:
@@ -58,7 +73,7 @@ class SubscriptionUpdater:
                 # от гигантского ответа, но не саму загрузку.
                 if len(content) > MAX_RESPONSE_SIZE:
                     raise SubscriptionTooLargeError(len(content))
-                return content
+                return FetchedSubscription(content, self._response_headers(response))
             except requests.RequestException as e:
                 # Повторяем только сетевые сбои: HTTP-код — окончательный ответ
                 # сервера, повтор лишь задержит обновление.
@@ -77,6 +92,12 @@ class SubscriptionUpdater:
 
         # Недостижимо: последняя попытка либо возвращает результат, либо бросает.
         raise last_error or requests.RequestException("Не удалось загрузить подписку")
+
+    @staticmethod
+    def _response_headers(response: requests.Response) -> Mapping[str, str]:
+        headers = getattr(response, "headers", None)
+        # Заглушки ответов в тестах заголовков не имеют.
+        return headers if isinstance(headers, Mapping) else {}
 
     @classmethod
     def _raise_for_status(cls, response: requests.Response) -> None:
@@ -142,14 +163,21 @@ class SubscriptionUpdater:
             List of added profiles
         """
 
-        content = self.fetch(url)
+        fetched = self.fetch_response(url)
+        beans = self.parse(fetched.content)
+        if not self._profiles:
+            return beans
 
-        beans = self.parse(content)
-        # Add to profiles
-        if self._profiles and beans:
-            if group_id is None:
-                group_id = self._profiles.current_group_id
+        if group_id is None:
+            group_id = self._profiles.current_group_id
+        group = self._profiles.get_group(group_id)
 
+        # До проверки списка: истёкшая подписка отдаёт ноль серверов, но срок и
+        # объявление провайдера в ответе есть — их и нужно показать.
+        if group is not None:
+            apply_metadata(group, read_metadata(fetched.headers, fetched.content))
+
+        if beans:
             if clear_existing:
                 # Не clear_group + add_profile: так профили получали новые id, и
                 # подключённый профиль, замеры и персональные настройки терялись.
@@ -158,10 +186,10 @@ class SubscriptionUpdater:
                 for bean in beans:
                     self._profiles.add_profile(bean, group_id)
 
-            group = self._profiles.get_group(group_id)
             if group is not None:
                 group.last_updated = int(time.time())
 
+        if beans or group is not None:
             self._profiles.save()
 
         return beans

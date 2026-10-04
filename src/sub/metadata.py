@@ -12,8 +12,13 @@ import binascii
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, fields
+from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from src.fmt.parsers import decode_base64
+
+if TYPE_CHECKING:
+    from src.db.profiles import ProfileGroup
 
 KEY_USERINFO = "subscription-userinfo"
 KEY_UPDATE_INTERVAL = "profile-update-interval"
@@ -43,6 +48,7 @@ _CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 # управляющие символы означают, что декодировали не base64, а обычное слово.
 _BINARY_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
 _USERINFO_FIELDS = ("upload", "download", "total", "expire")
+_SUPPORT_SCHEMES = ("http", "https", "tg")
 
 
 @dataclass(frozen=True)
@@ -200,3 +206,60 @@ def metadata_from_body(content: str) -> SubscriptionMetadata:
 def read_metadata(headers: Mapping[str, str] | None, content: str) -> SubscriptionMetadata:
     """Headers overridden by the body: the body is what the provider fully controls."""
     return metadata_from_headers(headers).overridden_by(metadata_from_body(content))
+
+
+def default_subscription_name(url: str) -> str:
+    """Имя подписки по умолчанию — хост адреса.
+
+    По нему же отличаем «имя никто не задавал» от имени, выбранного
+    пользователем: ``profile-title`` переименовывает только первое.
+    """
+    try:
+        host = urlsplit(url.strip()).hostname
+    except ValueError:
+        host = None
+    return host or url.strip()
+
+
+def _scheme_and_host(url: str) -> tuple[str, str]:
+    try:
+        parts = urlsplit(url.strip())
+        return parts.scheme.lower(), parts.hostname or ""
+    except ValueError:
+        return "", ""
+
+
+def is_safe_web_page_url(url: str) -> bool:
+    """Страница продления открывается в браузере: только https с хостом."""
+    scheme, host = _scheme_and_host(url)
+    return scheme == "https" and bool(host)
+
+
+def is_safe_support_url(url: str) -> bool:
+    """Ссылка поддержки: сайт или Telegram, но не ``javascript:`` и не ``file:``."""
+    scheme, _host = _scheme_and_host(url)
+    return scheme in _SUPPORT_SCHEMES
+
+
+def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
+    """Store provider metadata on the subscription group.
+
+    Пустое значение не стирает сохранённое: нестандартные заголовки режет CDN,
+    и один ответ без них не должен обнулять остаток трафика. Исключение —
+    объявление: это сообщение «на сейчас», вчерашнее показывать незачем.
+    """
+    if metadata.user_info is not None:
+        group.sub_user_info = metadata.user_info.to_header()
+    if metadata.update_interval_hours > 0:
+        group.sub_update_interval = metadata.update_interval_hours
+    group.sub_announce = metadata.announce
+    # Ссылки фильтруются и здесь, и при показе: в файле профилей не должно
+    # лежать то, что приложение не откроет.
+    if is_safe_support_url(metadata.support_url):
+        group.sub_support_url = metadata.support_url.strip()
+    if is_safe_web_page_url(metadata.web_page_url):
+        group.sub_web_page_url = metadata.web_page_url.strip()
+
+    title = metadata.title
+    if title and group.name == default_subscription_name(group.subscription_url):
+        group.name = title

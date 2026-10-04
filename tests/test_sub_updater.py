@@ -276,3 +276,64 @@ def test_an_empty_response_does_not_count_as_a_refresh(tmp_path):
         updater.update("http://example.com/sub", group_id=group.id)
 
     assert group.last_updated == 1_700_000_000
+
+
+# --- Метаданные ---------------------------------------------------------------
+
+
+def _response_with_headers(text: str, headers: dict[str, str]) -> Mock:
+    response = _text_response(text)
+    response.headers = headers
+    response.content = text.encode("utf-8")
+    response.encoding = None
+    return response
+
+
+def test_update_saves_what_the_provider_says_about_the_subscription(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    group.subscription_url = "https://provider.example/sub/token"
+    group.name = "provider.example"
+    response = _response_with_headers(
+        f"#announce: Техработы\n{LINK_NL}",
+        {
+            "Subscription-Userinfo": "upload=1; download=2; total=3; expire=4",
+            "Profile-Title": "Быстрый VPN",
+            "Content-Type": "text/plain",
+        },
+    )
+
+    with patch("src.sub.updater.requests.get", return_value=response):
+        SubscriptionUpdater(profiles=profiles).update(group.subscription_url, group_id=group.id)
+
+    assert group.sub_user_info == "upload=1; download=2; total=3; expire=4"
+    assert group.sub_announce == "Техработы"
+    assert group.name == "Быстрый VPN"
+
+
+def test_metadata_is_saved_even_when_the_response_has_no_servers(tmp_path):
+    """Истёкшая подписка отдаёт пустой список, но срок и объявление — в заголовках."""
+    profiles, group = _subscription(tmp_path)
+    response = _response_with_headers(
+        "", {"subscription-userinfo": "upload=5; download=5; total=10; expire=1700000000"}
+    )
+
+    with patch("src.sub.updater.requests.get", return_value=response):
+        SubscriptionUpdater(profiles=profiles).update("http://example.com/sub", group_id=group.id)
+
+    from src.db.profiles import ProfileManager
+
+    reloaded = ProfileManager(profiles_dir=tmp_path)
+    reloaded.load()
+    assert reloaded.get_group(group.id).sub_user_info == (
+        "upload=5; download=5; total=10; expire=1700000000"
+    )
+
+
+def test_fetch_response_returns_the_headers_next_to_the_text():
+    response = _response_with_headers(LINK_NL, {"profile-update-interval": "6"})
+
+    with patch("src.sub.updater.requests.get", return_value=response):
+        fetched = SubscriptionUpdater().fetch_response("http://example.com/sub")
+
+    assert fetched.content == LINK_NL
+    assert fetched.headers["profile-update-interval"] == "6"
