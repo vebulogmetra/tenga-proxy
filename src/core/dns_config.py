@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 from collections.abc import Sequence
@@ -38,7 +39,7 @@ NXDOMAIN = "#3"
 # Запасной адрес, когда DNS-сервер VPN не удалось разобрать.
 FALLBACK_VPN_DNS = ("8.8.8.8", 53)
 
-_IPV4_ENDPOINT = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::(\d+))?")
+_IPV4_ENDPOINT = re.compile(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::(-?\d+))?")
 
 DnsServer = str | dict[str, Any]
 
@@ -47,12 +48,24 @@ def parse_dns_endpoint(raw: str) -> tuple[str, int] | None:
     """IPv4-адрес и порт DNS-сервера из строки NetworkManager.
 
     nmcli отдаёт и `10.222.0.7`, и `IP4.DNS[1]:10.222.0.7:5353` — берём первый
-    IPv4-адрес в строке и порт сразу за ним.
+    IPv4-адрес в строке и порт сразу за ним. Негодный адрес или порт — `None`:
+    ядро отвергло бы такой сервер, и подключение не началось бы.
     """
     match = _IPV4_ENDPOINT.search(raw)
-    if not match:
+    if not match or not _is_ip(match.group(1)):
         return None
-    return match.group(1), int(match.group(2) or 53)
+    port = int(match.group(2) or 53)
+    if not 0 < port <= 65535:
+        return None
+    return match.group(1), port
+
+
+def _is_ip(value: str) -> bool:
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 def _server(
@@ -161,7 +174,7 @@ def build_dns(
 
     # Имя сервера профиля резолвит системный резолвер: DNS через прокси ждал бы
     # соединения с прокси, а оно — этого самого ответа.
-    if proxy_host and not proxy_host[0].isdigit():
+    if proxy_host and not _is_ip(proxy_host.strip("[]")):
         servers.extend(_system_servers(system_resolvers, [f"full:{proxy_host}"]))
 
     for group, domains in domain_groups:
