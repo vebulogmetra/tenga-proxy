@@ -16,6 +16,10 @@ class FakeGroup:
     is_subscription: bool = True
     subscription_url: str = ""
     last_updated: int = 0
+    sub_user_info: str = ""
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
 
 
 @pytest.fixture
@@ -78,6 +82,15 @@ def test_subtitle_carries_the_full_url(page, data):
     assert long_url in page.get_subtitles()
 
 
+def test_an_address_with_an_ampersand_is_still_shown(page, data):
+    """Адрес с query-параметрами должен отображаться как обычный текст."""
+    url = "https://sub.example/list?token=abc&client=tenga"
+    groups, counts = data
+    groups[1].subscription_url = url
+    page.set_data(groups, counts)
+    assert url in page.get_subtitles()
+
+
 def test_update_button_emits_the_group_id(page, data):
     received: list[int] = []
     page.connect("subscription-update", lambda _p, group_id: received.append(group_id))
@@ -128,3 +141,61 @@ def test_the_menu_targets_its_own_row(page, data):
 
     assert first == 1
     assert second == 2
+
+
+# --- метаданные провайдера ---
+
+GIB = 1024**3
+
+
+def test_a_row_without_metadata_has_no_extra_widgets(page, data):
+    page.set_data(*data)
+
+    assert page.get_details_for_test(group_id=1) == ""
+    assert page.get_announce_for_test(group_id=1) == ""
+
+
+def test_usage_and_expiry_are_shown_in_the_row(page, data):
+    groups, counts = data
+    groups[1].sub_user_info = f"upload=0; download={GIB}; total={2 * GIB}; expire=4102444800"
+    page.set_data(groups, counts)
+
+    details = page.get_details_for_test(group_id=1)
+
+    assert "1.00 GB из 2.00 GB" in details
+    assert "до " in details
+    assert not page.is_expired_for_test(group_id=1)
+
+
+def test_an_expired_subscription_is_highlighted(page, data):
+    groups, counts = data
+    groups[1].sub_user_info = "upload=0; download=0; total=0; expire=1000000000"
+    page.set_data(groups, counts)
+
+    assert "истекла" in page.get_details_for_test(group_id=1)
+    assert page.is_expired_for_test(group_id=1)
+
+
+def test_the_announce_is_available_from_the_row(page, data):
+    groups, counts = data
+    groups[1].sub_announce = "Техработы <b>до</b> 12:00 & позже"
+    page.set_data(groups, counts)
+
+    assert page.get_announce_for_test(group_id=1) == "Техработы <b>до</b> 12:00 & позже"
+    assert page.get_announce_for_test(group_id=2) == ""
+
+
+def test_provider_links_extend_the_menu(page, data):
+    groups, counts = data
+    groups[1].sub_web_page_url = "https://provider.example/account"
+    groups[1].sub_support_url = "https://t.me/provider"
+    page.set_data(groups, counts)
+
+    assert page.context_menu_labels_for_test(group_id=1) == [
+        "Обновить",
+        "Редактировать",
+        "Страница подписки",
+        "Поддержка",
+        "Удалить",
+    ]
+    assert page.context_menu_labels_for_test(group_id=2) == ["Обновить", "Редактировать", "Удалить"]

@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
 from src.core.connection import ConnectionService
+from src.core.http_probe import ProbeEndpoint
 
 
 @dataclass
@@ -257,3 +258,68 @@ def test_the_monitor_is_stopped_on_disconnect(tmp_path, monkeypatch):
     monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: True)
     ConnectionService(context).disconnect()
     context.monitor.stop.assert_called_once()
+
+
+# --- служебный inbound проверки соединения ---
+
+
+def _session_config(*_args):
+    return {"inbounds": [], "outbounds": [{"protocol": "vless", "tag": "proxy"}]}
+
+
+def test_connect_adds_the_health_inbound_and_remembers_its_endpoint(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    monkeypatch.setattr("src.core.connection.build_session_config", _session_config)
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+
+    assert ConnectionService(context).connect(1).ok
+
+    started = context.xray_manager.start.call_args.args[0]
+    inbound = started["inbounds"][-1]
+    endpoint = context.proxy_state.health_endpoint
+    assert isinstance(endpoint, ProbeEndpoint)
+    assert inbound["tag"] == "health-in"
+    assert inbound["port"] == endpoint.port
+    assert inbound["settings"]["accounts"] == [
+        {"user": endpoint.credentials.user, "pass": endpoint.credentials.password}
+    ]
+    assert started["routing"]["rules"][0]["inboundTag"] == ["health-in"]
+
+
+def test_health_credentials_do_not_reach_the_debug_config(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    monkeypatch.setattr("src.core.connection.build_session_config", _session_config)
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+
+    ConnectionService(context).connect(1)
+
+    written = (tmp_path / "current_config.json").read_text(encoding="utf-8")
+    endpoint = context.proxy_state.health_endpoint
+    assert "health-in" in written
+    assert endpoint.credentials.password not in written
+    assert endpoint.credentials.user not in written
+
+
+def test_failed_start_does_not_publish_a_health_endpoint(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.start.return_value = (False, "binary not found")
+    monkeypatch.setattr("src.core.connection.build_session_config", _session_config)
+
+    ConnectionService(context).connect(1)
+
+    assert not isinstance(context.proxy_state.health_endpoint, ProbeEndpoint)
+
+
+def test_reload_renews_the_health_endpoint(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 1
+    context.xray_manager.reload_config.return_value = (True, "")
+    monkeypatch.setattr("src.core.connection.build_session_config", _session_config)
+
+    assert ConnectionService(context).reload_config().ok
+
+    reloaded = context.xray_manager.reload_config.call_args.args[0]
+    endpoint = context.proxy_state.health_endpoint
+    assert isinstance(endpoint, ProbeEndpoint)
+    assert reloaded["inbounds"][-1]["port"] == endpoint.port

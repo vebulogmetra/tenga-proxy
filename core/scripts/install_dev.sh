@@ -6,6 +6,9 @@
 
 set -e
 
+# Закреплено вместе с core/bin/xray: latest не включает нужные маски пререлиза.
+XRAY_VERSION="26.9.9"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -238,15 +241,8 @@ download_xray() {
             ;;
     esac
 
-    info "Получение информации о последней версии xray-core..."
-    LATEST_VERSION=$(curl -s https://api.github.com/repos/XTLS/Xray-core/releases/latest | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/' | sed 's/^v//')
-    
-    if [ -z "$LATEST_VERSION" ]; then
-        error "Не удалось получить версию xray-core"
-        exit 1
-    fi
-    
-    info "Последняя версия: $LATEST_VERSION"
+    LATEST_VERSION="$XRAY_VERSION"
+    info "Версия xray-core: $LATEST_VERSION"
     
     DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/v${LATEST_VERSION}/Xray-linux-${ARCH}.zip"
     

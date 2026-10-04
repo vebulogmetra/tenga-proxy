@@ -50,10 +50,11 @@ def test_a_non_http_url_blocks_saving(gtk_ready):
     assert not dialog.save_button.get_sensitive()
 
 
-def test_a_missing_name_blocks_saving(gtk_ready):
+def test_a_missing_name_falls_back_to_the_host(gtk_ready):
     dialog = make_dialog()
     dialog.url_row.set_text("https://e.com/s")
-    assert not dialog.save_button.get_sensitive()
+    assert dialog.save_button.get_sensitive()
+    assert dialog.get_data() == ("e.com", "https://e.com/s")
 
 
 def test_the_hint_explains_a_bad_url(gtk_ready):

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from src.core.core_update import AVAILABLE, BEHIND_PINNED, CURRENT, CoreUpdateStatus
+
 UNKNOWN = "—"
 
 
@@ -44,3 +46,14 @@ def core_version(manager: Any | None) -> str:
     if not info:
         return UNKNOWN
     return str(info.get("version") or UNKNOWN)
+
+
+def core_update_text(status: CoreUpdateStatus) -> str:
+    """One line for the «Обновление ядра» row."""
+    if status.kind == AVAILABLE:
+        return f"Доступна версия {status.target}"
+    if status.kind == BEHIND_PINNED:
+        return f"Ядро старее версии {status.target}, на которую рассчитано приложение"
+    if status.kind == CURRENT:
+        return "Обновлений нет"
+    return "Не проверялось"

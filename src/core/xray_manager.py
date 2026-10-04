@@ -2,16 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import subprocess
 import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from statistics import median
 from typing import IO, Any
-
-import requests
 
 from src.core.config import (
     DEFAULT_STATS_API_ADDR,
@@ -19,6 +17,7 @@ from src.core.config import (
     XRAY_LOG_FILE,
     find_xray_binary,
 )
+from src.core.geo import ASSET_ENV, asset_dir_for_core
 from src.core.performance import measure_time
 
 logger = logging.getLogger("tenga.xray_manager")
@@ -43,9 +42,12 @@ class XrayManager:
     """
 
     # Служебные каналы в счёт трафика не идут: direct — мимо прокси, vpn —
-    # через туннель, api — сам опрос статистики, остальные три — резолвинг DNS.
+    # через туннель, block — в никуда, dns-out — перехваченные DNS-запросы, api —
+    # сам опрос статистики, остальные три — резолвинг DNS.
     # Список отражает теги, которые заводит `src/core/config_builder.py`.
-    _SERVICE_TAGS = frozenset({"direct", "vpn", "api", "main-dns", "local-dns", "vpn-dns"})
+    _SERVICE_TAGS = frozenset(
+        {"direct", "vpn", "block", "dns-out", "api", "main-dns", "local-dns", "vpn-dns"}
+    )
 
     def __init__(
         self,
@@ -80,6 +82,18 @@ class XrayManager:
 
         # Cache xray version on initialization
         self._version_cache = self._fetch_version()
+
+    def _core_env(self) -> dict[str, str] | None:
+        """Окружение процесса ядра; None — унаследовать как есть.
+
+        Геобазы ядро ищет рядом с собой. Если их там нет (установка, сделанная до
+        появления баз в комплекте), называем каталог комплекта: правила с
+        `geosite:`/`geoip:` иначе уронили бы запуск.
+        """
+        asset_dir = asset_dir_for_core(self._binary_path)
+        if asset_dir is None:
+            return None
+        return {**os.environ, ASSET_ENV: str(asset_dir)}
 
     def _wait_for_process_ready(self, timeout: float = 2.0) -> bool:
         """Wait for xray process to be ready.
@@ -272,12 +286,14 @@ class XrayManager:
                     [self._binary_path, "-config", str(self._config_file)],
                     stdout=self._log_file,
                     stderr=subprocess.STDOUT,
+                    env=self._core_env(),
                 )
             else:
                 self._process = subprocess.Popen(
                     [self._binary_path, "-config", str(self._config_file)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    env=self._core_env(),
                 )
 
             if not self._wait_for_process_ready(timeout=2.0):
@@ -479,130 +495,6 @@ class XrayManager:
             elif parts[3] == "downlink":
                 download += value
         return TrafficStats(upload=upload, download=download)
-
-    @measure_time("XrayManager.test_delay")
-    def test_delay(
-        self,
-        proxy_address: str | None = None,
-        proxy_port: int | None = None,
-        timeout: int = 3000,
-    ) -> int:
-        """
-        Backward-compatible single-probe latency test.
-
-        Args:
-            proxy_address: Proxy address
-            proxy_port: Proxy SOCKS5 port
-            timeout: Timeout in milliseconds
-
-        Returns:
-            Latency in milliseconds, or -1 on error
-        """
-        return self.test_delay_realistic(
-            proxy_address=proxy_address,
-            proxy_port=proxy_port,
-            timeout=timeout,
-            probes=1,
-        )
-
-    @measure_time("XrayManager.test_delay_realistic")
-    def test_delay_realistic(
-        self,
-        proxy_address: str | None = None,
-        proxy_port: int | None = None,
-        timeout: int = 3000,
-        probes: int = 3,
-        test_url: str = "http://www.google.com/generate_204",
-    ) -> int:
-        """
-        Test proxy latency with multiple probes and median aggregation.
-
-        Args:
-            proxy_address: Proxy address
-            proxy_port: Proxy SOCKS5 port
-            timeout: Timeout in milliseconds
-            probes: Number of probes to run (minimum 1)
-            test_url: Target URL for probe
-
-        Returns:
-            Median latency in milliseconds, or -1 on error
-        """
-        if not self.is_running:
-            logger.debug("xray-core is not running, cannot test delay")
-            return -1
-
-        if proxy_address is None or proxy_port is None:
-            logger.debug("Proxy address or port not provided, cannot test delay")
-            return -1
-
-        probes = max(1, probes)
-
-        try:
-            timeout_sec = timeout / 1000.0
-            http_port = proxy_port + 1
-            proxy_url = f"http://{proxy_address}:{http_port}"
-            successful_samples: list[int] = []
-
-            for probe_index in range(probes):
-                start_ns = time.perf_counter_ns()
-                cache_buster = f"cb={start_ns}_{probe_index}"
-                probe_url = (
-                    f"{test_url}&{cache_buster}"
-                    if "?" in test_url
-                    else f"{test_url}?{cache_buster}"
-                )
-
-                try:
-                    response = requests.head(
-                        probe_url,
-                        proxies={"http": proxy_url, "https": proxy_url},
-                        timeout=timeout_sec,
-                        allow_redirects=False,
-                    )
-                    elapsed_ms = int((time.perf_counter_ns() - start_ns) / 1_000_000)
-
-                    # Accept 2xx, 3xx, and some 4xx (like 403) as success
-                    if 200 <= response.status_code < 500:
-                        successful_samples.append(elapsed_ms)
-                        logger.debug(
-                            "Delay probe successful: %d ms (probe %d/%d)",
-                            elapsed_ms,
-                            probe_index + 1,
-                            probes,
-                        )
-                    else:
-                        logger.debug(
-                            "Delay probe failed with status %d (probe %d/%d)",
-                            response.status_code,
-                            probe_index + 1,
-                            probes,
-                        )
-                except requests.exceptions.Timeout:
-                    logger.debug(
-                        "Delay probe timed out after %d ms (probe %d/%d)",
-                        timeout,
-                        probe_index + 1,
-                        probes,
-                    )
-                except requests.exceptions.RequestException as e:
-                    logger.debug(
-                        "Delay probe request error (probe %d/%d): %s",
-                        probe_index + 1,
-                        probes,
-                        e,
-                    )
-
-            if not successful_samples:
-                logger.debug("No successful delay probes")
-                return -1
-
-            result = int(median(successful_samples))
-            logger.debug("Delay test realistic result (median): %d ms", result)
-            return result
-
-        except Exception as e:
-            logger.debug("Unexpected error in realistic delay test: %s", e)
-            return -1
 
     def __enter__(self) -> XrayManager:
         """Context manager entry."""

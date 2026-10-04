@@ -91,7 +91,7 @@ test-cov:
 # Список собирается по маске, а не перечислением: забытый файл иначе молча
 # выпадает из прогона.
 GTK4_TESTS := $(wildcard tests/test_ui_application.py tests/test_ui_window.py \
-	tests/test_ui_widgets_*.py tests/test_ui_pages_*.py)
+	tests/test_ui_widgets_*.py tests/test_ui_pages_*.py tests/test_ui_dialogs_*.py)
 
 PYTEST_GTK := uv run pytest -m gtk $(GTK4_TESTS) -p no:cacheprovider --no-cov
 

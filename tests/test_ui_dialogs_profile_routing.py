@@ -178,3 +178,35 @@ def test_all_three_lists_are_saved(gtk_ready):
     assert profile.routing_settings.proxy_list == ["p.com"]
     assert profile.routing_settings.direct_list == ["d.com"]
     assert profile.routing_settings.vpn_list == ["v.com"]
+
+
+def test_block_list_round_trips(gtk_ready):
+    routing = routing_settings(mode="custom", block_list=["ads.example"])
+    profile = make_profile(routing=routing)
+    dialog = make_dialog(profile)
+    assert dialog.block_text() == "ads.example"
+
+    dialog.set_block_text("ads.example\ntracker.example")
+    dialog.save()
+
+    assert profile.routing_settings.block_list == ["ads.example", "tracker.example"]
+
+
+def test_ru_direct_switch_round_trips(gtk_ready):
+    profile = make_profile(routing=routing_settings(mode="custom"))
+    dialog = make_dialog(profile)
+    assert not dialog.ru_direct_row.get_active()
+
+    dialog.ru_direct_row.set_active(True)
+    dialog.save()
+
+    assert profile.routing_settings.ru_direct is True
+
+
+def test_ready_made_rules_follow_the_mode(gtk_ready):
+    """Локальные сети напрямую действуют и в режиме «весь трафик», российские — нет."""
+    dialog = make_dialog(make_profile(routing=routing_settings(mode="proxy_all")))
+
+    assert dialog.bypass_row.get_sensitive()
+    assert not dialog.ru_direct_row.get_sensitive()
+    assert not dialog.block_view.get_sensitive()

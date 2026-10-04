@@ -13,10 +13,16 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from src.core.config_builder import build_session_config
+from src.core.config_builder import UnsafeConfigError, build_session_config, intercepts_dns
+from src.core.health_probe import (
+    attach_health_inbound,
+    new_health_endpoint,
+    redact_health_credentials,
+)
 from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import connect_vpn, disconnect_vpn, is_vpn_active
 
@@ -29,6 +35,7 @@ logger = logging.getLogger("tenga.core.connection")
 PROFILE_NOT_FOUND = "Профиль не найден"
 NO_CONFIG = "Не удалось построить конфигурацию профиля"
 NOT_RUNNING = "Прокси не запущен"
+UNSAFE_CONFIG = "Конфигурация отклонена"
 
 
 @dataclass(frozen=True)
@@ -64,11 +71,16 @@ class ConnectionService:
         self._auto_connect_vpn(profile, profile_id)
 
         runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
-        config = build_session_config(context, profile)
+        try:
+            config = build_session_config(context, profile)
+        except UnsafeConfigError as e:
+            return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
             logger.error("Could not build a configuration for profile %s", profile_id)
             return ConnectionResult(False, NO_CONFIG)
 
+        health_endpoint = new_health_endpoint()
+        attach_health_inbound(config, health_endpoint)
         self._write_debug_config(config, profile_id)
 
         try:
@@ -81,16 +93,27 @@ class ConnectionService:
             logger.error("Error starting xray-core: %s", error)
             return ConnectionResult(False, error or "Не удалось запустить xray-core")
 
+        context.proxy_state.health_endpoint = health_endpoint
         context.proxy_state.set_running(profile_id, mode=runtime_mode)
 
         routed = self._apply_runtime_mode(runtime_mode, profile)
         if not routed.ok:
             return routed
 
+        if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
+            self._route_system_dns()
+
         if context.monitor is not None:
             context.monitor.start()
 
         return ConnectionResult(True)
+
+    def _route_system_dns(self) -> None:
+        """Направить системный DNS в TUN; отказ не срывает подключение."""
+        tun_name = getattr(self._context.config, "tun_name", "xray0")
+        ok, error = route_system_dns_to_tun(tun_name)
+        if not ok:
+            logger.warning("Системный DNS не направлен в %s: %s", tun_name, error)
 
     def _reset_vpn_flag(self) -> None:
         try:
@@ -131,7 +154,9 @@ class ConnectionService:
     def _write_debug_config(self, config: dict, profile_id: int) -> None:
         try:
             path = self._context.config_dir / "current_config.json"
-            path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+            # Учётные данные служебного inbound'а на диск не пишутся.
+            safe_config = redact_health_credentials(config)
+            path.write_text(json.dumps(safe_config, indent=2), encoding="utf-8")
             logger.info("Configured profile id=%s, file: %s", profile_id, path)
         except OSError as e:
             # Конфигурация нужна только для разбора проблем: не пишется —
@@ -245,11 +270,17 @@ class ConnectionService:
             logger.error("Profile %s not found for reload", profile_id)
             return ConnectionResult(False, PROFILE_NOT_FOUND)
 
-        config = build_session_config(context, profile)
+        try:
+            config = build_session_config(context, profile)
+        except UnsafeConfigError as e:
+            return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
             logger.error("Failed to create configuration for reload")
             return ConnectionResult(False, NO_CONFIG)
 
+        # Перезагрузка — это перезапуск процесса: порт и учётные данные новые.
+        health_endpoint = new_health_endpoint()
+        attach_health_inbound(config, health_endpoint)
         self._write_debug_config(config, profile_id)
 
         try:
@@ -261,6 +292,11 @@ class ConnectionService:
         if not reloaded:
             logger.error("Error reloading xray-core: %s", error)
             return ConnectionResult(False, error or "Не удалось перезагрузить конфигурацию")
+
+        context.proxy_state.health_endpoint = health_endpoint
+        runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
+        if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
+            self._route_system_dns()
 
         logger.info("Configuration reloaded successfully")
         return ConnectionResult(True)

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
 from abc import ABC
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import (
     Any,
+    ClassVar,
     TypeVar,
     Union,
     get_args,
@@ -256,12 +259,75 @@ class DnsSettings(ConfigBase):
     custom_url: str = ""
     # DNS via proxy
     use_proxy: bool = True
+    # В режиме TUN отдавать DNS-запросы приложений DNS-модулю ядра: без этого
+    # split-DNS и блок-лист действуют только на внутренний резолв.
+    intercept: bool = True
 
     def get_dns_url(self) -> str:
         """Get DNS server URL."""
         if self.custom_url:
             return self.custom_url
         return DnsProvider.URLS.get(self.provider, "local")
+
+
+_FRAGMENT_RANGE = re.compile(r"^(\d{1,5})(?:-(\d{1,5}))?$")
+
+
+def _is_valid_range(value: str, low: int, high: int) -> bool:
+    """Число `N` или диапазон `N-M` в пределах [low, high]."""
+    match = _FRAGMENT_RANGE.match(value)
+    if not match:
+        return False
+    start = int(match.group(1))
+    end = int(match.group(2) or match.group(1))
+    return low <= start <= end <= high
+
+
+@dataclass
+class TlsFragmentSettings(ConfigBase):
+    """Фрагментация TLS ClientHello (tcp-маска `fragment` в finalmask).
+
+    Значения — строки в формате ядра. Стартовые взяты из v2rayN/Happ и на сети
+    с DPI не подбирались: на конкретной сети могут понадобиться другие.
+    """
+
+    PACKETS_TLS_HELLO: ClassVar[str] = "tlshello"
+    DEFAULT_LENGTH: ClassVar[str] = "100-200"
+    DEFAULT_DELAY: ClassVar[str] = "10-20"
+
+    enabled: bool = False
+    # "tlshello" режет только ClientHello; иначе номера пакетов, N или N-M.
+    packets: str = PACKETS_TLS_HELLO
+    # Размер фрагмента в байтах.
+    length: str = DEFAULT_LENGTH
+    # Пауза между фрагментами, миллисекунды.
+    delay: str = DEFAULT_DELAY
+
+    @staticmethod
+    def is_valid_packets(value: str) -> bool:
+        value = value.strip()
+        return value.lower() == TlsFragmentSettings.PACKETS_TLS_HELLO or _is_valid_range(
+            value, 1, 65535
+        )
+
+    @staticmethod
+    def is_valid_length(value: str) -> bool:
+        # Нулевую длину ядро отвергает вместе со всем конфигом.
+        return _is_valid_range(value.strip(), 1, 16384)
+
+    @staticmethod
+    def is_valid_delay(value: str) -> bool:
+        return _is_valid_range(value.strip(), 0, 1000)
+
+    def sanitized(self) -> TlsFragmentSettings:
+        """Копия, где невалидное поле заменено значением по умолчанию."""
+        packets, length, delay = self.packets.strip(), self.length.strip(), self.delay.strip()
+        return TlsFragmentSettings(
+            enabled=self.enabled,
+            packets=packets.lower() if self.is_valid_packets(packets) else self.PACKETS_TLS_HELLO,
+            length=length if self.is_valid_length(length) else self.DEFAULT_LENGTH,
+            delay=delay if self.is_valid_delay(delay) else self.DEFAULT_DELAY,
+        )
 
 
 class RoutingMode:
@@ -302,8 +368,72 @@ class ProxyMode:
     }
 
 
+# Имя geo-категории и атрибута: как в .dat, в нижнем регистре. `!` законен
+# внутри имени (`geolocation-!cn`), но не первым: отрицание не поддерживаем.
+_GEO_NAME = re.compile(r"^[a-z0-9][a-z0-9._!-]{0,63}$")
+# Префиксы доменных правил ядра: такие записи передаются как есть.
+_DOMAIN_RULE_PREFIXES = ("domain:", "full:", "regexp:", "keyword:", "dotless:")
+
+
+def _classify_geo(entry: str) -> tuple[str, str] | None:
+    """`geosite:имя[@атрибут]` — доменное правило, `geoip:имя` — сетевое."""
+    kind, _, rest = entry.lower().partition(":")
+    name, has_attr, attr = rest.partition("@")
+    if not _GEO_NAME.match(name):
+        return None
+    if kind == "geoip":
+        return None if has_attr else ("ip", f"geoip:{name}")
+    if has_attr and not _GEO_NAME.match(attr):
+        return None
+    return ("domain", f"geosite:{rest}")
+
+
+def classify_routing_entry(entry: str) -> tuple[str, str] | None:
+    """Привести запись списка к виду, который понимает ядро.
+
+    Returns:
+        `("domain", правило)`, `("ip", сеть)` или None, если запись не годится.
+        Негодную запись лучше выбросить: непонятное правило ядро отвергает
+        вместе со всем конфигом.
+    """
+    entry = entry.strip()
+    if not entry:
+        return None
+
+    lower = entry.lower()
+    if lower.startswith(("geosite:", "geoip:")):
+        return _classify_geo(entry)
+    if lower.startswith(_DOMAIN_RULE_PREFIXES):
+        return ("domain", entry)
+
+    try:
+        network = ipaddress.ip_network(entry, strict=False)
+    except ValueError:
+        network = None
+    if network is not None:
+        return ("ip", entry if "/" in entry else f"{entry}/{network.prefixlen}")
+    if "/" in entry:
+        return None
+
+    domain = lower.removeprefix("*").lstrip(".")
+    if not domain:
+        return None
+    # Голую строку ядро сравнивает как подстроку: `ok.ru` совпал бы с
+    # `facebook.ru`. `domain:` — сам домен и его поддомены. Слово без точки
+    # оставляем подстрокой: так записывают «всё, где встречается google».
+    return ("domain", f"domain:{domain}" if "." in domain else domain)
+
+
 ROUTING_GROUPS = ["direct", "vpn", "proxy"]
 DEFAULT_ROUTING_ORDER = ["direct", "vpn", "proxy"]
+
+# Списки общей маршрутизации лежат текстовыми файлами в каталоге конфигурации.
+LIST_FILES = {
+    "proxy_list": "proxy_list.txt",
+    "direct_list": "direct_list.txt",
+    "vpn_list": "vpn_list.txt",
+    "block_list": "block_list.txt",
+}
 
 # Сети, которые никогда не должны уходить в прокси (bypass_local_networks)
 LOCAL_NETWORKS: tuple[str, ...] = (
@@ -326,7 +456,13 @@ class RoutingSettings(ConfigBase):
     proxy_list: list[str] = field(default_factory=list)
     direct_list: list[str] = field(default_factory=list)
     vpn_list: list[str] = field(default_factory=list)
-    bypass_local_networks: bool = False
+    # Блокировка: blackhole для трафика и NXDOMAIN для имён. Применяется раньше
+    # остальных групп и в порядке групп не участвует.
+    block_list: list[str] = field(default_factory=list)
+    # Готовые правила; оба стоят после пользовательских групп.
+    bypass_local_networks: bool = True
+    # Российские сайты и IP — напрямую (geosite:category-ru, geoip:ru).
+    ru_direct: bool = False
     # direct/vpn/proxy
     rule_order: list[str] = field(default_factory=lambda: DEFAULT_ROUTING_ORDER.copy())
 
@@ -349,26 +485,16 @@ class RoutingSettings(ConfigBase):
 
     def load_lists_from_files(self, config_dir: Path) -> None:
         """Load routing lists from files in config directory."""
-        proxy_file = config_dir / "proxy_list.txt"
-        direct_file = config_dir / "direct_list.txt"
-        vpn_file = config_dir / "vpn_list.txt"
-
-        self.proxy_list = self.load_list_file(proxy_file)
-        self.direct_list = self.load_list_file(direct_file)
-        self.vpn_list = self.load_list_file(vpn_file)
+        for name in LIST_FILES:
+            setattr(self, name, self.load_list_file(config_dir / LIST_FILES[name]))
 
     def save_lists_to_files(self, config_dir: Path) -> bool:
         """Save routing lists to files in config directory."""
         try:
             config_dir.mkdir(parents=True, exist_ok=True)
 
-            proxy_file = config_dir / "proxy_list.txt"
-            direct_file = config_dir / "direct_list.txt"
-            vpn_file = config_dir / "vpn_list.txt"
-
-            proxy_file.write_text("\n".join(self.proxy_list), encoding="utf-8")
-            direct_file.write_text("\n".join(self.direct_list), encoding="utf-8")
-            vpn_file.write_text("\n".join(self.vpn_list), encoding="utf-8")
+            for name, filename in LIST_FILES.items():
+                (config_dir / filename).write_text("\n".join(getattr(self, name)), encoding="utf-8")
 
             return True
         except Exception:
@@ -376,7 +502,10 @@ class RoutingSettings(ConfigBase):
 
     def parse_entries(self, entries: list[str]) -> tuple[list[str], list[str]]:
         """
-        Split entries into domains and IP/CIDR.
+        Split entries into domain rules and IP rules of the core.
+
+        `geosite:` уходит в домены, `geoip:` — в сети; негодные записи
+        отбрасываются (см. `classify_routing_entry`).
 
         Returns:
             (domains, ips)
@@ -399,16 +528,11 @@ class RoutingSettings(ConfigBase):
                     ips.extend(part_ips)
                 continue
 
-            if "/" in entry:
-                parts = entry.split("/")
-                if len(parts) == 2 and parts[1].isdigit():
-                    ips.append(entry)
-                    continue
-
-            if entry[0].isdigit() and all(c.isdigit() or c == "." for c in entry):
-                ips.append(entry + "/32")
+            classified = classify_routing_entry(entry)
+            if classified is None:
                 continue
-            domains.append(entry)
+            kind, value = classified
+            (ips if kind == "ip" else domains).append(value)
 
         return domains, ips
 
@@ -458,3 +582,7 @@ class MonitoringSettings(ConfigBase):
     enabled: bool = True
     check_interval_seconds: int = 10
     test_url: str = "https://www.google.com/generate_204"
+    # Автопереключение: после стольких неудачных проверок подряд подключается
+    # другой профиль той же группы. Выключено, пока пользователь не включит сам.
+    failover_enabled: bool = False
+    failover_threshold: int = 3

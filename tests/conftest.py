@@ -9,6 +9,30 @@ from __future__ import annotations
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _no_system_dns_changes(monkeypatch) -> list[str]:
+    """Подключение в тестах не трогает DNS машины."""
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "src.core.connection.route_system_dns_to_tun",
+        lambda tun_name: calls.append(tun_name) or (False, "tests: system DNS is not touched"),
+    )
+    return calls
+
+
+@pytest.fixture(autouse=True)
+def _no_system_probing(monkeypatch) -> None:
+    """Сборка конфига не должна зависеть от сети машины, на которой идут тесты.
+
+    В режиме TUN сборщик спрашивает у системы физический интерфейс и её
+    DNS-серверы. Тест, которому это нужно, подменяет функции сам.
+    """
+    from src.core import config_builder
+
+    monkeypatch.setattr(config_builder, "get_default_interface", lambda *_a, **_k: None)
+    monkeypatch.setattr(config_builder, "system_dns_servers", lambda _interface: [])
+
+
 @pytest.fixture(scope="session")
 def gtk_ready() -> None:
     """Skip the test unless GTK4 can talk to a display."""

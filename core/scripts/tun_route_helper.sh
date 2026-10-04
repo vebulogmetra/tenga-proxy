@@ -5,6 +5,7 @@ set -eu
 # Usage:
 #   tun-route-helper apply <tun_name> <proxy_ip> <gateway|- > <dev> <metric|->
 #   tun-route-helper restore <proxy_ip> <gateway|- > <dev> <metric|->
+#   tun-route-helper dns <tun_name>
 
 die() {
   echo "tun-route-helper: $*" >&2
@@ -84,6 +85,17 @@ case "$action" in
     fi
 
     ip route del "$proxy_ip/32" >/dev/null 2>&1 || true
+    ;;
+
+  dns)
+    # Фиксированный сервер: помощник выполняется от root без пароля.
+    [ $# -eq 1 ] || die "dns requires 1 arg"
+    tun_name="$1"
+    is_ifname "$tun_name" || die "invalid tun_name"
+    case "$tun_name" in -*) die "invalid tun_name" ;; esac
+    command -v resolvectl >/dev/null 2>&1 || die "resolvectl not found"
+    resolvectl dns "$tun_name" 1.1.1.1
+    resolvectl domain "$tun_name" "~."
     ;;
 
   *)

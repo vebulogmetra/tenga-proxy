@@ -11,8 +11,17 @@ from src.db.config import (
     MonitoringSettings,
     ProxyMode,
     RoutingSettings,
+    TlsFragmentSettings,
     VpnSettings,
 )
+
+# Так представляется провайдеру подписки Android-версия. v2rayNG знают все панели
+# и отдают ему список ссылок; незнакомому клиенту часть провайдеров рвёт
+# соединение ещё на TLS-рукопожатии.
+DEFAULT_USER_AGENT = "v2rayNG/1.8.23"
+# Значение по умолчанию до этапа 2. Просило Clash YAML, который приложение не
+# разбирает: провайдер был вправе ответить YAML, и подписка давала ноль профилей.
+LEGACY_USER_AGENT = "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
 
 
 @dataclass
@@ -50,7 +59,9 @@ class DataStore(ConfigBase):
     start_minimal: bool = False
     # Subscriptions
     user_agent: str = ""
-    sub_use_proxy: bool = False
+    # HWID создаётся при включении флага и скрыт из repr настроек.
+    sub_send_device_info: bool = False
+    sub_hwid: str = field(default="", repr=False)
     sub_clear: bool = False
     sub_insecure: bool = False
     sub_auto_update: int = -30
@@ -95,10 +106,16 @@ class DataStore(ConfigBase):
     vpn: VpnSettings = field(default_factory=VpnSettings)
     # Monitoring settings
     monitoring: MonitoringSettings = field(default_factory=MonitoringSettings)
+    # Обход DPI: фрагментация TLS ClientHello. Mux — поля mux_default_on/mux_concurrency.
+    tls_fragment: TlsFragmentSettings = field(default_factory=TlsFragmentSettings)
     # Misc
     old_share_link_format: bool = True
     traffic_loop_interval: int = 1000
     check_include_pre: bool = False
+    # Проверка обновлений ядра: новейшие известные релизы и время опроса GitHub.
+    core_update_stable: str = ""
+    core_update_prerelease: str = ""
+    core_update_checked_at: int = 0
     system_proxy_format: str = ""
     # Runtime state (not saved)
     _core_token: str = field(default="", repr=False)
@@ -117,9 +134,10 @@ class DataStore(ConfigBase):
 
     def get_user_agent(self, use_default: bool = False) -> str:
         """Get User-Agent."""
-        if use_default or not self.user_agent:
-            return "Tenga-proxy/1.0 (Prefer ClashMeta Format)"
-        return self.user_agent
+        custom = self.user_agent.strip()
+        if use_default or not custom or custom == LEGACY_USER_AGENT:
+            return DEFAULT_USER_AGENT
+        return custom
 
     def update_started_id(self, profile_id: int) -> None:
         """Update started profile ID."""

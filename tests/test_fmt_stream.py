@@ -1,3 +1,5 @@
+import pytest
+
 from src.fmt.stream import StreamSettings
 
 
@@ -58,15 +60,11 @@ def test_build_transport_websocket_with_early_data_property():
     assert transport["wsSettings"]["earlyDataHeaderName"] == "Custom-Header"
 
 
-def test_build_transport_http():
-    """Test HTTP/2 transport for xray-core format."""
+def test_build_transport_http_is_rejected():
+    """Транспорт h2 удалён из xray-core: вместо отказа ядра — понятная ошибка сборки."""
     stream = StreamSettings(network="http", path="/h2", host="example.com,example.org")
-    transport = stream.build_transport()
-    assert transport is not None
-    assert transport["network"] == "http"
-    assert "httpSettings" in transport
-    assert transport["httpSettings"]["path"] == "/h2"
-    assert transport["httpSettings"]["host"] == ["example.com", "example.org"]
+    with pytest.raises(ValueError, match="HTTP/2"):
+        stream.build_transport()
 
 
 def test_build_transport_grpc():
@@ -91,15 +89,24 @@ def test_build_transport_httpupgrade():
 
 
 def test_build_transport_tcp_with_http_header():
-    """Test TCP with HTTP header for xray-core format."""
-    stream = StreamSettings(network="tcp", header_type="http", path="/http", host="example.com")
+    """TCP с HTTP-маскировкой — это заголовок поверх tcp, а не транспорт h2."""
+    stream = StreamSettings(
+        network="tcp", header_type="http", path="/http", host="example.com,example.org"
+    )
     transport = stream.build_transport()
     assert transport is not None
-    # xray-core converts tcp+http to http transport
-    assert transport["network"] == "http"
-    assert "httpSettings" in transport
-    assert transport["httpSettings"]["path"] == "/http"
-    assert transport["httpSettings"]["host"] == ["example.com"]
+    assert transport["network"] == "tcp"
+    assert "httpSettings" not in transport
+    header = transport["tcpSettings"]["header"]
+    assert header["type"] == "http"
+    assert header["request"]["path"] == ["/http"]
+    assert header["request"]["headers"]["Host"] == ["example.com", "example.org"]
+
+
+def test_build_transport_tcp_with_http_header_without_path_and_host():
+    stream = StreamSettings(network="tcp", header_type="http")
+    transport = stream.build_transport()
+    assert transport == {"network": "tcp", "tcpSettings": {"header": {"type": "http"}}}
 
 
 def test_build_transport_xhttp():
@@ -120,11 +127,9 @@ def test_build_tls_none():
 
 def test_build_tls_basic():
     """Test basic TLS settings for xray-core format."""
-    stream = StreamSettings(security="tls", sni="example.com", allow_insecure=True)
+    stream = StreamSettings(security="tls", sni="example.com")
     tls = stream.build_tls()
-    assert tls is not None
-    assert tls["allowInsecure"] is True
-    assert tls["serverName"] == "example.com"
+    assert tls == {"serverName": "example.com"}
 
 
 def test_build_tls_with_certificate():
@@ -190,12 +195,32 @@ def test_build_tls_with_utls_fingerprint():
     assert tls["fingerprint"] == "chrome"
 
 
-def test_build_tls_skip_cert():
-    """Test TLS with skip_cert for xray-core format."""
-    stream = StreamSettings(security="tls", allow_insecure=False)
-    tls = stream.build_tls(skip_cert=True)
+@pytest.mark.parametrize(
+    ("allow_insecure", "skip_cert"), [(True, False), (False, True), (True, True)]
+)
+def test_build_tls_never_emits_allow_insecure(allow_insecure, skip_cert):
+    """Ядро отвергает конфиг с allowInsecure целиком («has been removed»)."""
+    stream = StreamSettings(security="tls", sni="example.com", allow_insecure=allow_insecure)
+    tls = stream.build_tls(skip_cert=skip_cert)
     assert tls is not None
-    assert tls["allowInsecure"] is True
+    assert "allowInsecure" not in tls
+    assert tls["serverName"] == "example.com"
+
+
+@pytest.mark.parametrize("spider_x", ["abc", "spider", " /x"])
+def test_build_reality_drops_spider_x_without_leading_slash(spider_x):
+    """Ядро отвергает spiderX без ведущего слэша вместе со всем конфигом."""
+    stream = StreamSettings(reality_public_key="pbk", reality_spider_x=spider_x)
+    reality = stream.build_reality()
+    assert reality is not None
+    assert "spiderX" not in reality
+
+
+def test_build_reality_keeps_spider_x_path():
+    stream = StreamSettings(reality_public_key="pbk", reality_spider_x="/watch?v=1")
+    reality = stream.build_reality()
+    assert reality is not None
+    assert reality["spiderX"] == "/watch?v=1"
 
 
 def test_apply_to_outbound():
@@ -251,3 +276,27 @@ def test_apply_to_outbound_with_reality():
     assert ss["realitySettings"]["shortId"] == "test_sid"
     assert ss["realitySettings"]["serverName"] == "example.com"
     assert ss["realitySettings"]["fingerprint"] == "chrome"
+
+
+@pytest.mark.parametrize("network", ["ws", "httpupgrade"])
+def test_build_tls_drops_h2_alpn_for_http1_only_transports(network):
+    """ws и httpupgrade работают только поверх HTTP/1.1: h2 в ALPN ломает апгрейд."""
+    stream = StreamSettings(network=network, security="tls", alpn="h2,http/1.1,h3")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert tls["alpn"] == ["http/1.1"]
+
+
+def test_build_tls_omits_alpn_when_nothing_is_left():
+    stream = StreamSettings(network="ws", security="tls", alpn="h2")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert "alpn" not in tls
+
+
+@pytest.mark.parametrize("network", ["tcp", "grpc", "xhttp"])
+def test_build_tls_keeps_h2_alpn_for_other_transports(network):
+    stream = StreamSettings(network=network, security="tls", alpn="h2,http/1.1")
+    tls = stream.build_tls()
+    assert tls is not None
+    assert tls["alpn"] == ["h2", "http/1.1"]

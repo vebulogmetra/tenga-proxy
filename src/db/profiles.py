@@ -40,6 +40,25 @@ def _get_protocol_classes() -> dict[str, type[ProxyBean]]:
     }
 
 
+def profile_match_key(bean: ProxyBean) -> str:
+    """Identity of a profile inside a subscription: name, type, server and port.
+
+    Имя входит в ключ намеренно: провайдер, переименовавший сервер, получает
+    новый профиль. Сопоставление «по адресу без имени» склеило бы разные
+    профили на одном сервере (один хост, разные транспорты).
+    """
+    return f"{bean.name}|{bean.proxy_type}|{bean.server_address}|{bean.server_port}"
+
+
+@dataclass(frozen=True)
+class GroupSyncResult:
+    """What sync_group did to the group."""
+
+    updated: int = 0
+    added: int = 0
+    removed: int = 0
+
+
 @dataclass
 class ProfileGroup(ConfigBase):
     """Profile group."""
@@ -49,7 +68,13 @@ class ProfileGroup(ConfigBase):
     is_subscription: bool = False
     subscription_url: str = ""
     last_updated: int = 0  # timestamp
-    sub_user_info: str = ""
+    # Метаданные провайдера (src/sub/metadata.py). Все — только для показа.
+    sub_user_info: str = ""  # "upload=N; download=N; total=N; expire=N"
+    sub_update_interval: int = 0  # часы
+    sub_announce: str = ""
+    sub_support_url: str = ""
+    sub_web_page_url: str = ""
+    sub_fallback_url: str = ""  # предлагается, если обновление не удалось
 
 
 @dataclass
@@ -335,6 +360,45 @@ class ProfileManager:
         except Exception as e:
             print(f"Error saving profiles: {e}")
             return False
+
+    def sync_group(self, group_id: int, beans: list[ProxyBean]) -> GroupSyncResult:
+        """Replace the group content with ``beans``, keeping ids of matching profiles.
+
+        Совпавший по ``profile_match_key`` профиль обновляется на месте: id,
+        замер задержки, ``last_used`` и персональные настройки остаются. Иначе
+        после каждого обновления подписки подключённый профиль терял бы id, и
+        ``started_profile_id`` указывал бы в пустоту. Пропавшие из ответа
+        удаляются. Порядок в группе — порядок ответа.
+        """
+        existing: dict[str, list[ProfileEntry]] = {}
+        for entry in self._profiles.values():
+            if entry.group_id == group_id:
+                existing.setdefault(profile_match_key(entry.bean), []).append(entry)
+
+        synced: list[ProfileEntry] = []
+        updated = added = 0
+        for bean in beans:
+            candidates = existing.get(profile_match_key(bean))
+            if candidates:
+                entry = candidates.pop(0)
+                entry.bean = bean
+                updated += 1
+            else:
+                entry = ProfileEntry(id=self._next_profile_id, group_id=group_id, bean=bean)
+                self._next_profile_id += 1
+                added += 1
+            synced.append(entry)
+
+        leftovers = [entry.id for entries in existing.values() for entry in entries]
+        # Перевставка в конец задаёт порядок ответа: словарь хранит порядок вставки.
+        for entry in synced:
+            self._profiles.pop(entry.id, None)
+        for profile_id in leftovers:
+            del self._profiles[profile_id]
+        for entry in synced:
+            self._profiles[entry.id] = entry
+
+        return GroupSyncResult(updated=updated, added=added, removed=len(leftovers))
 
     def clear_group(self, group_id: int) -> int:
         """Clear group (remove all profiles)."""

@@ -7,12 +7,17 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from src.core.http_probe import measure_latency
 from src.core.performance import measure_time
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
+    from src.core.http_probe import ProbeEndpoint
 
 logger = logging.getLogger("tenga.core.monitor")
+
+HEALTH_PROBE_TIMEOUT_SECONDS = 5.0
+SERVER_SILENT = "Сервер не отвечает"
 
 
 @dataclass
@@ -24,6 +29,8 @@ class ConnectionStatus:
     last_check_time: float = 0.0
     proxy_error: str = ""
     vpn_error: str = ""
+    # True — в этой проверке сервер опрашивался запросом, а не взят прошлый вердикт.
+    server_probed: bool = False
 
 
 class ConnectionMonitor:
@@ -31,7 +38,7 @@ class ConnectionMonitor:
     Monitor proxy and VPN connection status.
 
     Periodically checks:
-    - Proxy: xray-core process status + version check
+    - Proxy: xray-core process status, then a request through the health inbound
     - VPN: NetworkManager connection status (if VPN integration enabled)
     """
 
@@ -48,6 +55,9 @@ class ConnectionMonitor:
         self._traffic_in_progress = False
         self._check_in_progress = False
         self._check_generation = 0
+        # Последний вердикт сетевой пробы: ручная проверка идёт из главного
+        # цикла и сама в сеть не ходит.
+        self._server_ok = True
         self._status = ConnectionStatus()
         self._previous_status = ConnectionStatus()
         self._on_status_changed: Callable[[ConnectionStatus, ConnectionStatus], None] | None = None
@@ -99,6 +109,7 @@ class ConnectionMonitor:
         # skip forever.
         self._check_in_progress = False
         self._traffic_in_progress = False
+        self._server_ok = True
 
         # Таймер трафика снимается до раннего возврата: он заводится вместе с
         # основным, но пережил бы его, если выйти раньше.
@@ -146,13 +157,18 @@ class ConnectionMonitor:
                 logger.debug("Previous connection check still running, skipping tick")
             return True
 
-        # Run checks in background thread
+        self._start_background_check()
+        return True
+
+    def _start_background_check(self) -> None:
+        """Run one full check, with the server probe, off the main loop."""
+        if self._check_in_progress:
+            return
+
         self._check_in_progress = True
         self._check_generation += 1
         generation = self._check_generation
         threading.Thread(target=self._do_check_async, args=(generation,), daemon=True).start()
-
-        return True
 
     def refresh_traffic(self) -> None:
         """Pull the traffic counters into the shared state.
@@ -258,6 +274,17 @@ class ConnectionMonitor:
         logger.info("Proxy check: SUCCESS (xray-core running)")
         return True, ""
 
+    def _probe_server(self, endpoint: ProbeEndpoint) -> bool:
+        """Ask the server through the health inbound. Blocks: background thread only."""
+        url = self._context.config.monitoring.test_url
+        latency = measure_latency(endpoint, url, timeout=HEALTH_PROBE_TIMEOUT_SECONDS, probes=1)
+        if latency < 0:
+            logger.warning("Proxy check: no answer from the server through the proxy")
+            return False
+
+        logger.debug("Proxy check: server answered in %d ms", latency)
+        return True
+
     def _check_vpn_status(self) -> tuple[bool, str]:
         """
         Check VPN connection status.
@@ -334,6 +361,9 @@ class ConnectionMonitor:
         отдавать его главному циклу, а ручная идёт из него самого и должна
         применить результат сразу — иначе нажатие «Обновить сейчас» оставляет
         страницу нетронутой до следующего тика.
+
+        Сервер опрашивает только фоновая проверка: запрос может длиться до
+        таймаута, а главный цикл ждать не должен. Ручная берёт прошлый вердикт.
         """
         # Save previous status
         previous_status = ConnectionStatus(
@@ -342,9 +372,18 @@ class ConnectionMonitor:
             last_check_time=self._status.last_check_time,
             proxy_error=self._status.proxy_error,
             vpn_error=self._status.vpn_error,
+            server_probed=self._status.server_probed,
         )
 
         proxy_ok, proxy_error = self._check_proxy_status()
+        server_probed = False
+        endpoint = self._context.proxy_state.health_endpoint
+        if proxy_ok and endpoint is not None:
+            if defer:
+                self._server_ok = self._probe_server(endpoint)
+                server_probed = True
+            if not self._server_ok:
+                proxy_ok, proxy_error = False, SERVER_SILENT
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
                 "Proxy status: %s (%s)", "OK" if proxy_ok else "FAIL", proxy_error or "no error"
@@ -365,6 +404,7 @@ class ConnectionMonitor:
             last_check_time=time.time(),
             proxy_error=proxy_error,
             vpn_error=vpn_error,
+            server_probed=server_probed,
         )
 
         if not defer:
@@ -391,6 +431,9 @@ class ConnectionMonitor:
         self._previous_status = previous_status
         self._status = new_status
         self._notify_status_changed()
+        if self._status_changed():
+            # Окно и трей перерисовываются по слушателям состояния прокси.
+            self._context.proxy_state.notify_listeners()
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug("Status updated and UI notified")
         return False  # Remove from idle queue
@@ -446,6 +489,9 @@ class ConnectionMonitor:
             # нажатие «Обновить сейчас» не делало бы ничего.
             self._run_check(defer=False)
             self._notify_ui_update()
+            if self._context.proxy_state.health_endpoint is not None:
+                # Свежий ответ сервера придёт из фонового потока.
+                self._start_background_check()
         finally:
             if not was_enabled:
                 self._context.config.monitoring.enabled = False
