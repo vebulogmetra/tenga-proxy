@@ -17,9 +17,11 @@ from src.core.geo_update import update_geo_bases
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
+from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
+from src.ui.window import apply_theme
 
 LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
@@ -116,6 +118,16 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_mtu_row = Adw.SpinRow.new_with_range(576, 9000, 1)
         self.tun_mtu_row.set_title("MTU")
         runtime.add(self.tun_mtu_row)
+
+        appearance = Adw.PreferencesGroup(title="Оформление")
+        page.add(appearance)
+
+        self._theme = KeyedCombo("Тема", THEMES, THEME_LABELS)
+        self.theme_row = self._theme.row
+        # Тема меняется сразу, чтобы выбор было видно, а в настройки
+        # попадает при закрытии диалога, как и остальные поля.
+        self.theme_row.connect("notify::selected", lambda *_: apply_theme(self._theme.selected()))
+        appearance.add(self.theme_row)
 
         logs = Adw.PreferencesGroup(title="Журнал")
         page.add(logs)
@@ -340,6 +352,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._sync_mode()
 
         self._log_level.select(getattr(config, "log_level", DEFAULT_LOG_LEVEL))
+        self._theme.select(normalize_theme(getattr(config, "theme", None)))
 
         monitoring = config.monitoring
         self.monitoring_row.set_active(monitoring.enabled)
@@ -379,6 +392,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         config.tun_mtu = int(self.tun_mtu_row.get_value())
 
         config.log_level = self._log_level.selected()
+        config.theme = self._theme.selected()
 
         config.monitoring.enabled = self.monitoring_row.get_active()
         config.monitoring.check_interval_seconds = int(self.interval_row.get_value())
@@ -418,6 +432,12 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def select_dns(self, key: str) -> None:
         self._dns.select(key)
+
+    def selected_theme(self) -> str:
+        return self._theme.selected()
+
+    def select_theme(self, key: str) -> None:
+        self._theme.select(key)
 
     def select_log_level(self, key: str) -> None:
         self._log_level.select(key)

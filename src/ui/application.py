@@ -23,7 +23,7 @@ from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version, core_version
-from src.ui.window import APP_ICON, MainWindow, load_css, load_icons
+from src.ui.window import APP_ICON, MainWindow, apply_theme, load_css, load_icons
 
 # Шаг склейки перерисовок на время замера задержки.
 LATENCY_REFRESH_INTERVAL_MS = 150
@@ -97,6 +97,7 @@ class TengaApplication(Adw.Application):
         Adw.Application.do_startup(self)
         load_icons()
         load_css()
+        apply_theme(getattr(self.context.config, "theme", None))
         self._register_actions()
         self._setup_signal_handlers()
         self.watch_monitor()

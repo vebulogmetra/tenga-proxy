@@ -377,3 +377,33 @@ def test_core_update_cannot_be_checked_without_a_context(gtk_ready):
     dialog = make_dialog()
 
     assert not dialog.core_update_button.get_sensitive()
+
+
+def test_the_theme_follows_the_system_by_default(gtk_ready):
+    assert make_dialog().selected_theme() == "system"
+
+
+def test_the_theme_is_loaded_and_saved(gtk_ready):
+    config = make_config()
+    config.theme = "dark"
+    dialog = make_dialog(config)
+    assert dialog.selected_theme() == "dark"
+
+    dialog.select_theme("light")
+    dialog.save()
+    assert config.theme == "light"
+
+
+def test_choosing_a_theme_applies_it_at_once(gtk_ready):
+    from gi.repository import Adw
+
+    manager = Adw.StyleManager.get_default()
+    dialog = make_dialog()
+    try:
+        dialog.select_theme("dark")
+        assert manager.get_color_scheme() == Adw.ColorScheme.FORCE_DARK
+        dialog.select_theme("light")
+        assert manager.get_color_scheme() == Adw.ColorScheme.FORCE_LIGHT
+    finally:
+        dialog.select_theme("system")
+    assert manager.get_color_scheme() == Adw.ColorScheme.DEFAULT

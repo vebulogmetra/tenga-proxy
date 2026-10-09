@@ -14,6 +14,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from src.core.config import get_asset_path
+from src.ui.logic.appearance import normalize_theme
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
     MIN_WIDTH,
@@ -63,6 +64,15 @@ def load_css() -> None:
     Gtk.StyleContext.add_provider_for_display(
         display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
     )
+
+
+def apply_theme(theme: str | None) -> None:
+    """Force the light or dark scheme, or follow the system one."""
+    scheme = {
+        "light": Adw.ColorScheme.FORCE_LIGHT,
+        "dark": Adw.ColorScheme.FORCE_DARK,
+    }.get(normalize_theme(theme), Adw.ColorScheme.DEFAULT)
+    Adw.StyleManager.get_default().set_color_scheme(scheme)
 
 
 def load_icons() -> None:

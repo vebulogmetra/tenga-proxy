@@ -52,7 +52,7 @@ class DataStore(ConfigBase):
     mux_concurrency: int = 8
     mux_default_on: bool = False
     # UI settings
-    theme: str = "0"
+    theme: str = "system"
     language: int = 0
     window_size: str = ""
     splitter_state: str = ""
