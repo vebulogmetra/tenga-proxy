@@ -170,11 +170,15 @@ python cli.py bump-version 1.0.0
 
 ### Logging
 
-The application uses detailed logging:
+Logs live in `logs/` (development mode) or in `~/.config/tenga-proxy/logs/`:
 
-- `core/logs/tenga_gui.log` - GUI logs
-- `core/logs/tenga_cli.log` - CLI logs
-- `core/logs/xray.log` - xray-core logs
+- `tenga_gui.log` - GUI logs
+- `tenga_cli.log` - CLI logs
+- `xray.log` - xray-core output
+
+At midnight a file is archived with the date in its name (`xray.log.2026-10-08`).
+Logs are kept for three days: today's file and two archives; anything older
+is removed on rotation and on application start.
 
 ### Environment Variables
 

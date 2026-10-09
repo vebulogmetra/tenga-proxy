@@ -267,6 +267,8 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
 ### Logging
 - Логи в `logs/` (dev) или `~/.config/tenga-proxy/logs/` (prod)
 - Отдельные файлы для GUI, CLI и xray-core
+- Ротация в полночь, хранятся три дня (`LOG_RETENTION_DAYS`); вывод xray идёт
+  через pipe, чтобы его файл тоже поворачивался
 - Настройка через `src/core/logging_utils.py`
 
 ### Dependencies

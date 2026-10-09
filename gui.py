@@ -12,17 +12,15 @@ MIN_ADWAITA = (1, 5)
 
 
 def setup_early_logging():
-    log_dir = os.environ.get("TENGA_CONFIG_DIR")
-    if not log_dir:
-        xdg = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
-        log_dir = os.path.join(xdg, "tenga-proxy")
+    from src.core.config import CORE_DIR, GUI_LOG_FILE
+    from src.core.logging_utils import setup_logging
 
-    os.makedirs(log_dir, exist_ok=True)
-    log_file = os.path.join(log_dir, "startup.log")
-
-    logging.basicConfig(
-        filename=log_file, level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s"
-    )
+    setup_logging(GUI_LOG_FILE, level=logging.DEBUG)
+    # Раньше GUI писал в startup.log в корне конфигурации, без ротации.
+    try:
+        (CORE_DIR / "startup.log").unlink(missing_ok=True)
+    except OSError:
+        pass
     return logging.getLogger("startup")
 
 

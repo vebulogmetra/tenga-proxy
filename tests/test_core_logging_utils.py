@@ -1,37 +1,84 @@
 import logging
-from logging.handlers import RotatingFileHandler
+import os
+import time
+from logging.handlers import TimedRotatingFileHandler
 
-from src.core.logging_utils import setup_logging
+import pytest
+
+from src.core import logging_utils
+from src.core.logging_utils import LOG_RETENTION_DAYS, daily_file_handler, setup_logging
+
+DAY = 24 * 60 * 60
 
 
-def test_setup_logging_creates_log_file(tmp_path):
+@pytest.fixture
+def clean_root_logger():
+    """setup_logging вешает обработчики на корневой логгер — снимаем свои."""
+    root = logging.getLogger()
+    before = list(root.handlers)
+    yield root
+    for handler in root.handlers[:]:
+        if handler not in before:
+            root.removeHandler(handler)
+            handler.close()
+
+
+def test_setup_logging_creates_log_file(tmp_path, clean_root_logger):
     log_file = tmp_path / "app.log"
 
     setup_logging(log_file, level=logging.DEBUG)
+    logging.getLogger("tenga.test").info("hello")
 
     assert log_file.exists()
 
 
-def test_setup_logging_uses_rotating_handler(tmp_path):
-    """Test that setup_logging uses RotatingFileHandler."""
-    log_file = tmp_path / "test_rotating.log"
+def test_logs_are_kept_for_three_days():
+    assert LOG_RETENTION_DAYS == 3
 
-    # Need to patch LOG_DIR for this test
-    from src.core import logging_utils
 
-    original_log_dir = logging_utils.LOG_DIR
-    logging_utils.LOG_DIR = tmp_path
-
+def test_daily_handler_rotates_at_midnight_and_keeps_two_archives(tmp_path):
+    """Сегодняшний файл и два архива — ровно три дня логов."""
+    handler = daily_file_handler(tmp_path / "app.log")
     try:
-        logging_utils.setup_logging(log_file)
-
-        # Check that a RotatingFileHandler was added
-        root_logger = logging.getLogger()
-        rotating_handlers = [h for h in root_logger.handlers if isinstance(h, RotatingFileHandler)]
-
-        assert len(rotating_handlers) > 0
-        handler = rotating_handlers[0]
-        assert handler.maxBytes == 10 * 1024 * 1024  # 10 MB
-        assert handler.backupCount == 5
+        assert isinstance(handler, TimedRotatingFileHandler)
+        assert handler.when == "MIDNIGHT"
+        assert handler.backupCount == LOG_RETENTION_DAYS - 1
     finally:
-        logging_utils.LOG_DIR = original_log_dir
+        handler.close()
+
+
+def test_setup_logging_writes_through_the_daily_handler(tmp_path, clean_root_logger):
+    log_file = tmp_path / "app.log"
+
+    setup_logging(log_file)
+
+    handlers = [
+        h
+        for h in clean_root_logger.handlers
+        if isinstance(h, TimedRotatingFileHandler) and h.baseFilename == str(log_file)
+    ]
+    assert len(handlers) == 1
+
+
+def test_setup_logging_removes_logs_older_than_three_days(tmp_path, clean_root_logger):
+    stale = tmp_path / "xray.log.2026-10-01"
+    stale.write_text("old")
+    old = time.time() - (LOG_RETENTION_DAYS + 1) * DAY
+    os.utime(stale, (old, old))
+    fresh = tmp_path / "xray.log.2026-10-08"
+    fresh.write_text("new")
+
+    setup_logging(tmp_path / "app.log")
+
+    assert not stale.exists()
+    assert fresh.exists()
+
+
+def test_setup_logging_creates_the_log_directory(tmp_path, clean_root_logger, monkeypatch):
+    monkeypatch.setattr(logging_utils, "LOG_DIR", tmp_path / "logs")
+    log_file = tmp_path / "logs" / "app.log"
+
+    setup_logging(log_file)
+    logging.getLogger("tenga.test").info("hello")
+
+    assert log_file.exists()

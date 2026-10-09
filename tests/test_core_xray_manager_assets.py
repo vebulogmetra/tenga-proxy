@@ -11,6 +11,7 @@ def start_and_capture_env(monkeypatch, tmp_path, asset_dir):
 
     class FakeProcess:
         pid = 1
+        stdout = None
 
         def poll(self):
             return None

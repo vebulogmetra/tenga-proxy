@@ -160,6 +160,7 @@ class AppContext:
         """Log manager (lazy loading)."""
         if self._log_manager is None:
             from src.core.log_manager import LogManager
+            from src.core.logging_utils import LOG_RETENTION_DAYS
 
             self._log_manager = LogManager(LOG_DIR)
 
@@ -168,7 +169,7 @@ class AppContext:
 
             logger = logging.getLogger("tenga.core.context")
             try:
-                removed = self._log_manager.cleanup_old_logs(days=14)
+                removed = self._log_manager.cleanup_old_logs(days=LOG_RETENTION_DAYS)
                 if removed > 0:
                     logger.info("Auto-cleanup removed %d old log files", removed)
             except Exception as e:

@@ -5,6 +5,7 @@ import logging
 import os
 import subprocess
 import tempfile
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -18,9 +19,19 @@ from src.core.config import (
     find_xray_binary,
 )
 from src.core.geo import ASSET_ENV, asset_dir_for_core
+from src.core.logging_utils import daily_file_handler
 from src.core.performance import measure_time
 
 logger = logging.getLogger("tenga.xray_manager")
+
+
+def _pump_core_output(stream: IO[bytes] | None, sink: logging.Logger) -> None:
+    """Copy the core's output into its log line by line until the core exits."""
+    if stream is None:
+        return
+    with stream:
+        for raw in iter(stream.readline, b""):
+            sink.info(raw.decode("utf-8", errors="replace").rstrip("\n"))
 
 
 @dataclass
@@ -78,7 +89,8 @@ class XrayManager:
         self._process: subprocess.Popen | None = None
         self._config_file: Path | None = None
         self._on_stop_callback: Callable[[], None] | None = None
-        self._log_file: IO[bytes] | None = None
+        self._core_log: logging.Logger | None = None
+        self._log_pump: threading.Thread | None = None
 
         # Cache xray version on initialization
         self._version_cache = self._fetch_version()
@@ -270,42 +282,26 @@ class XrayManager:
             return False, f"Error writing configuration: {e}"
 
         # Start process
-        log_file_opened = False
         try:
-            XRAY_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-            self._log_file = open(XRAY_LOG_FILE, "ab", buffering=0)
-            log_file_opened = True
-        except Exception as e:
-            logger.warning("Unable to open xray-core log file %s: %s", XRAY_LOG_FILE, e)
-            self._log_file = None
-
-        try:
-            if self._log_file is not None:
-                # Redirect both stdout and stderr to the log file
-                self._process = subprocess.Popen(
-                    [self._binary_path, "-config", str(self._config_file)],
-                    stdout=self._log_file,
-                    stderr=subprocess.STDOUT,
-                    env=self._core_env(),
-                )
-            else:
-                self._process = subprocess.Popen(
-                    [self._binary_path, "-config", str(self._config_file)],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    env=self._core_env(),
-                )
+            # Ядро пишет в pipe, а не в файл: файл, открытый работающим
+            # процессом, нельзя повернуть в полночь, и лог рос бы без предела.
+            self._process = subprocess.Popen(
+                [self._binary_path, "-config", str(self._config_file)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=self._core_env(),
+            )
+            self._log_pump = threading.Thread(
+                target=_pump_core_output,
+                args=(self._process.stdout, self._core_logger()),
+                name="xray-log",
+                daemon=True,
+            )
+            self._log_pump.start()
 
             if not self._wait_for_process_ready(timeout=2.0):
-                error_msg: str
-                if self._log_file is None and self._process.stderr is not None:
-                    _, stderr = self._process.communicate(timeout=5)
-                    error_msg = stderr.decode("utf-8", errors="replace").strip()
-                else:
-                    error_msg = f"see log file: {XRAY_LOG_FILE}"
-
                 self._cleanup()
-                return False, f"xray-core exited with error: {error_msg}"
+                return False, f"xray-core exited with error: see log file: {XRAY_LOG_FILE}"
 
             # Check that Stats API is available (optional - xray may not have HTTP API enabled)
             # We'll just check if process is running
@@ -316,14 +312,25 @@ class XrayManager:
             self._cleanup()
             return False, f"Binary not found: {self._binary_path}"
         except Exception as e:
-            if log_file_opened and self._log_file is not None:
-                try:
-                    self._log_file.close()
-                except Exception:
-                    pass
-                self._log_file = None
             self._cleanup()
             return False, f"Startup error: {e}"
+
+    def _core_logger(self) -> logging.Logger:
+        """Logger for the core's own output, written as is to the daily xray log.
+
+        Логгер не регистрируется в `logging.getLogger`: `setup_logging`
+        включает распространение всем зарегистрированным, и вывод ядра
+        продублировался бы в лог приложения.
+        """
+        if self._core_log is None:
+            handler = daily_file_handler(XRAY_LOG_FILE)
+            # Строки ядра уже несут своё время и уровень.
+            handler.setFormatter(logging.Formatter("%(message)s"))
+            core_log = logging.Logger("tenga.xray.core", logging.INFO)
+            core_log.propagate = False
+            core_log.addHandler(handler)
+            self._core_log = core_log
+        return self._core_log
 
     def reload_config(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
@@ -381,12 +388,11 @@ class XrayManager:
         """Clean up resources."""
         self._process = None
 
-        if self._log_file is not None:
-            try:
-                self._log_file.close()
-            except Exception:
-                pass
-            self._log_file = None
+        if self._log_pump is not None:
+            # Ядро уже завершилось: дожидаемся последних строк, среди них
+            # бывает причина отказа.
+            self._log_pump.join(timeout=1)
+            self._log_pump = None
 
         if self._config_file and self._config_file.exists():
             try:
