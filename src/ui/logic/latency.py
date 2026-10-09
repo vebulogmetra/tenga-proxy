@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -49,6 +49,52 @@ def make_batch_probe(context: Any) -> BatchProbeFn:
         )
 
     return batch_probe
+
+
+class PingProgress:
+    """Per-group progress of one latency run.
+
+    Замер приходит по профилям, а показывается по группам: здесь хранится,
+    какой профиль к какой группе относится и сколько результатов уже пришло.
+    """
+
+    def __init__(self, groups: Mapping[int, Iterable[int]]) -> None:
+        self._group_of: dict[int, int] = {}
+        self._total: dict[int, int] = {}
+        self._done: dict[int, int] = {}
+        for group_id, profile_ids in groups.items():
+            ids = list(profile_ids)
+            if not ids:
+                continue
+            self._total[group_id] = len(ids)
+            self._done[group_id] = 0
+            for profile_id in ids:
+                self._group_of[profile_id] = group_id
+
+    @property
+    def group_ids(self) -> set[int]:
+        return set(self._total)
+
+    def record(self, profile_id: int) -> int | None:
+        """Count one result; return its group, or None if it is not expected."""
+        # pop: повторный результат того же профиля не должен двигать счётчик.
+        group_id = self._group_of.pop(profile_id, None)
+        if group_id is not None:
+            self._done[group_id] += 1
+        return group_id
+
+    def state(self, group_id: int) -> tuple[int, int] | None:
+        """Return (done, total) for a group of this run."""
+        if group_id not in self._total:
+            return None
+        return self._done[group_id], self._total[group_id]
+
+    def fraction(self, group_id: int) -> float | None:
+        state = self.state(group_id)
+        if state is None:
+            return None
+        done, total = state
+        return done / total
 
 
 class LatencyRunner:

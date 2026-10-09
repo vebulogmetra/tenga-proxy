@@ -374,3 +374,62 @@ def test_refresh_keeps_the_scroll_position(page):
 
     window.set_child(None)
     window.destroy()
+
+
+def _present(page):
+    from gi.repository import Gtk
+
+    window = Gtk.Window(default_width=600, default_height=400)
+    window.set_child(page)
+    window.present()
+    for _ in range(50):
+        _drain_events()
+        if page.group_progress_for_test(1) is not None or page._group_cells:
+            break
+    return window
+
+
+def test_group_shows_the_progress_of_a_ping(page, data):
+    from src.ui.logic.latency import PingProgress
+
+    page.set_data(*data)
+    window = _present(page)
+    if not page._group_cells:
+        window.destroy()
+        pytest.skip("Строки не отрисовались: ячейки групп проверить нельзя")
+
+    progress = PingProgress({1: [1, 2]})
+    page.set_ping_progress(progress)
+    assert page.group_progress_for_test(1) == ("0 / 2", 0.0)
+    assert page.group_progress_for_test(2) is None
+
+    progress.record(1)
+    page.update_group_progress(1)
+    assert page.group_progress_for_test(1) == ("1 / 2", 0.5)
+
+    page.set_ping_progress(None)
+    assert page.group_progress_for_test(1) is None
+
+    window.set_child(None)
+    window.destroy()
+
+
+def test_a_rebuild_keeps_the_progress_of_a_ping(page, data):
+    from src.ui.logic.latency import PingProgress
+
+    page.set_data(*data)
+    window = _present(page)
+    if not page._group_cells:
+        window.destroy()
+        pytest.skip("Строки не отрисовались: ячейки групп проверить нельзя")
+
+    progress = PingProgress({1: [1, 2]})
+    progress.record(2)
+    page.set_ping_progress(progress)
+    page.refresh()
+    _drain_events()
+
+    assert page.group_progress_for_test(1) == ("1 / 2", 0.5)
+
+    window.set_child(None)
+    window.destroy()

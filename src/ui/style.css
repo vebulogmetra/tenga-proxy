@@ -59,8 +59,24 @@
   font-weight: bold;
 }
 
-/* Строка группы: тот же размер, но заметно плотнее — иначе на длинном списке
-   заголовок теряется среди профилей. */
+/* Строки дерева профилей — крупные, как карточки: в них удобно попадать
+   мышью и пальцем, а группа вмещает полосу прогресса пинга под названием. */
+.profiles-tree > listview > row {
+  min-height: 52px;
+}
+
+.profiles-tree > listview > row > cell {
+  padding: 10px 12px;
+}
+
+/* Строка группы: крупнее и плотнее — иначе на длинном списке заголовок
+   теряется среди профилей. */
 .profile-group {
   font-weight: bold;
+  font-size: 1.1em;
+}
+
+.group-ping-progress trough,
+.group-ping-progress progress {
+  min-height: 4px;
 }

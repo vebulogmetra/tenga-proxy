@@ -18,7 +18,7 @@ from src.core.context import AppContext, get_context
 from src.core.core_update import fetch_releases, is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
 from src.ui.logic.async_utils import run_in_background
-from src.ui.logic.latency import LatencyRunner, make_batch_probe
+from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.status import ConnectionState
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
@@ -75,6 +75,7 @@ class TengaApplication(Adw.Application):
         self._latency_runner: LatencyRunner | None = None
         self._latency_refresh_id: int | None = None
         self._latency_probe: Callable[[int], int] | None = None
+        self._ping_progress: PingProgress | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
         # Предложения сменить адрес подписки: копятся в фоновом потоке,
@@ -712,6 +713,12 @@ class TengaApplication(Adw.Application):
             self.toast("Проверка задержки уже идёт")
             return
 
+        by_group: dict[int, list[int]] = {}
+        for profile_id in profile_ids:
+            profile = self.context.profiles.get_profile(profile_id)
+            if profile is not None:
+                by_group.setdefault(profile.group_id, []).append(profile_id)
+        self._show_ping_progress(PingProgress(by_group))
         self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
 
     def test_latency_for(self, profile_id: int) -> None:
@@ -756,12 +763,25 @@ class TengaApplication(Adw.Application):
             self.toast("Проверка задержки уже идёт")
             return
 
+        self._show_ping_progress(PingProgress({group_id: profile_ids}))
         self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+
+    def _show_ping_progress(self, progress: PingProgress | None) -> None:
+        """Hand the progress of a run to the group rows; None hides it."""
+        self._ping_progress = progress
+        if self._window is not None:
+            self._window.profiles_page.set_ping_progress(progress)
 
     def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
         profile = self.context.profiles.get_profile(profile_id)
         if profile is not None:
             profile.latency_ms = latency_ms
+
+        if self._ping_progress is None:
+            return
+        group_id = self._ping_progress.record(profile_id)
+        if group_id is not None and self._window is not None:
+            self._window.profiles_page.update_group_progress(group_id)
 
     def _on_latency_result_live(self, profile_id: int, latency_ms: int) -> None:
         """Store one result and schedule a re-sort of the list.
@@ -794,6 +814,7 @@ class TengaApplication(Adw.Application):
         # Итоговая перерисовка всё равно будет ниже: отложенная только
         # продублировала бы её уже после сохранения.
         self._cancel_latency_refresh()
+        self._show_ping_progress(None)
         try:
             self.context.save_profiles()
         except Exception as e:

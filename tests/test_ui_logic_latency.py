@@ -230,3 +230,44 @@ def test_make_batch_probe_measures_known_profiles_with_the_app_settings(monkeypa
     # Профиля 2 уже нет: в замер он не идёт, а -1 ему допишет сам runner.
     assert seen == {"ids": [1, 3], "settings": "настройки", "binary": "/opt/xray"}
     assert results == {1: 42, 3: 42}
+
+
+def test_ping_progress_counts_results_per_group():
+    from src.ui.logic.latency import PingProgress
+
+    progress = PingProgress({1: [10, 11], 2: [20]})
+
+    assert progress.state(1) == (0, 2)
+    assert progress.record(10) == 1
+    assert progress.state(1) == (1, 2)
+    assert progress.fraction(1) == 0.5
+    assert progress.state(2) == (0, 1)
+
+
+def test_ping_progress_ignores_unknown_and_repeated_results():
+    from src.ui.logic.latency import PingProgress
+
+    progress = PingProgress({1: [10]})
+
+    assert progress.record(99) is None
+    progress.record(10)
+    assert progress.record(10) is None
+    assert progress.state(1) == (1, 1)
+
+
+def test_ping_progress_knows_nothing_of_groups_outside_the_run():
+    from src.ui.logic.latency import PingProgress
+
+    progress = PingProgress({1: [10]})
+
+    assert progress.state(2) is None
+    assert progress.fraction(2) is None
+    assert progress.group_ids == {1}
+
+
+def test_ping_progress_skips_empty_groups():
+    from src.ui.logic.latency import PingProgress
+
+    progress = PingProgress({1: [], 2: [20]})
+
+    assert progress.group_ids == {2}

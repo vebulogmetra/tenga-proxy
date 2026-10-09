@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
+from src.ui.logic.latency import PingProgress
 from src.ui.logic.profiles_view import (
     GroupRow,
     ProfileRow,
@@ -22,6 +23,8 @@ from src.ui.logic.profiles_view import (
 
 _ACTIVE_CLASS = "profile-active"
 _GROUP_CLASS = "profile-group"
+_TREE_CLASS = "profiles-tree"
+_PROGRESS_CLASS = "group-ping-progress"
 
 
 class RowItem(GObject.Object):
@@ -99,6 +102,10 @@ class ProfilesPage(Gtk.Box):
         self._ascending = True
         self._active_profile_id = -1
         self._rows: list[GroupRow] = []
+        self._ping_progress: PingProgress | None = None
+        # Ячейки групп, которые сейчас на экране: прогресс пинга двигается в
+        # них напрямую, без пересборки модели на каждый результат.
+        self._group_cells: dict[int, Gtk.TreeExpander] = {}
 
         self._build_search_bar()
         self._build_stack()
@@ -140,7 +147,7 @@ class ProfilesPage(Gtk.Box):
         self._root_store: Gio.ListStore | None = None
 
         self.column_view = Gtk.ColumnView()
-        self.column_view.add_css_class("data-table")
+        self.column_view.add_css_class(_TREE_CLASS)
         self.column_view.connect("activate", self._on_row_activated)
         self._install_context_gestures()
 
@@ -159,6 +166,7 @@ class ProfilesPage(Gtk.Box):
         factory = Gtk.SignalListItemFactory()
         factory.connect("setup", self._setup_name_cell)
         factory.connect("bind", self._bind_name_cell)
+        factory.connect("unbind", self._unbind_name_cell)
 
         column = Gtk.ColumnViewColumn(title="Имя", factory=factory)
         column.set_expand(True)
@@ -321,7 +329,7 @@ class ProfilesPage(Gtk.Box):
     # --- фабрики ячеек ---
 
     def _setup_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
 
         icon = Gtk.Image()
         box.append(icon)
@@ -338,8 +346,18 @@ class ProfilesPage(Gtk.Box):
         count.add_css_class("caption")
         box.append(count)
 
+        # Прогресс пинга — под названием группы, на всю ширину ячейки; вне
+        # замера скрыт и места не занимает.
+        progress = Gtk.ProgressBar(visible=False)
+        progress.add_css_class(_PROGRESS_CLASS)
+
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        column.set_valign(Gtk.Align.CENTER)
+        column.append(box)
+        column.append(progress)
+
         expander = Gtk.TreeExpander()
-        expander.set_child(box)
+        expander.set_child(column)
         list_item.set_child(expander)
 
     def _bind_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
@@ -349,18 +367,18 @@ class ProfilesPage(Gtk.Box):
         expander = list_item.get_child()
         expander.set_list_row(tree_row)
 
-        box = expander.get_child()
+        box = expander.get_child().get_first_child()
         icon = box.get_first_child()
         label = icon.get_next_sibling()
-        count = box.get_last_child()
 
         icon.set_visible(bool(item.icon_name))
         if item.icon_name:
             icon.set_from_icon_name(item.icon_name)
 
         label.set_text(item.title)
-        count.set_text(item.count_text)
-        count.set_visible(bool(item.count_text))
+        self._show_group_progress(expander, item)
+        if item.is_group:
+            self._group_cells[item.row.group_id] = expander
 
         for css_class in (_ACTIVE_CLASS, _GROUP_CLASS):
             label.remove_css_class(css_class)
@@ -368,6 +386,34 @@ class ProfilesPage(Gtk.Box):
             label.add_css_class(_GROUP_CLASS)
         elif item.row.is_active:
             label.add_css_class(_ACTIVE_CLASS)
+
+    def _unbind_name_cell(self, _factory, list_item: Gtk.ListItem) -> None:
+        expander = list_item.get_child()
+        for group_id, cell in list(self._group_cells.items()):
+            if cell is expander:
+                del self._group_cells[group_id]
+
+    def _show_group_progress(self, expander: Gtk.TreeExpander, item: RowItem) -> None:
+        """Fill the count label and the progress bar of a name cell."""
+        column = expander.get_child()
+        count = column.get_first_child().get_last_child()
+        progress = column.get_last_child()
+
+        state = None
+        if item.is_group and self._ping_progress is not None:
+            state = self._ping_progress.state(item.row.group_id)
+
+        if state is None:
+            count.set_text(item.count_text)
+            count.set_visible(bool(item.count_text))
+            progress.set_visible(False)
+            return
+
+        done, total = state
+        count.set_text(f"{done} / {total}")
+        count.set_visible(True)
+        progress.set_fraction(done / total)
+        progress.set_visible(True)
 
     def _setup_label_cell(self, _factory, list_item: Gtk.ListItem) -> None:
         label = Gtk.Label(xalign=0.0)
@@ -527,6 +573,22 @@ class ProfilesPage(Gtk.Box):
         self._active_profile_id = profile_id
         self.refresh()
 
+    def set_ping_progress(self, progress: PingProgress | None) -> None:
+        """Show the progress of a latency run in the group rows; None hides it."""
+        self._ping_progress = progress
+        for group_id in list(self._group_cells):
+            self.update_group_progress(group_id)
+
+    def update_group_progress(self, group_id: int) -> None:
+        """Redraw the progress of one group after a result arrived."""
+        expander = self._group_cells.get(group_id)
+        if expander is None:
+            return
+        tree_row = expander.get_list_row()
+        item = None if tree_row is None else tree_row.get_item()
+        if item is not None and item.is_group:
+            self._show_group_progress(expander, item)
+
     def set_search_enabled(self, enabled: bool) -> None:
         self.search_bar.set_search_mode(enabled)
         if enabled:
@@ -611,6 +673,18 @@ class ProfilesPage(Gtk.Box):
         self.emit("profile-activated", item.row.profile_id)
 
     # --- аксессоры для тестов ---
+
+    def group_progress_for_test(self, group_id: int) -> tuple[str, float] | None:
+        """Count text and fraction of a visible group's bar, None when hidden."""
+        expander = self._group_cells.get(group_id)
+        if expander is None:
+            return None
+        column = expander.get_child()
+        progress = column.get_last_child()
+        if not progress.get_visible():
+            return None
+        count = column.get_first_child().get_last_child()
+        return count.get_text(), progress.get_fraction()
 
     def get_vadjustment_for_test(self) -> Gtk.Adjustment:
         return self._scrolled.get_vadjustment()

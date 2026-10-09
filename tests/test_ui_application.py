@@ -963,3 +963,28 @@ def test_url_change_confirmation_defaults_to_keeping_the_address(gtk_ready):
     assert not dialog.get_body_use_markup()
     dialog.emit("response", "cancel")
     assert confirmed == []
+
+
+def test_a_group_ping_shows_progress_until_it_ends(adw_app):
+    adw_app.activate()
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    store.parse_and_add_link(
+        "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба",
+        group_id=group.id,
+    )
+
+    seen: list = []
+    page = adw_app._window.profiles_page
+    original = page.set_ping_progress
+
+    def spy(progress):
+        seen.append(None if progress is None else progress.state(group.id))
+        original(progress)
+
+    page.set_ping_progress = spy
+    adw_app.set_latency_probe(lambda _profile_id: 10)
+    adw_app.test_latency_for_group(group.id)
+    adw_app.wait_for_latency_for_test()
+
+    assert seen == [(0, 1), None]
