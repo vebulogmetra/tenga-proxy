@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -36,6 +37,10 @@ PROFILE_NOT_FOUND = "Профиль не найден"
 NO_CONFIG = "Не удалось построить конфигурацию профиля"
 NOT_RUNNING = "Прокси не запущен"
 UNSAFE_CONFIG = "Конфигурация отклонена"
+
+# Сколько выход ждёт начатое подключение: VPN и маршруты укладываются в
+# секунды, а дольше держать закрывающееся приложение незачем.
+SHUTDOWN_TIMEOUT = 10.0
 
 
 @dataclass(frozen=True)
@@ -225,6 +230,24 @@ class ConnectionService:
             context.monitor.stop()
 
         return ConnectionResult(True)
+
+    def shutdown(
+        self, pending: threading.Thread | None = None, timeout: float = SHUTDOWN_TIMEOUT
+    ) -> None:
+        """Stop the proxy before the process exits.
+
+        Поток подключения — демон: при выходе он погибает на полуслове, а
+        запущенный им xray остаётся сиротой и держит TUN-интерфейс. Поэтому
+        сначала ждём начатое подключение, затем гасим ядро, даже если до
+        `set_running` дело не дошло.
+        """
+        if pending is not None and pending.is_alive():
+            pending.join(timeout)
+            if pending.is_alive():
+                logger.warning("Connection still in progress on exit, stopping the core anyway")
+
+        if self._context.proxy_state.is_running or self._context.xray_manager.is_running:
+            self.disconnect()
 
     def _auto_disconnect_vpn(self) -> None:
         context = self._context

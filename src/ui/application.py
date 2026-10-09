@@ -194,6 +194,11 @@ class TengaApplication(Adw.Application):
         if self._window is not None:
             self._window.save_geometry()
 
+        # Ядро гасится до снятия блокировки: иначе следующий экземпляр
+        # запустится, пока этот ещё держит TUN-интерфейс.
+        if self._connection_service is not None:
+            self._connection_service.shutdown(self._connection_thread)
+
         self.stop_tray()
 
         for source_id in self._signal_source_ids:

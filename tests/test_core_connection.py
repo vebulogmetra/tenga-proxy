@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
@@ -323,3 +324,52 @@ def test_reload_renews_the_health_endpoint(tmp_path, monkeypatch):
     endpoint = context.proxy_state.health_endpoint
     assert isinstance(endpoint, ProbeEndpoint)
     assert reloaded["inbounds"][-1]["port"] == endpoint.port
+
+
+# --- завершение приложения ---
+
+
+def test_shutdown_waits_for_a_pending_connect_and_stops_the_core(tmp_path, monkeypatch):
+    """Выход посреди подключения не должен оставить xray сиротой.
+
+    Иначе ядро держит TUN-интерфейс, и следующий запуск падает с
+    «device or resource busy», пока процесс не убьют вручную.
+    """
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.is_running = False
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: True)
+    release = threading.Event()
+
+    def finish_connect():
+        release.wait(5)
+        context.xray_manager.is_running = True
+        context.proxy_state.is_running = True
+
+    pending = threading.Thread(target=finish_connect, daemon=True)
+    pending.start()
+    threading.Timer(0.1, release.set).start()
+
+    ConnectionService(context).shutdown(pending, timeout=5)
+
+    assert not pending.is_alive()
+    context.xray_manager.stop.assert_called_once()
+
+
+def test_shutdown_stops_a_core_the_state_does_not_know_about(tmp_path, monkeypatch):
+    """Ядро запущено, а подключение до `set_running` не дошло."""
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.is_running = True
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: True)
+
+    ConnectionService(context).shutdown()
+
+    context.xray_manager.stop.assert_called_once()
+
+
+def test_shutdown_without_a_connection_touches_nothing(tmp_path):
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.is_running = False
+
+    ConnectionService(context).shutdown()
+
+    context.xray_manager.stop.assert_not_called()
