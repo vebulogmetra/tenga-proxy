@@ -64,6 +64,7 @@ class DataStore(ConfigBase):
     sub_hwid: str = field(default="", repr=False)
     sub_clear: bool = False
     sub_insecure: bool = False
+    sub_source_exceptions: list[str] = field(default_factory=list, repr=False)
     sub_auto_update: int = -30
     # Security
     skip_cert: bool = False
@@ -116,6 +117,15 @@ class DataStore(ConfigBase):
     core_update_stable: str = ""
     core_update_prerelease: str = ""
     core_update_checked_at: int = 0
+    core_update_enabled: bool = True
+    app_update_enabled: bool = True
+    app_update_prerelease: bool = False
+    app_update_last_attempt: int = 0
+    app_update_last_success: int = 0
+    app_update_target: str = ""
+    app_update_url: str = ""
+    app_update_has_asset: bool = False
+    app_update_notified: str = ""
     system_proxy_format: str = ""
     # Runtime state (not saved)
     _core_token: str = field(default="", repr=False)

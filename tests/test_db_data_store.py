@@ -110,3 +110,21 @@ def test_load_and_save_data_store_roundtrip_with_proxy_mode(tmp_path, monkeypatc
     assert loaded.proxy_mode == "tun"
     assert loaded.tun_name == "xray0"
     assert loaded.tun_mtu == 1450
+
+
+def test_failed_atomic_settings_save_preserves_previous_file(tmp_path, monkeypatch):
+    from src.db.data_store import DataStore
+
+    config = DataStore()
+    path = tmp_path / "settings.json"
+    assert config.save(path)
+    before = path.read_bytes()
+    config.user_agent = "changed"
+
+    def fail(_source, _destination):
+        raise OSError("disk unavailable")
+
+    monkeypatch.setattr("os.replace", fail)
+    assert config.save(path) is False
+    assert path.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [path]

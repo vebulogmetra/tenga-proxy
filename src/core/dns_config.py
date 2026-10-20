@@ -25,7 +25,7 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from src.db.config import DnsSettings
+from src.db.config import DnsProvider, DnsSettings
 
 logger = logging.getLogger("tenga.core.dns_config")
 
@@ -33,6 +33,7 @@ logger = logging.getLogger("tenga.core.dns_config")
 LOCALHOST = "localhost"
 # Тег, которым помечены собственные запросы DNS-модуля в маршрутизации.
 DNS_TAG = "dns-internal"
+REMOTE_DNS_TAG = "dns-remote"
 # Значение `hosts`: ответить кодом 3 (NXDOMAIN). Адрес-заглушка вроде 127.0.0.1
 # не годится — он попадает под «локальные сети напрямую».
 NXDOMAIN = "#3"
@@ -89,7 +90,8 @@ def _main_server(dns_url: str, *, through_proxy: bool) -> DnsServer | None:
     """Сервер для всех имён, у которых нет своего сервера."""
     if dns_url == "local":
         return LOCALHOST
-    if dns_url.startswith("https://"):
+    if dns_url.startswith(("https://", "https+local://")):
+        dns_url = dns_url.replace("https+local://", "https://", 1)
         # DoH: ядро принимает его только URL-строкой в address. Отдельные
         # host:port и path оно читает как имя UDP-сервера — запрос висит до
         # таймаута и уходит на localhost. `https+local://` идёт напрямую, мимо
@@ -97,11 +99,21 @@ def _main_server(dns_url: str, *, through_proxy: bool) -> DnsServer | None:
         if not through_proxy:
             dns_url = "https+local://" + dns_url[len("https://") :]
         return {"address": dns_url}
+    if dns_url.startswith(("tcp://", "tcp+local://")):
+        dns_url = dns_url.replace("tcp+local://", "tcp://", 1)
+        if not through_proxy and dns_url.startswith("tcp://"):
+            dns_url = "tcp+local://" + dns_url[len("tcp://") :]
+        return {"address": dns_url}
     if dns_url.startswith("tls://"):
         # DoT в xray-core нет: адрес `tls://…` оно прочло бы как имя UDP-сервера.
         logger.warning("DNS-over-TLS не поддерживается xray-core, %s пропущен", dns_url)
         return None
-    return _server(dns_url.replace("udp://", "").replace("tcp://", ""), port=53)
+    if dns_url.startswith("udp://"):
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(dns_url)
+        return _server(parts.hostname or "", port=parts.port or 53)
+    return _server(dns_url, port=53)
 
 
 def _system_servers(
@@ -170,6 +182,16 @@ def build_dns(
     main = _main_server(dns_url, through_proxy=settings.use_proxy) or LOCALHOST
     main_is_remote = main != LOCALHOST
 
+    explicit_remote = (
+        settings.use_proxy
+        and not vpn_active
+        and (
+            bool(settings.additional_url)
+            or settings.provider in (DnsProvider.QUAD9, DnsProvider.COMSS)
+        )
+    )
+    if explicit_remote and main_is_remote:
+        main = {**_as_object(main), "tag": REMOTE_DNS_TAG}
     servers: list[DnsServer] = []
 
     # Имя сервера профиля резолвит системный резолвер: DNS через прокси ждал бы
@@ -191,6 +213,15 @@ def build_dns(
 
     if main_is_remote:
         servers.append(main)
+        additional = getattr(settings, "additional_url", "").strip()
+        if additional and not vpn_active:
+            secondary = _main_server(additional, through_proxy=settings.use_proxy)
+            if secondary is not None and secondary != LOCALHOST and secondary != main:
+                servers.append(
+                    {**_as_object(secondary), "tag": REMOTE_DNS_TAG}
+                    if explicit_remote
+                    else secondary
+                )
     else:
         servers.extend(_system_servers(system_resolvers))
 

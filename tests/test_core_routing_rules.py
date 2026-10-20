@@ -56,45 +56,21 @@ def test_geo_entries_reach_the_right_rule_fields(context, profile):
     assert "geoip:ru" in rule_values(config, "direct", "ip")
 
 
-def test_unknown_geo_categories_are_dropped(context, profile):
-    """Неизвестная категория роняет ядро — запись пропускаем, остальные работают."""
-    use_custom_lists(
-        context,
-        direct=["geosite:category-ru", "geosite:no-such-category", "geoip:zz-nowhere"],
-        proxy=["geosite:no-such-either", "blocked.example"],
-    )
+def test_unknown_geo_categories_are_reported_before_connection(context, profile):
+    from src.core.config_builder import UnsafeConfigError
 
-    config = build_session_config(context, profile)
-
-    everything = str(config["routing"]["rules"])
-    assert "no-such" not in everything
-    assert "zz-nowhere" not in everything
-    assert "geosite:category-ru" in rule_values(config, "direct", "domain")
-    assert "domain:blocked.example" in rule_values(config, profile.bean.display_name, "domain")
+    use_custom_lists(context, direct=["geosite:no-such-category"])
+    with pytest.raises(UnsafeConfigError, match="no-such-category"):
+        build_session_config(context, profile)
 
 
-def test_without_geo_bases_every_geo_entry_is_dropped(context, profile, monkeypatch):
-    """Баз рядом с ядром нет (старая установка): geo-правила не должны ронять подключение."""
+def test_without_geo_bases_geo_rules_are_not_silently_dropped(context, profile, monkeypatch):
+    from src.core.config_builder import UnsafeConfigError
+
     monkeypatch.setattr(config_builder, "load_catalog", lambda _dirs: GeoCatalog())
     use_custom_lists(context, direct=["geosite:category-ru", "geoip:ru", "direct.example"])
-
-    config = build_session_config(context, profile)
-
-    assert "geo" not in str(config["routing"]["rules"])
-    assert rule_values(config, "direct", "domain") == ["domain:direct.example"]
-
-
-@needs_xray
-def test_core_accepts_lists_with_unknown_geo_categories(context, profile, tmp_path):
-    use_custom_lists(
-        context,
-        direct=["geosite:category-ru", "geosite:no-such-category", "geoip:ru", "geoip:zz-nowhere"],
-        proxy=["geosite:google", "*.blocked.example"],
-    )
-
-    config = build_session_config(context, profile)
-
-    assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)
+    with pytest.raises(UnsafeConfigError, match="category-ru"):
+        build_session_config(context, profile)
 
 
 # --- блок-лист ------------------------------------------------------------
@@ -258,15 +234,16 @@ def test_ru_direct_is_ignored_in_proxy_all_mode(context, profile):
     assert "geoip:ru" not in str(config["routing"]["rules"])
 
 
-def test_ru_direct_without_geo_bases_adds_nothing(context, profile, monkeypatch):
+def test_ru_direct_without_geo_bases_reports_missing_categories(context, profile, monkeypatch):
     """Старая установка без геобаз: тумблер не должен ронять подключение."""
     monkeypatch.setattr(config_builder, "load_catalog", lambda _dirs: GeoCatalog())
     use_custom_lists(context)
     context.config.routing.ru_direct = True
 
-    config = build_session_config(context, profile)
+    from src.core.config_builder import UnsafeConfigError
 
-    assert "geo" not in str(config)
+    with pytest.raises(UnsafeConfigError, match="category-ru"):
+        build_session_config(context, profile)
 
 
 @needs_xray
@@ -278,3 +255,11 @@ def test_core_accepts_ready_made_rules(context, profile, tmp_path):
     config = build_session_config(context, profile)
 
     assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)
+
+
+def test_imported_global_lists_are_not_overwritten_by_legacy_text_files(context, profile):
+    context.config.routing.mode = "custom"
+    context.config.routing.direct_list = ["example.org"]
+    context.config.routing.use_saved_lists = True
+    config = build_session_config(context, profile)
+    assert "domain:example.org" in rule_values(config, "direct", "domain")

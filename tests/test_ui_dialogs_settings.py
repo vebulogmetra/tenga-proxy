@@ -137,13 +137,15 @@ def test_the_custom_dns_url_round_trips(gtk_ready):
     assert config.dns.custom_url == "https://dns.example/dns-query"
 
 
-def test_an_empty_tun_name_falls_back_to_the_default(gtk_ready):
+def test_an_empty_tun_name_preserves_last_valid_settings(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)
     dialog.select_mode("tun")
     dialog.tun_name_row.set_text("")
-    dialog.save()
+    assert dialog.save() is False
     assert config.tun_name == "xray0"
+    assert config.proxy_mode == "system_proxy"
+    assert "tun_name" in dialog.validation_errors
 
 
 def test_the_log_level_round_trips(gtk_ready):
@@ -197,14 +199,17 @@ def test_the_fragment_settings_round_trip(gtk_ready):
     assert reopened.fragment_length_row.get_text() == "50-100"
 
 
-def test_invalid_fragment_values_fall_back_to_defaults(gtk_ready):
+def test_invalid_fragment_values_preserve_last_valid_settings(gtk_ready):
     """Невалидное значение ядро отвергло бы вместе со всем конфигом."""
     config = make_config()
     dialog = make_dialog(config)
     dialog.fragment_row.set_active(True)
     dialog.fragment_length_row.set_text("0-100")
     dialog.fragment_delay_row.set_text("soon")
-    dialog.save()
+    assert dialog.save() is False
+    assert dialog.fragment_length_row.get_text() == "0-100"
+    assert "fragment_length" in dialog.validation_errors
+    assert config.tls_fragment.enabled is False
 
     assert config.tls_fragment.length == "100-200"
     assert config.tls_fragment.delay == "10-20"
@@ -291,7 +296,7 @@ def test_geo_update_reports_progress_and_result_without_blocking(gtk_ready, monk
     calls[0][1]["on_done"](GeoCatalog(geosite=frozenset({"ru"}), geoip=frozenset({"ru"})))
     assert dialog.geo_update_button.get_sensitive()
     assert "geosite: 1" in dialog.geo_row.get_subtitle()
-    assert "при сохранении настроек" in dialog.geo_row.get_subtitle()
+    assert "после переподключения" in dialog.geo_row.get_subtitle()
 
 
 def test_geo_update_error_restores_button_and_shows_plain_text(gtk_ready, monkeypatch):
@@ -407,3 +412,23 @@ def test_choosing_a_theme_applies_it_at_once(gtk_ready):
     finally:
         dialog.select_theme("system")
     assert manager.get_color_scheme() == Adw.ColorScheme.DEFAULT
+
+
+def test_settings_autosave_after_debounce_without_loading_writes(gtk_ready):
+    import time
+
+    from gi.repository import GLib
+
+    config = make_config()
+    dialog = make_dialog(config)
+    saved = []
+    dialog.connect("settings-saved", lambda _dialog: saved.append(True))
+    assert not saved
+    dialog.user_agent_row.set_text("new agent")
+    deadline = time.monotonic() + 2
+    while not saved and time.monotonic() < deadline:
+        while GLib.MainContext.default().pending():
+            GLib.MainContext.default().iteration(False)
+        time.sleep(0.01)
+    assert saved == [True]
+    assert config.user_agent == "new agent"

@@ -28,6 +28,7 @@ class FormResult:
     message: str = ""
     value: Any = None
     bean: Any = None
+    warnings: tuple[str, ...] = ()
 
 
 def validate_profile_link(link: str, *, name: str = "") -> FormResult:
@@ -48,7 +49,13 @@ def validate_profile_link(link: str, *, name: str = "") -> FormResult:
     if custom:
         bean.name = custom
 
-    return FormResult(True, f"{bean.proxy_type.upper()}: {bean.display_address}", bean=bean)
+    from src.fmt.tls_policy import tls_warnings
+
+    stream = getattr(bean, "stream", None)
+    warnings = tls_warnings(stream) if stream is not None else ()
+    return FormResult(
+        True, f"{bean.proxy_type.upper()}: {bean.display_address}", bean=bean, warnings=warnings
+    )
 
 
 def validate_subscription(name: str, url: str) -> FormResult:
@@ -64,6 +71,15 @@ def validate_subscription(name: str, url: str) -> FormResult:
         return FormResult(False, EMPTY_SUBSCRIPTION_URL)
     if not clean_url.startswith(_HTTP_PREFIXES):
         return FormResult(False, BAD_SUBSCRIPTION_URL)
+
+    from src.sub.url_policy import SubscriptionPolicyError, validate_url
+
+    try:
+        # Adding a source does not grant permission to fetch HTTP/LAN. The
+        # updater independently enforces the user's exact-source exceptions.
+        validate_url(clean_url, exceptions=[clean_url])
+    except SubscriptionPolicyError as error:
+        return FormResult(False, str(error))
 
     if not clean_name:
         # Импорт внутри функции: `src.sub` тянет requests и разбор протоколов.
@@ -91,14 +107,22 @@ def parse_host_list(text: str | None) -> list[str]:
     if not text:
         return []
 
-    for separator in _SEPARATORS:
-        text = text.replace(separator, "\n")
+    from src.ui.logic.routing_form import normalize_routing_entry
 
     result: list[str] = []
     seen: set[str] = set()
-    for line in text.split("\n"):
-        item = line.strip()
-        if item and item not in seen:
-            seen.add(item)
-            result.append(item)
+    for line in text.splitlines():
+        # A regexp is one complete line: commas/semicolons are its syntax.
+        items = (
+            [line]
+            if line.strip().lower().startswith("regexp:")
+            else line.replace(";", ",").split(",")
+        )
+        for raw in items:
+            if not raw.strip():
+                continue
+            item = normalize_routing_entry(raw.strip())
+            if item not in seen:
+                seen.add(item)
+                result.append(item)
     return result

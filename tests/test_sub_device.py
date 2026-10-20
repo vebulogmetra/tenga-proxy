@@ -3,6 +3,8 @@
 import uuid
 from unittest.mock import Mock, patch
 
+import requests
+
 from src.db.data_store import DataStore
 from src.sub.device import DeviceInfo, device_headers, ensure_hwid, read_device_info
 from src.sub.updater import SubscriptionUpdater
@@ -89,8 +91,12 @@ def test_real_device_info_is_readable():
 
 
 def _ok() -> Mock:
-    response = Mock()
-    response.text = "ok"
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = b"ok"
     response.raise_for_status = Mock()
     return response
 
@@ -98,7 +104,7 @@ def _ok() -> Mock:
 def test_updater_adds_device_headers_when_enabled():
     config = _enabled()
 
-    with patch("src.sub.updater.requests.get", return_value=_ok()) as mock_get:
+    with patch("src.sub.updater.pinned_get", return_value=_ok()) as mock_get:
         SubscriptionUpdater(config=config).fetch("https://example.com/sub")
 
     sent = mock_get.call_args.kwargs["headers"]
@@ -108,7 +114,7 @@ def test_updater_adds_device_headers_when_enabled():
 
 
 def test_updater_sends_no_device_headers_by_default():
-    with patch("src.sub.updater.requests.get", return_value=_ok()) as mock_get:
+    with patch("src.sub.updater.pinned_get", return_value=_ok()) as mock_get:
         SubscriptionUpdater(config=DataStore()).fetch("https://example.com/sub")
 
     assert set(mock_get.call_args.kwargs["headers"]) == {"User-Agent"}

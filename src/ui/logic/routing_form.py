@@ -31,3 +31,39 @@ def geo_summary(catalog: GeoCatalog) -> str:
     if not catalog.geosite and not catalog.geoip:
         return "Не найдены: правила geosite: и geoip: не применяются"
     return f"geosite: {len(catalog.geosite)} категорий, geoip: {len(catalog.geoip)}"
+
+
+def normalize_routing_entry(value: str) -> str:
+    import ipaddress
+    import re
+    from urllib.parse import urlsplit
+
+    from src.db.config import classify_routing_entry
+
+    if value.lower().startswith(("http://", "https://")):
+        try:
+            parts = urlsplit(value)
+            _ = parts.port
+            if parts.username is not None or parts.password is not None or not parts.hostname:
+                raise ValueError
+            value = parts.hostname
+        except ValueError:
+            raise ValueError("URL правила должен содержать имя сайта без credentials") from None
+    if value.lower().startswith(
+        ("domain:", "full:", "regexp:", "keyword:", "dotless:", "geosite:", "geoip:")
+    ):
+        if not value.partition(":")[2] or classify_routing_entry(value) is None:
+            raise ValueError("Некорректное правило маршрутизации")
+        return value
+    try:
+        ipaddress.ip_network(value, strict=False)
+        return value
+    except ValueError:
+        pass
+    try:
+        host = value.lower().encode("idna").decode("ascii")
+    except UnicodeError:
+        raise ValueError("Некорректное доменное имя") from None
+    if not re.fullmatch(r"(?:\*\.)?[a-z0-9_.-]+", host) or len(host) > 253:
+        raise ValueError("Введите домен, IP, CIDR или правило маршрутизации")
+    return host

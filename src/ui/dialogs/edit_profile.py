@@ -102,7 +102,7 @@ class EditProfileDialog(FormDialog):
         self.port_row.set_value(float(bean.server_port))
         self.link_row.set_text(bean.to_share_link())
 
-        self._set_status(APPLIED)
+        self._set_status("\n".join((APPLIED, *result.warnings)))
         return True
 
     def _set_status(self, text: str, *, error: bool = False) -> None:

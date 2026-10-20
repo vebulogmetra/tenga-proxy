@@ -6,10 +6,7 @@
 
 from __future__ import annotations
 
-import ipaddress
-import socket
 from dataclasses import dataclass
-from urllib.parse import urlsplit
 
 REASON_NEW_URL = "new-url"  # провайдер сообщил новый адрес при удачном обновлении
 REASON_FALLBACK_URL = "fallback-url"  # обновление не удалось, есть запасной адрес
@@ -28,35 +25,17 @@ class UrlChangeProposal:
     reason: str
 
 
-def _is_local_host(host: str) -> bool:
-    lowered = host.lower().rstrip(".")
-    if lowered == "localhost" or lowered.endswith(_LOCAL_SUFFIXES):
-        return True
-    try:
-        address = ipaddress.ip_address(lowered)
-    except ValueError:
-        # inet_aton разбирает сокращённый, числовой и hex IPv4 без DNS-запроса.
-        try:
-            address = ipaddress.ip_address(socket.inet_aton(lowered))
-        except OSError:
-            return False
-    return not address.is_global
-
-
 def is_acceptable_subscription_url(url: str) -> bool:
-    """Годится ли адрес как адрес подписки: http(s) с публичным хостом."""
-    if not url or len(url) > MAX_URL_LENGTH or any(ord(ch) < 32 or ord(ch) == 127 for ch in url):
+    """Only public HTTPS destinations may be proposed by a provider."""
+    from src.sub.url_policy import SubscriptionPolicyError, validate_url
+
+    if not url or len(url) > MAX_URL_LENGTH:
         return False
     try:
-        parts = urlsplit(url)
-        host = parts.hostname or ""
-        # hostname не проверяет порт; чтение port отклоняет неверный диапазон/текст.
-        _ = parts.port
-    except ValueError:
+        validate_url(url)
+    except SubscriptionPolicyError:
         return False
-    if parts.scheme.lower() not in ("http", "https") or not host:
-        return False
-    return not _is_local_host(host)
+    return True
 
 
 def propose_url_change(

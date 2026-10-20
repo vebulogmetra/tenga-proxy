@@ -2,7 +2,7 @@
 Name=Tenga Proxy
 GenericName=Proxy Client
 Comment=Secure proxy client with xray-core backend
-Exec=tenga-proxy
+Exec=tenga-proxy %U
 Icon=tenga-proxy
 Terminal=false
 Type=Application
@@ -11,3 +11,5 @@ Keywords=proxy;vpn;xray;network;
 StartupNotify=true
 StartupWMClass=tenga-proxy
 
+
+MimeType=x-scheme-handler/veblock;x-scheme-handler/wingeon;

@@ -7,7 +7,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GObject, Gtk
+from gi.repository import Adw, GLib, GObject, Gtk
 
 from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.ui.dialogs.settings import KeyedCombo
@@ -77,6 +77,39 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         self._build_routing_page()
 
         self._load()
+        self._autosave_source = 0
+        seen = set()
+        for value in vars(self).values():
+            if isinstance(value, KeyedCombo):
+                value = value.row
+            if id(value) in seen:
+                continue
+            seen.add(id(value))
+            if isinstance(value, Adw.EntryRow):
+                value.connect("changed", self._queue_save)
+            elif isinstance(value, Adw.SwitchRow):
+                value.connect("notify::active", self._queue_save)
+            elif isinstance(value, Adw.ComboRow):
+                value.connect("notify::selected", self._queue_save)
+            elif isinstance(value, Gtk.TextView):
+                value.get_buffer().connect("changed", self._queue_save)
+        self.connect("closed", self._flush_save)
+
+    def _queue_save(self, *_args) -> None:
+        if self._autosave_source:
+            GLib.source_remove(self._autosave_source)
+        self._autosave_source = GLib.timeout_add(500, self._autosave)
+
+    def _autosave(self) -> bool:
+        self._autosave_source = 0
+        self.save()
+        return GLib.SOURCE_REMOVE
+
+    def _flush_save(self, *_args) -> None:
+        if self._autosave_source:
+            GLib.source_remove(self._autosave_source)
+            self._autosave_source = 0
+            self.save()
 
     # --- страницы ---
 
@@ -221,8 +254,16 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         self.set_vpn_text("\n".join(routing.vpn_list or []))
         self._sync_mode()
 
-    def save(self) -> None:
+    def save(self) -> bool:
         """Write the form back into the profile."""
+        try:
+            lists = {
+                key: parse_host_list(getattr(self, key + "_text")())
+                for key in ("block", "proxy", "direct", "vpn")
+            }
+        except ValueError as error:
+            self.set_title(str(error))
+            return False
         profile = self._profile
 
         name = self.name_row.get_text().strip()
@@ -248,12 +289,13 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         routing.bypass_local_networks = self.bypass_row.get_active()
         routing.ru_direct = self.ru_direct_row.get_active()
         routing.rule_order = list(self.selected_order())
-        routing.block_list = parse_host_list(self.block_text())
-        routing.proxy_list = parse_host_list(self.proxy_text())
-        routing.direct_list = parse_host_list(self.direct_text())
-        routing.vpn_list = parse_host_list(self.vpn_text())
+        routing.block_list = lists["block"]
+        routing.proxy_list = lists["proxy"]
+        routing.direct_list = lists["direct"]
+        routing.vpn_list = lists["vpn"]
 
         self.emit("routing-saved")
+        return True
 
     # --- доступ к полям ---
 

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import threading
@@ -26,6 +27,7 @@ from src.sys.proxy import clear_system_proxy, set_system_proxy
 from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import connect_vpn, disconnect_vpn, is_vpn_active
+from src.ui.logic.settings_state import runtime_snapshot
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -58,6 +60,20 @@ class ConnectionService:
         self._context = context
         self._tun_route_state: TunRouteState | None = None
 
+    def _session_inputs(self, profile):
+        from src.db.data_store import DataStore
+
+        context = self._context
+        if not isinstance(context.config, DataStore):
+            return context, profile
+        frozen = copy.copy(context)
+        settings = copy.deepcopy(context.config)
+        if isinstance(getattr(type(context), "config", None), property):
+            frozen._config = settings
+        else:
+            frozen.config = settings
+        return frozen, copy.deepcopy(profile)
+
     # --- подключение ---
 
     def connect(self, profile_id: int) -> ConnectionResult:
@@ -72,18 +88,21 @@ class ConnectionService:
             logger.error("Profile %s not found", profile_id)
             return ConnectionResult(False, PROFILE_NOT_FOUND)
 
+        build_context, profile = self._session_inputs(profile)
+        settings = build_context.config
         self._reset_vpn_flag()
         self._auto_connect_vpn(profile, profile_id)
 
-        runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
+        runtime_mode = normalize_proxy_mode(getattr(settings, "proxy_mode", None))
         try:
-            config = build_session_config(context, profile)
+            config = build_session_config(build_context, profile)
         except UnsafeConfigError as e:
             return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
             logger.error("Could not build a configuration for profile %s", profile_id)
             return ConnectionResult(False, NO_CONFIG)
 
+        applied_settings = runtime_snapshot(settings, profile)
         health_endpoint = new_health_endpoint()
         attach_health_inbound(config, health_endpoint)
         self._write_debug_config(config, profile_id)
@@ -98,24 +117,25 @@ class ConnectionService:
             logger.error("Error starting xray-core: %s", error)
             return ConnectionResult(False, error or "Не удалось запустить xray-core")
 
+        context.proxy_state.applied_settings = applied_settings
         context.proxy_state.health_endpoint = health_endpoint
         context.proxy_state.set_running(profile_id, mode=runtime_mode)
 
-        routed = self._apply_runtime_mode(runtime_mode, profile)
+        routed = self._apply_runtime_mode(runtime_mode, profile, settings=settings)
         if not routed.ok:
             return routed
 
         if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
-            self._route_system_dns()
+            self._route_system_dns(getattr(settings, "tun_name", "xray0"))
 
         if context.monitor is not None:
             context.monitor.start()
 
         return ConnectionResult(True)
 
-    def _route_system_dns(self) -> None:
+    def _route_system_dns(self, tun_name=None) -> None:
         """Направить системный DNS в TUN; отказ не срывает подключение."""
-        tun_name = getattr(self._context.config, "tun_name", "xray0")
+        tun_name = tun_name or getattr(self._context.config, "tun_name", "xray0")
         ok, error = route_system_dns_to_tun(tun_name)
         if not ok:
             logger.warning("Системный DNS не направлен в %s: %s", tun_name, error)
@@ -168,17 +188,18 @@ class ConnectionService:
             # подключение всё равно должно состояться.
             logger.warning("Could not write the debug configuration: %s", e)
 
-    def _apply_runtime_mode(self, runtime_mode: str, profile) -> ConnectionResult:
+    def _apply_runtime_mode(self, runtime_mode: str, profile, *, settings=None) -> ConnectionResult:
         """Set up the system proxy or the TUN routes for a started core."""
         context = self._context
+        settings = settings if settings is not None else context.config
 
         if should_manage_system_proxy(runtime_mode):
-            port = context.config.inbound_socks_port
+            port = settings.inbound_socks_port
             set_system_proxy(http_port=port, socks_port=port)
             return ConnectionResult(True)
 
         logger.info("Runtime mode '%s': skip system proxy configuration", runtime_mode)
-        tun_name = getattr(context.config, "tun_name", "xray0")
+        tun_name = getattr(settings, "tun_name", "xray0")
         proxy_host = getattr(getattr(profile, "bean", None), "server_address", "")
         ok, state, error = apply_tun_routes(tun_name, proxy_host)
         if not ok:
@@ -293,8 +314,10 @@ class ConnectionService:
             logger.error("Profile %s not found for reload", profile_id)
             return ConnectionResult(False, PROFILE_NOT_FOUND)
 
+        build_context, profile = self._session_inputs(profile)
+        settings = build_context.config
         try:
-            config = build_session_config(context, profile)
+            config = build_session_config(build_context, profile)
         except UnsafeConfigError as e:
             return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
         if not config:
@@ -302,6 +325,7 @@ class ConnectionService:
             return ConnectionResult(False, NO_CONFIG)
 
         # Перезагрузка — это перезапуск процесса: порт и учётные данные новые.
+        applied_settings = runtime_snapshot(settings, profile)
         health_endpoint = new_health_endpoint()
         attach_health_inbound(config, health_endpoint)
         self._write_debug_config(config, profile_id)
@@ -316,10 +340,11 @@ class ConnectionService:
             logger.error("Error reloading xray-core: %s", error)
             return ConnectionResult(False, error or "Не удалось перезагрузить конфигурацию")
 
+        context.proxy_state.applied_settings = applied_settings
         context.proxy_state.health_endpoint = health_endpoint
-        runtime_mode = normalize_proxy_mode(getattr(context.config, "proxy_mode", None))
+        runtime_mode = normalize_proxy_mode(getattr(settings, "proxy_mode", None))
         if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
-            self._route_system_dns()
+            self._route_system_dns(getattr(settings, "tun_name", "xray0"))
 
         logger.info("Configuration reloaded successfully")
         return ConnectionResult(True)

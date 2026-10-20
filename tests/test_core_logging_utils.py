@@ -82,3 +82,18 @@ def test_setup_logging_creates_the_log_directory(tmp_path, clean_root_logger, mo
     logging.getLogger("tenga.test").info("hello")
 
     assert log_file.exists()
+
+
+def test_existing_file_handler_is_sanitized_too(tmp_path, clean_root_logger):
+    path = tmp_path / "existing.log"
+    handler = logging.FileHandler(path)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    clean_root_logger.addHandler(handler)
+    try:
+        setup_logging(path)
+        logging.getLogger("tenga.test").warning("trojan://secret@host:443")
+        handler.flush()
+        assert "secret" not in path.read_text()
+    finally:
+        clean_root_logger.removeHandler(handler)
+        handler.close()

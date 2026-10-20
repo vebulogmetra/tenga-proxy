@@ -3,6 +3,7 @@
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 
 from src.sub.metadata import SubscriptionMetadata, apply_metadata, metadata_from_headers
 from src.sub.updater import SubscriptionUpdater
@@ -20,7 +21,7 @@ LINK = "vless://11111111-1111-1111-1111-111111111111@nl.example.org:443?type=tcp
 
 @pytest.mark.parametrize(
     "url",
-    ["https://new.example/sub/token", "http://new.example:8080/sub", "https://93.184.216.34/sub"],
+    ["https://new.example/sub/token", "https://93.184.216.34/sub"],
 )
 def test_public_http_addresses_are_acceptable(url):
     assert is_acceptable_subscription_url(url)
@@ -32,6 +33,7 @@ def test_public_http_addresses_are_acceptable(url):
         "",
         "vless://uuid@host:443",
         "ftp://new.example/sub",
+        "http://new.example:8080/sub",
         "https://",
         "https://localhost/sub",
         "https://router.local/sub",
@@ -109,14 +111,15 @@ def test_updater_reports_the_new_address_of_the_last_update(tmp_path):
     updater = SubscriptionUpdater(profiles=profiles)
 
     def response(headers: dict[str, str]) -> Mock:
-        mock = Mock()
-        mock.text = LINK
-        mock.content = LINK.encode("utf-8")
+        mock = requests.Response()
+        mock.status_code = 200
+        mock._content = LINK.encode("utf-8")
+        mock._content_consumed = True
         mock.headers = headers
         mock.raise_for_status = Mock()
         return mock
 
-    with patch("src.sub.updater.requests.get") as mock_get:
+    with patch("src.sub.updater.pinned_get") as mock_get:
         mock_get.return_value = response({"new-url": "https://new.example/sub"})
         updater.update(CURRENT, group_id=group.id)
         assert updater.new_url == "https://new.example/sub"

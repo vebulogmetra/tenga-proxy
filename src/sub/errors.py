@@ -7,6 +7,8 @@ from typing import Any
 
 import requests
 
+from src.core.log_redaction import redact
+
 MAX_RESPONSE_SIZE = 10 * 1024 * 1024
 MAX_SNIPPET = 200
 
@@ -26,7 +28,7 @@ def snippet_of(raw_body: Any) -> str:
     text = _WHITESPACE.sub(" ", _CONTROL_CHARS.sub("", raw_body)).strip()
     if text.startswith("<"):
         return ""
-    return text[:MAX_SNIPPET]
+    return redact(text)[:MAX_SNIPPET]
 
 
 class SubscriptionHttpError(requests.HTTPError):
@@ -56,4 +58,4 @@ class SubscriptionTooLargeError(requests.RequestException):
 
     def __init__(self, size: int) -> None:
         self.size = size
-        super().__init__(f"Ответ сервера слишком большой: {size} символов")
+        super().__init__(f"Ответ сервера слишком большой: {size} байт")

@@ -215,7 +215,7 @@ def test_split_accepted_handles_an_empty_and_a_fully_rejected_batch():
 
 
 @needs_xray
-@pytest.mark.parametrize("bad_link", [VLESS_BAD_REALITY, VLESS_BAD_FINGERPRINT])
+@pytest.mark.parametrize("bad_link", [VLESS_BAD_REALITY])
 def test_core_rejects_the_whole_batch_because_of_one_profile(bad_link):
     """Причина отсева: такой профиль проходит сборку, а ядро из-за него не стартует."""
     targets = [target(1, VLESS_WS), target(2, bad_link), target(3, TROJAN)]
@@ -240,8 +240,8 @@ def test_split_accepted_finds_what_the_real_core_rejects():
 
     accepted, rejected = split_accepted(targets, accepts)
 
-    assert [t.profile_id for t in accepted] == [1, 3, 5]
-    assert [t.profile_id for t in rejected] == [2, 4]
+    assert [t.profile_id for t in accepted] == [1, 3, 4, 5]
+    assert [t.profile_id for t in rejected] == [2]
 
 
 # --- запуск ядра и замер ---

@@ -72,7 +72,7 @@ class LogManager:
         removed_count = 0
 
         for log_file in self.log_dir.glob("*.log*"):
-            if not log_file.is_file():
+            if log_file.is_symlink() or not log_file.is_file():
                 continue
 
             try:
@@ -102,19 +102,22 @@ class LogManager:
         bytes_freed = 0
 
         for log_file in self.log_dir.glob("*.log*"):
-            if not log_file.is_file():
+            if log_file.is_symlink() or not log_file.is_file():
                 continue
 
             try:
                 size = log_file.stat().st_size
-                log_file.unlink()
+                # File handlers use O_APPEND: truncate the inode they already
+                # hold instead of unlinking it and losing subsequent output.
+                if log_file.name.endswith(".log"):
+                    with log_file.open("w", encoding="utf-8"):
+                        pass
+                else:
+                    log_file.unlink()
                 file_count += 1
                 bytes_freed += size
-                logger.info("Removed log file: %s (%d bytes)", log_file.name, size)
+
             except Exception as e:
                 logger.warning("Failed to remove log file %s: %s", log_file.name, e)
-
-        if file_count > 0:
-            logger.info("Cleared all logs: %d files, %d bytes", file_count, bytes_freed)
 
         return file_count, bytes_freed

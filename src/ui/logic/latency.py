@@ -38,6 +38,9 @@ def make_batch_probe(context: Any) -> BatchProbeFn:
     """
 
     def batch_probe(profile_ids: list[int], emit: ResultFn) -> None:
+        state = getattr(context, "proxy_state", None)
+        if state is not None and state.is_running and state.started_mode == "tun":
+            raise RuntimeError("Независимый маршрут замера при активном TUN не обеспечен")
         from src.core.batch_probe import probe_profiles
 
         found = (context.profiles.get_profile(profile_id) for profile_id in profile_ids)
@@ -122,6 +125,7 @@ class LatencyRunner:
         self._dispatch = dispatch
         self._lock = threading.Lock()
         self._busy = False
+        self.last_run_complete = False
         self._thread: threading.Thread | None = None
 
     @property
@@ -142,6 +146,7 @@ class LatencyRunner:
             if self._busy:
                 return False
             self._busy = True
+            self.last_run_complete = True
 
         def _safe_probe(profile_id: int) -> int:
             # BaseException too: anything escaping here would propagate out of
@@ -150,6 +155,7 @@ class LatencyRunner:
             try:
                 return int(self._probe(profile_id))
             except BaseException as e:
+                self.last_run_complete = False
                 logger.exception("Latency probe failed for profile %s: %s", profile_id, e)
                 return -1
 
@@ -173,6 +179,7 @@ class LatencyRunner:
             try:
                 self._batch_probe(ids, emit)
             except BaseException as e:
+                self.last_run_complete = False
                 logger.exception("Batch latency probe failed: %s", e)
             finally:
                 # Что бы ни случилось с замером, ни один профиль не должен
@@ -204,3 +211,14 @@ class LatencyRunner:
         """Block until the current run finishes (tests only)."""
         if self._thread is not None:
             self._thread.join(timeout)
+
+
+def failed_profile_ids(profile_ids, results, *, complete, active_id=None):
+    ids = list(profile_ids)
+    if (
+        not complete
+        or set(ids) != set(results)
+        or not any(value >= 0 for value in results.values())
+    ):
+        return []
+    return [profile_id for profile_id in ids if results[profile_id] < 0 and profile_id != active_id]

@@ -112,3 +112,16 @@ def test_an_empty_host_list_is_empty():
 
 def test_a_host_list_of_none_is_empty():
     assert parse_host_list(None) == []
+
+
+def test_routing_urls_are_normalized_and_regexp_commas_preserved():
+    assert parse_host_list(
+        "https://пример.рф:443/path?a=b\nregexp:^a{1,3};b$\nhttps://[2001:db8::1]/p"
+    ) == ["xn--e1afmkfd.xn--p1ai", "regexp:^a{1,3};b$", "2001:db8::1"]
+
+
+def test_routing_url_credentials_are_rejected():
+    import pytest
+
+    with pytest.raises(ValueError, match="credentials"):
+        parse_host_list("https://user:secret@example.com/path")

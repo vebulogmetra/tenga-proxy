@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 pytestmark = pytest.mark.gtk
 
@@ -208,11 +209,14 @@ def test_the_default_updater_goes_through_the_running_proxy(adw_app):
     group = adw_app.context.profiles.add_group("Подписка", is_subscription=True)
     adw_app.context.proxy_state.set_running(1, mode=ProxyMode.SYSTEM_PROXY)
 
-    response = Mock()
-    response.text = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
+    response = requests.Response()
+    response.status_code = 200
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = b"vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
     response.raise_for_status = Mock()
 
-    with patch("src.sub.updater.requests.get", return_value=response) as mock_get:
+    with patch("src.sub.updater.pinned_get", return_value=response) as mock_get:
         count = adw_app._default_subscription_updater(group.id, "https://sub.example/list")
 
     assert count == 1
@@ -237,13 +241,16 @@ def _update_with_response_headers(adw_app, headers: dict[str, str]):
     group.subscription_url = OLD_URL
 
     body = "vless://11111111-1111-1111-1111-111111111111@h.example:443?type=tcp#A"
-    response = Mock()
-    response.text = body
-    response.content = body.encode("utf-8")
+    response = requests.Response()
+    response.status_code = 200
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = (body).encode("utf-8")
+    response._content = body.encode("utf-8")
     response.headers = headers
     response.raise_for_status = Mock()
 
-    with patch("src.sub.updater.requests.get", return_value=response):
+    with patch("src.sub.updater.pinned_get", return_value=response):
         adw_app.update_subscription(group.id)
         adw_app.wait_for_subscriptions_for_test()
     return group
@@ -493,7 +500,7 @@ def test_delete_group_removes_it(adw_app):
     assert adw_app.context.profiles.get_group(group.id) is None
 
 
-def test_settings_reload_the_running_config(adw_app):
+def test_settings_wait_for_explicit_reconnect(adw_app):
     """Изменённые настройки должны доехать до работающего ядра."""
     adw_app.activate()
     adw_app.context.proxy_state.is_running = True
@@ -502,7 +509,7 @@ def test_settings_reload_the_running_config(adw_app):
 
     adw_app.apply_settings()
 
-    assert calls == [("reload",)]
+    assert calls == []
 
 
 def test_settings_do_not_reload_a_stopped_core(adw_app):
@@ -988,3 +995,164 @@ def test_a_group_ping_shows_progress_until_it_ends(adw_app):
     adw_app.wait_for_latency_for_test()
 
     assert seen == [(0, 1), None]
+
+
+def test_reimport_subscription_reuses_group_and_preserves_name(adw_app):
+    adw_app.set_subscription_updater(lambda _gid, _url: 0)
+    group = adw_app.add_subscription("Custom", "https://EXAMPLE.com:443/Sub?token=A")
+    adw_app.wait_for_subscriptions_for_test()
+    again = adw_app.add_subscription("Replacement", "https://example.com/Sub?token=A")
+    adw_app.wait_for_subscriptions_for_test()
+    assert again is group
+    assert again.name == "Custom"
+    assert adw_app.context.profiles.current_group_id == group.id
+
+
+def test_repeated_update_during_fetch_does_not_start_second_worker(adw_app):
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+    calls = []
+
+    def updater(group_id, _url):
+        calls.append(group_id)
+        entered.set()
+        assert release.wait(3)
+        return 0
+
+    adw_app.set_subscription_updater(updater)
+    group = adw_app.context.profiles.add_group("Sub", is_subscription=True)
+    group.subscription_url = "https://example.com/sub"
+    try:
+        adw_app.update_subscription(group.id)
+        assert entered.wait(3)
+        adw_app.update_subscription(group.id)
+        assert calls == [group.id]
+    finally:
+        release.set()
+        adw_app.wait_for_subscriptions_for_test()
+
+
+def test_application_subscription_link_prefills_without_fetch(adw_app):
+    from urllib.parse import quote
+
+    adw_app.activate()
+    calls = []
+    adw_app.set_subscription_updater(lambda *args: calls.append(args) or 0)
+    adw_app.import_app_link(
+        "veblock://add/" + quote("https://example.com/sub", safe="") + "#Example"
+    )
+    assert adw_app.current_dialog.url_row.get_text() == "https://example.com/sub"
+    assert adw_app.current_dialog.name_row.get_text() == "Example"
+    assert calls == []
+
+
+def test_routing_import_requires_confirmation(adw_app):
+    import base64
+    import json
+
+    adw_app.activate()
+    before = list(adw_app.context.config.routing.direct_list)
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"DirectSites": ["example.org"], "GlobalProxy": False}).encode()
+    ).decode()
+    adw_app.import_app_link("wingeon://routing/add/" + payload)
+    assert adw_app.context.config.routing.direct_list == before
+    adw_app.current_dialog.emit("response", "delete")
+    assert adw_app.context.config.routing.direct_list == ["example.org"]
+    assert not adw_app.context.proxy_state.is_running
+
+
+def test_pending_settings_banner_tracks_change_and_revert(adw_app):
+    from src.fmt.protocols import VLESSBean
+    from src.ui.logic.settings_state import runtime_snapshot
+
+    profile = adw_app.context.profiles.add_profile(VLESSBean(server_address="example.com"))
+    state = adw_app.context.proxy_state
+    state.applied_settings = runtime_snapshot(adw_app.context.config, profile)
+    state.set_running(profile.id, mode="system_proxy")
+    adw_app.activate()
+    adw_app.context.config.dns.custom_url = "1.1.1.1"
+    adw_app.apply_settings()
+    assert adw_app._window.pending_banner.get_revealed()
+    adw_app.context.config.dns.custom_url = ""
+    adw_app.apply_settings()
+    assert not adw_app._window.pending_banner.get_revealed()
+
+
+def test_app_update_is_notified_once_and_check_is_rate_limited(adw_app, monkeypatch):
+    from gi.repository import GLib
+
+    from tests.test_core_app_update import RELEASE
+
+    monkeypatch.setattr("src.ui.application.app_version", lambda: "0.16.2")
+    calls = []
+    adw_app.set_app_release_fetcher(lambda: calls.append(True) or [RELEASE])
+    adw_app.activate()
+    adw_app._app_update_thread.join(3)
+    while GLib.MainContext.default().pending():
+        GLib.MainContext.default().iteration(False)
+    assert adw_app.context.config.app_update_notified == "v0.17.0"
+    adw_app.activate()
+    assert calls == [True]
+
+
+def test_working_filter_preserves_group_when_nothing_answers(adw_app):
+    from src.fmt.protocols import VLESSBean
+
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Test")
+    first = adw_app.context.profiles.add_profile(VLESSBean(), group.id)
+    second = adw_app.context.profiles.add_profile(VLESSBean(), group.id)
+    adw_app.set_latency_probe(lambda _id: -1)
+    adw_app.keep_working_profiles(group.id)
+    adw_app.wait_for_latency_for_test()
+    assert adw_app.context.profiles.get_profile(first.id) is first
+    assert adw_app.context.profiles.get_profile(second.id) is second
+    assert adw_app.current_dialog is None
+
+
+def test_working_filter_deletes_only_after_confirmation(adw_app, monkeypatch):
+    from gi.repository import Gio
+
+    from src.fmt.protocols import VLESSBean
+
+    monkeypatch.setattr(
+        Gio.NetworkMonitor,
+        "get_default",
+        lambda: SimpleNamespace(get_network_available=lambda: True),
+    )
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Test")
+    first = adw_app.context.profiles.add_profile(VLESSBean(name="Good"), group.id)
+    second = adw_app.context.profiles.add_profile(VLESSBean(name="Failed"), group.id)
+    adw_app.context.proxy_state.set_running(first.id, mode="system_proxy")
+    adw_app.set_latency_probe(lambda profile_id: 10 if profile_id == first.id else -1)
+    adw_app.keep_working_profiles(group.id)
+    adw_app.wait_for_latency_for_test()
+    assert adw_app.context.profiles.get_profile(second.id) is second
+    adw_app.current_dialog.emit("response", "delete")
+    assert adw_app.context.profiles.get_profile(second.id) is None
+    assert adw_app.context.profiles.get_profile(first.id) is first
+
+
+def test_working_filter_does_not_delete_after_group_changes(adw_app, monkeypatch):
+    from gi.repository import Gio
+
+    from src.fmt.protocols import VLESSBean
+
+    monkeypatch.setattr(
+        Gio.NetworkMonitor,
+        "get_default",
+        lambda: SimpleNamespace(get_network_available=lambda: True),
+    )
+    adw_app.activate()
+    group = adw_app.context.profiles.add_group("Test")
+    first = adw_app.context.profiles.add_profile(VLESSBean(name="Good"), group.id)
+    second = adw_app.context.profiles.add_profile(VLESSBean(name="Failed"), group.id)
+    adw_app.set_latency_probe(lambda profile_id: 10 if profile_id == first.id else -1)
+    adw_app.keep_working_profiles(group.id)
+    adw_app.wait_for_latency_for_test()
+    adw_app.context.profiles.add_profile(VLESSBean(name="New"), group.id)
+    adw_app.current_dialog.emit("response", "delete")
+    assert adw_app.context.profiles.get_profile(second.id) is second

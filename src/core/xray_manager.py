@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import os
@@ -19,8 +20,10 @@ from src.core.config import (
     find_xray_binary,
 )
 from src.core.geo import ASSET_ENV, asset_dir_for_core
+from src.core.log_redaction import RedactingFormatter
 from src.core.logging_utils import daily_file_handler
 from src.core.performance import measure_time
+from src.core.stats_endpoint import StatsEndpoint
 
 logger = logging.getLogger("tenga.xray_manager")
 
@@ -84,6 +87,7 @@ class XrayManager:
                 )
 
         self._binary_path = binary_path
+        self._stats_endpoint = StatsEndpoint()
         self._stats_api_addr = stats_api_addr
         self._stats_api_token = stats_api_token
         self._process: subprocess.Popen | None = None
@@ -159,7 +163,7 @@ class XrayManager:
         Returns:
             Configuration with added stats and api
         """
-        config = config.copy()
+        config = copy.deepcopy(config)
 
         # Enable stats
         if "stats" not in config:
@@ -176,80 +180,26 @@ class XrayManager:
         policy["system"] = system
         config["policy"] = policy
 
-        # Enable API service
-        if "api" not in config:
-            config["api"] = {
+        # The directory is 0700 and changes after every cleanup/restart. The
+        # core has no independent network API listener and exposes Stats only.
+        self._stats_api_addr = self._stats_endpoint.address
+        config["api"] = {"tag": "api", "services": ["StatsService"]}
+        config["inbounds"] = [
+            item for item in config.get("inbounds", []) if item.get("tag") != "api"
+        ]
+        config["inbounds"].append(
+            {
                 "tag": "api",
-                "services": ["StatsService"],
+                "listen": self._stats_endpoint.path,
+                "protocol": "dokodemo-door",
+                "settings": {"address": "127.0.0.1"},
             }
-
-        # Add API inbound if not present
-        api_inbound_exists = False
-        if "inbounds" in config:
-            for inbound in config["inbounds"]:
-                if inbound.get("tag") == "api":
-                    api_inbound_exists = True
-                    break
-
-        if not api_inbound_exists:
-            if "inbounds" not in config:
-                config["inbounds"] = []
-
-            # Parse address and port from stats_api_addr
-            addr_parts = self._stats_api_addr.split(":")
-            api_host = addr_parts[0] if len(addr_parts) > 0 else "127.0.0.1"
-            api_port = int(addr_parts[1]) if len(addr_parts) > 1 else 10085
-
-            config["inbounds"].append(
-                {
-                    "tag": "api",
-                    "listen": api_host,
-                    "port": api_port,
-                    "protocol": "dokodemo-door",
-                    "settings": {
-                        "address": "127.0.0.1",
-                    },
-                }
-            )
-
-        # Add API outbound if not present
-        api_outbound_exists = False
-        if "outbounds" in config:
-            for outbound in config["outbounds"]:
-                if outbound.get("tag") == "api":
-                    api_outbound_exists = True
-                    break
-
-        if not api_outbound_exists:
-            if "outbounds" not in config:
-                config["outbounds"] = []
-
-            config["outbounds"].append(
-                {
-                    "protocol": "freedom",
-                    "tag": "api",
-                }
-            )
-
-        # Add routing rule for API if not present
-        if "routing" not in config:
-            config["routing"] = {"rules": []}
-
-        api_rule_exists = False
-        for rule in config["routing"]["rules"]:
-            if rule.get("inboundTag") == ["api"]:
-                api_rule_exists = True
-                break
-
-        if not api_rule_exists:
-            config["routing"]["rules"].insert(
-                0,
-                {
-                    "type": "field",
-                    "inboundTag": ["api"],
-                    "outboundTag": "api",
-                },
-            )
+        )
+        routing = config.setdefault("routing", {})
+        routing["rules"] = [
+            rule for rule in routing.get("rules", []) if rule.get("inboundTag") != ["api"]
+        ]
+        routing["rules"].insert(0, {"type": "field", "inboundTag": ["api"], "outboundTag": "api"})
 
         return config
 
@@ -279,6 +229,7 @@ class XrayManager:
                 json.dump(config, f, ensure_ascii=False, indent=2)
                 self._config_file = Path(f.name)
         except Exception as e:
+            self._cleanup()
             return False, f"Error writing configuration: {e}"
 
         # Start process
@@ -325,7 +276,7 @@ class XrayManager:
         if self._core_log is None:
             handler = daily_file_handler(XRAY_LOG_FILE)
             # Строки ядра уже несут своё время и уровень.
-            handler.setFormatter(logging.Formatter("%(message)s"))
+            handler.setFormatter(RedactingFormatter("%(message)s"))
             core_log = logging.Logger("tenga.xray.core", logging.INFO)
             core_log.propagate = False
             core_log.addHandler(handler)
@@ -387,6 +338,8 @@ class XrayManager:
     def _cleanup(self) -> None:
         """Clean up resources."""
         self._process = None
+        self._stats_endpoint.close()
+        self._stats_api_addr = "unix:///nonexistent/tenga-stopped.sock"
 
         if self._log_pump is not None:
             # Ядро уже завершилось: дожидаемся последних строк, среди них

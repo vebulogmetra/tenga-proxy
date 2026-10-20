@@ -187,6 +187,40 @@ class ProfileManager:
         """Get group by ID."""
         return self._groups.get(group_id)
 
+    def find_subscription_group(self, url: str, *, exceptions=()) -> ProfileGroup | None:
+        from urllib.parse import urlsplit, urlunsplit
+
+        def key(value):
+            parts = urlsplit(value)
+            if parts.username is not None or parts.password is not None:
+                raise ValueError("URL с credentials нельзя объединять")
+            host = (parts.hostname or "").lower().encode("idna").decode("ascii")
+            host = f"[{host}]" if ":" in host else host
+            port = parts.port
+            if port and (parts.scheme.lower(), port) not in (("https", 443), ("http", 80)):
+                host += f":{port}"
+            return urlunsplit((parts.scheme.lower(), host, parts.path, parts.query, parts.fragment))
+
+        try:
+            target = key(url)
+            matches = []
+            for group in self._groups.values():
+                if (
+                    group.is_subscription
+                    and group.subscription_url
+                    and (url in exceptions) == (group.subscription_url in exceptions)
+                    and key(group.subscription_url) == target
+                ):
+                    matches.append(group)
+            if len(matches) > 1:
+                raise RuntimeError(
+                    "Найдено несколько групп с этим URL; выберите нужную группу для обновления"
+                )
+            return matches[0] if matches else None
+        except (ValueError, UnicodeError):
+            return None
+        return None
+
     def get_profiles_in_group(self, group_id: int) -> list[ProfileEntry]:
         """Get all profiles in group."""
         return [p for p in self._profiles.values() if p.group_id == group_id]

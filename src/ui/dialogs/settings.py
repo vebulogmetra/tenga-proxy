@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import time
 
 import gi
@@ -9,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, GLib, GObject, Gtk
+from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
@@ -20,6 +21,7 @@ from src.sub.device import ensure_hwid
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
+from src.ui.logic.settings_form import validate_settings
 from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
 from src.ui.window import apply_theme
 
@@ -83,6 +85,39 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_about_page()
 
         self._load()
+        self._autosave_source = 0
+        seen = set()
+        for value in vars(self).values():
+            if isinstance(value, KeyedCombo):
+                value = value.row
+            if id(value) in seen:
+                continue
+            seen.add(id(value))
+            if isinstance(value, Adw.EntryRow):
+                value.connect("changed", self._queue_save)
+            elif isinstance(value, Adw.SwitchRow):
+                value.connect("notify::active", self._queue_save)
+            elif isinstance(value, Adw.SpinRow):
+                value.connect("notify::value", self._queue_save)
+            elif isinstance(value, Adw.ComboRow):
+                value.connect("notify::selected", self._queue_save)
+        self.connect("closed", self._flush_save)
+
+    def _queue_save(self, *_args) -> None:
+        if self._autosave_source:
+            GLib.source_remove(self._autosave_source)
+        self._autosave_source = GLib.timeout_add(500, self._autosave)
+
+    def _autosave(self) -> bool:
+        self._autosave_source = 0
+        self.save()
+        return GLib.SOURCE_REMOVE
+
+    def _flush_save(self, *_args) -> None:
+        if self._autosave_source:
+            GLib.source_remove(self._autosave_source)
+            self._autosave_source = 0
+            self.save()
 
     # --- страницы ---
 
@@ -196,6 +231,8 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         self.dns_url_row = Adw.EntryRow(title="Адрес DNS")
         custom.add(self.dns_url_row)
+        self.dns_additional_row = Adw.EntryRow(title="Дополнительный DNS")
+        custom.add(self.dns_additional_row)
 
         options = Adw.PreferencesGroup(title="Опции")
         page.add(options)
@@ -220,7 +257,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         fragment = Adw.PreferencesGroup(
             title="Фрагментация TLS",
             description="Делит начало TLS-соединения на части, чтобы фильтр не разобрал "
-            "имя сервера. Действует на профили с TLS и Reality. Применяется при сохранении настроек.",
+            "имя сервера. Действует на профили с TLS и Reality. Вступает в силу после переподключения.",
         )
         page.add(fragment)
 
@@ -267,6 +304,13 @@ class SettingsDialog(Adw.PreferencesDialog):
             "которые считают лимит устройств",
         )
         request.add(self.device_info_row)
+        self.sub_exceptions_row = Adw.EntryRow(title="Разрешённые HTTP/LAN URL (через пробел)")
+        request.add(self.sub_exceptions_row)
+        self.sub_insecure_row = Adw.SwitchRow(
+            title="Не проверять TLS-сертификат подписок",
+            subtitle="Отдельное исключение; не разрешает доступ к HTTP или локальной сети",
+        )
+        request.add(self.sub_insecure_row)
 
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
@@ -276,6 +320,29 @@ class SettingsDialog(Adw.PreferencesDialog):
         page.add(group)
 
         group.add(self._value_row("Версия", app_version()))
+        self.app_update_row = Adw.ActionRow(title="Обновление приложения")
+        self.app_check_button = Gtk.Button(label="Проверить", valign=Gtk.Align.CENTER)
+        self.app_check_button.connect("clicked", self._check_app_update)
+        self.app_update_row.add_suffix(self.app_check_button)
+        self.app_release_button = Gtk.Button(label="Открыть релиз", valign=Gtk.Align.CENTER)
+        self.app_release_button.connect("clicked", self._open_app_release)
+        self.app_update_row.add_suffix(self.app_release_button)
+        group.add(self.app_update_row)
+        self.app_update_row.set_subtitle(
+            self._config.app_update_target or "Нет сведений о новой версии"
+        )
+        self.app_release_button.set_sensitive(bool(self._config.app_update_url))
+        self.app_updates_row = Adw.SwitchRow(title="Проверять обновления приложения раз в сутки")
+        self.app_updates_row.set_active(self._config.app_update_enabled)
+        group.add(self.app_updates_row)
+        self.app_prereleases_row = Adw.SwitchRow(
+            title="Предлагать предварительные версии приложения"
+        )
+        self.app_prereleases_row.set_active(self._config.app_update_prerelease)
+        group.add(self.app_prereleases_row)
+        self.core_updates_row = Adw.SwitchRow(title="Проверять обновления ядра раз в три дня")
+        self.core_updates_row.set_active(self._config.core_update_enabled)
+        group.add(self.core_updates_row)
         manager = getattr(self._context, "xray_manager", None) if self._context else None
         self._core_version = core_version(manager)
         group.add(self._value_row("Ядро xray", self._core_version))
@@ -364,6 +431,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         dns = config.dns
         self._dns.select(dns.provider)
         self.dns_url_row.set_text(dns.custom_url)
+        self.dns_additional_row.set_text(dns.additional_url)
         self.dns_proxy_row.set_active(dns.use_proxy)
         self.dns_intercept_row.set_active(getattr(dns, "intercept", True))
 
@@ -378,17 +446,19 @@ class SettingsDialog(Adw.PreferencesDialog):
         user_agent = config.user_agent.strip()
         self.user_agent_row.set_text("" if user_agent == LEGACY_USER_AGENT else user_agent)
         self.device_info_row.set_active(config.sub_send_device_info)
+        self.sub_exceptions_row.set_text(" ".join(config.sub_source_exceptions))
+        self.sub_insecure_row.set_active(config.sub_insecure)
 
-    def save(self) -> None:
+    def save(self) -> bool:
         """Write the form back into the configuration object."""
-        config = self._config
+        config = copy.deepcopy(self._config)
 
         config.inbound_address = self.address_row.get_text().strip()
         config.inbound_socks_port = int(self.port_row.get_value())
 
         config.proxy_mode = self._mode.selected()
-        # Безымянный интерфейс не создать — возвращаем значение по умолчанию.
-        config.tun_name = self.tun_name_row.get_text().strip() or DEFAULT_TUN_NAME
+        # An empty/invalid interface name is reported before committing.
+        config.tun_name = self.tun_name_row.get_text().strip()
         config.tun_mtu = int(self.tun_mtu_row.get_value())
 
         config.log_level = self._log_level.selected()
@@ -401,25 +471,56 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         config.dns.provider = self._dns.selected()
         config.dns.custom_url = self.dns_url_row.get_text().strip()
+        config.dns.additional_url = self.dns_additional_row.get_text().strip()
         config.dns.use_proxy = self.dns_proxy_row.get_active()
         config.dns.intercept = self.dns_intercept_row.get_active()
 
-        # sanitized(): невалидное поле ядро отвергло бы вместе со всем конфигом.
+        # Validate the candidate before changing any live configuration field.
         config.tls_fragment = TlsFragmentSettings(
             enabled=self.fragment_row.get_active(),
             packets=self.fragment_packets_row.get_text(),
             length=self.fragment_length_row.get_text(),
             delay=self.fragment_delay_row.get_text(),
-        ).sanitized()
+        )
         config.mux_default_on = self.mux_row.get_active()
 
+        config.app_update_enabled = self.app_updates_row.get_active()
+        config.app_update_prerelease = self.app_prereleases_row.get_active()
+        config.core_update_enabled = self.core_updates_row.get_active()
         config.user_agent = self.user_agent_row.get_text().strip()
+        config.sub_source_exceptions = self.sub_exceptions_row.get_text().split()
+        config.sub_insecure = self.sub_insecure_row.get_active()
         config.sub_send_device_info = self.device_info_row.get_active()
         if config.sub_send_device_info:
             # Идентификатор сохранится вместе с настройками при закрытии диалога.
             ensure_hwid(config)
 
+        errors = validate_settings(config)
+        self.validation_errors = errors
+        for name in (
+            "address",
+            "tun_name",
+            "dns_url",
+            "dns_additional",
+            "fragment_packets",
+            "fragment_length",
+            "fragment_delay",
+            "sub_exceptions",
+        ):
+            row = getattr(self, name + "_row")
+            if name in errors:
+                row.add_css_class("error")
+                row.set_tooltip_text(errors[name])
+            else:
+                row.remove_css_class("error")
+                row.set_tooltip_text(None)
+        if errors:
+            self.set_title("Исправьте настройки: " + next(iter(errors.values())))
+            return False
+        self.set_title("Настройки")
+        self._config.__dict__.update(config.__dict__)
         self.emit("settings-saved")
+        return True
 
     # --- вспомогательное для тестов и внешнего кода ---
 
@@ -442,6 +543,48 @@ class SettingsDialog(Adw.PreferencesDialog):
     def select_log_level(self, key: str) -> None:
         self._log_level.select(key)
 
+    def _open_app_release(self, *_args) -> None:
+        from src.core.app_update import safe_release_url
+
+        url = self._config.app_update_url
+        if safe_release_url(url):
+            Gio.AppInfo.launch_default_for_uri(url, None)
+
+    def _check_app_update(self, *_args) -> None:
+        from src.core.app_update import check_app_update, fetch_app_releases
+        from src.sub.route import local_proxy_url
+
+        self.app_check_button.set_sensitive(False)
+        self.app_update_row.set_subtitle("Проверка…")
+
+        def work():
+            proxy = (
+                (lambda: local_proxy_url(self._config, self._context.proxy_state))
+                if self._context
+                else None
+            )
+            return check_app_update(
+                self._config, app_version(), force=True, fetch=lambda: fetch_app_releases(proxy)
+            )
+
+        def done(release):
+            self.app_check_button.set_sensitive(True)
+            text = f"Доступна версия {release.version}" if release else "Новых версий нет"
+            if release and not release.has_asset:
+                text += "; AppImage для этой архитектуры отсутствует"
+            self.app_update_row.set_subtitle(text)
+            self.app_release_button.set_sensitive(bool(release))
+            if self._context:
+                self._context.save_config()
+
+        def failed(_error):
+            self.app_check_button.set_sensitive(True)
+            self.app_update_row.set_subtitle("Не удалось проверить обновления")
+            if self._context:
+                self._context.save_config()
+
+        run_in_background(work, on_done=done, on_error=failed, name="tenga-app-update-manual")
+
     def _on_update_geo(self, _button: Gtk.Button) -> None:
         # Скачивание — десятки мегабайт: в главном потоке окно бы замерло.
         self.geo_update_button.set_sensitive(False)
@@ -455,7 +598,9 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _on_geo_updated(self, catalog) -> None:
         self.geo_update_button.set_sensitive(True)
-        self.geo_row.set_subtitle(f"{geo_summary(catalog)} — применятся при сохранении настроек")
+        self.geo_row.set_subtitle(f"{geo_summary(catalog)} — применятся после переподключения")
+        if self._context is not None:
+            self._context.proxy_state.notify_listeners()
 
     def _on_geo_update_failed(self, error: BaseException) -> None:
         self.geo_update_button.set_sensitive(True)
@@ -509,5 +654,18 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _on_clear_logs(self, _button: Gtk.Button) -> None:
         if self._context is None:
             return
-        removed, _size = self._context.log_manager.clear_all_logs()
-        self.clear_logs_row.set_subtitle(f"Удалено файлов: {removed}")
+        from src.ui.dialogs.confirm import build_delete_confirmation
+
+        def clear():
+            def done(result):
+                self.clear_logs_row.set_subtitle(f"Очищено файлов: {result[0]}")
+
+            run_in_background(self._context.log_manager.clear_all_logs, on_done=done)
+
+        dialog = build_delete_confirmation(
+            "Очистить журналы?",
+            "Все сохранённые записи будут удалены.",
+            clear,
+            confirm_label="Очистить",
+        )
+        dialog.present(self)

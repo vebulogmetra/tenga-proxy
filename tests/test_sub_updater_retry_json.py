@@ -11,8 +11,12 @@ from src.sub.updater import SubscriptionUpdater
 
 
 def _response(text: str) -> Mock:
-    response = Mock()
-    response.text = text
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = (text).encode("utf-8")
     response.raise_for_status = Mock()
     return response
 
@@ -24,14 +28,14 @@ def test_fetch_retries_on_network_error_then_succeeds():
     updater = SubscriptionUpdater()
 
     with (
-        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.pinned_get") as mock_get,
         patch("src.sub.updater.time.sleep") as mock_sleep,
     ):
         mock_get.side_effect = [
             requests.ConnectionError("reset"),
             _response("ok content"),
         ]
-        assert updater.fetch("http://example.com/sub") == "ok content"
+        assert updater.fetch("https://example.com/sub") == "ok content"
         assert mock_get.call_count == 2
         # Пауза между попытками, чтобы не долбить сервер.
         assert mock_sleep.called
@@ -41,12 +45,12 @@ def test_fetch_gives_up_after_max_attempts():
     updater = SubscriptionUpdater()
 
     with (
-        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.pinned_get") as mock_get,
         patch("src.sub.updater.time.sleep"),
     ):
         mock_get.side_effect = requests.ConnectionError("reset")
         with pytest.raises(requests.ConnectionError):
-            updater.fetch("http://example.com/sub")
+            updater.fetch("https://example.com/sub")
         assert mock_get.call_count == SubscriptionUpdater.MAX_ATTEMPTS
 
 
@@ -54,16 +58,20 @@ def test_fetch_does_not_retry_on_http_error():
     """HTTP-код — окончательный ответ сервера, повтор лишь задержит UI."""
     updater = SubscriptionUpdater()
 
-    response = Mock()
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
     response.raise_for_status = Mock(side_effect=requests.HTTPError("404"))
 
     with (
-        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.pinned_get") as mock_get,
         patch("src.sub.updater.time.sleep"),
     ):
         mock_get.return_value = response
         with pytest.raises(requests.HTTPError):
-            updater.fetch("http://example.com/sub")
+            updater.fetch("https://example.com/sub")
         assert mock_get.call_count == 1
 
 
@@ -71,11 +79,11 @@ def test_fetch_succeeds_first_try_without_sleep():
     updater = SubscriptionUpdater()
 
     with (
-        patch("src.sub.updater.requests.get") as mock_get,
+        patch("src.sub.updater.pinned_get") as mock_get,
         patch("src.sub.updater.time.sleep") as mock_sleep,
     ):
         mock_get.return_value = _response("content")
-        assert updater.fetch("http://example.com/sub") == "content"
+        assert updater.fetch("https://example.com/sub") == "content"
         assert mock_get.call_count == 1
         assert not mock_sleep.called
 

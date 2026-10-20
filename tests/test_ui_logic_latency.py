@@ -271,3 +271,13 @@ def test_ping_progress_skips_empty_groups():
     progress = PingProgress({1: [], 2: [20]})
 
     assert progress.group_ids == {2}
+
+
+def test_filter_preserves_group_on_incomplete_or_empty_success():
+    from src.ui.logic.latency import failed_profile_ids
+
+    assert failed_profile_ids([1, 2], {1: -1, 2: -1}, complete=True) == []
+    assert failed_profile_ids([1, 2], {1: 10}, complete=True) == []
+    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=False) == []
+    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True, active_id=2) == []
+    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True) == [2]

@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 from src.fmt.base import ProxyBean
 from src.fmt.stream import StreamSettings, parse_json_object
+from src.fmt.transport_options import filter_finalmask_options
 
 # Мультипорт в authority: `host:443,20000-50000` или `host:20000-50000`.
 _MULTI_PORT_AUTHORITY = re.compile(
@@ -248,17 +249,16 @@ class Hysteria2Bean(ProxyBean):
     def _build_final_mask(self) -> dict[str, Any]:
         """Собрать тело `streamSettings.finalmask`.
 
-        Основа — сырой `?fm=`: это готовое тело от провайдера, набор масок у
-        ядра открытый и разбирать его по полям нельзя. Поверх него достраиваем
-        маски из явных параметров ссылки; тип, который в `fm` уже есть, не
-        дублируем, а ключи `quicParams` из `fm` не перезаписываем.
+        Основа — JSON share-ссылки после фильтрации схемы закреплённого ядра.
+        Сокетные опции и смена назначения маской не разрешены. Явные параметры
+        достраивают отсутствующие типы; udphop всегда идёт первым.
 
         Формат именно `{"udp": [{"type": ..., "settings": {...}}]}` (conf.FinalMask →
         `Tcp`/`Udp []Mask`, Mask = {type, settings}); плоскую форму
         `{"salamander": {...}}` ядро молча игнорирует — обфускации не будет,
         а ошибки в конфиге не увидишь.
         """
-        mask = parse_json_object(self.final_mask)
+        mask = filter_finalmask_options(parse_json_object(self.final_mask))
         fm_udp = mask.get("udp")
         if not isinstance(fm_udp, list):
             fm_udp = []

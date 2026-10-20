@@ -152,6 +152,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.status_card = StatusCard()
         self.status_card.connect("action-clicked", self._on_status_action)
         content.append(self.status_card)
+        self.pending_banner = Adw.Banner(
+            title="Изменения применятся после переподключения",
+            button_label="Переподключить",
+            revealed=False,
+        )
+        self.pending_banner.connect(
+            "button-clicked", lambda _banner: self.get_application().reconnect_current()
+        )
+        content.append(self.pending_banner)
 
         self.view_stack.set_vexpand(True)
         content.append(self.view_stack)
@@ -228,6 +237,7 @@ class MainWindow(Adw.ApplicationWindow):
         "profile-routing",
         "test-profile",
         "test-group",
+        "keep-working",
         "toggle-group",
         "edit-group",
         "delete-group",
@@ -313,12 +323,17 @@ class MainWindow(Adw.ApplicationWindow):
         dialog = ProfileRoutingDialog(profile)
         # У `Adw.PreferencesDialog` нет кнопки подтверждения: как и настройки
         # приложения, эти правки применяются при закрытии.
-        dialog.connect("closed", lambda _d: self._save_routing(dialog))
+        dialog.connect("routing-saved", lambda _d: self._save_profiles())
         self._present_dialog(dialog)
 
     def _save_routing(self, dialog) -> None:
-        dialog.save()
-        self._save_profiles()
+        if dialog.save() is not False:
+            self._save_profiles()
+
+    def _row_keep_working(self, group_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.keep_working_profiles(group_id)
 
     def _row_test_profile(self, profile_id: int) -> None:
         app = self.get_application()
@@ -532,6 +547,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_monitoring()
 
     def refresh_status(self) -> None:
+        from src.ui.logic.settings_state import pending_settings
+
+        self.pending_banner.set_revealed(pending_settings(self._context))
         """Redraw the status card from the current proxy state."""
         state = self._context.proxy_state
         if state.is_running:

@@ -294,6 +294,7 @@ class ProfilesPage(Gtk.Box):
                 f"win.toggle-group({group_id})",
             )
             actions.append("Тест задержки", f"win.test-group({group_id})")
+            actions.append("Оставить рабочие…", f"win.keep-working({group_id})")
             menu.append_section(None, actions)
 
             edit = Gio.Menu()

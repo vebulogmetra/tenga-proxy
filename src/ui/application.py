@@ -65,7 +65,7 @@ class TengaApplication(Adw.Application):
     def __init__(
         self, context: AppContext | None = None, lock=None, *, with_tray: bool = False
     ) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
         self.context = context or get_context()
         self._lock = lock
         self.tray = None
@@ -78,6 +78,7 @@ class TengaApplication(Adw.Application):
         self._ping_progress: PingProgress | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
         self._subscriptions_thread = None
+        self._subscription_busy = False
         # Предложения сменить адрес подписки: копятся в фоновом потоке,
         # показываются в главном, по одному и только с подтверждением.
         self._url_proposals: list = []
@@ -88,6 +89,8 @@ class TengaApplication(Adw.Application):
         self._failover: FailoverController | None = None
         self._release_fetcher: Callable[[], object] | None = None
         self._core_update_thread = None
+        self._app_update_thread = None
+        self._app_release_fetcher = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
 
@@ -110,6 +113,99 @@ class TengaApplication(Adw.Application):
         self._window.present()
         self.resume_monitoring()
         self._refresh_core_releases_if_due()
+        self._refresh_app_releases_if_due()
+
+    def set_app_release_fetcher(self, fetcher) -> None:
+        self._app_release_fetcher = fetcher
+
+    def _refresh_app_releases_if_due(self) -> None:
+        from src.core.app_update import CHECK_INTERVAL_SECONDS, check_app_update
+
+        context = self.context
+        config = context.config
+        if (
+            self._app_release_fetcher is None
+            or not config.app_update_enabled
+            or (self._app_update_thread and self._app_update_thread.is_alive())
+            or (
+                config.app_update_last_attempt
+                and time.time() - config.app_update_last_attempt < CHECK_INTERVAL_SECONDS
+            )
+        ):
+            return
+
+        def work():
+            return check_app_update(
+                config,
+                app_version(),
+                fetch=self._app_release_fetcher,
+            )
+
+        def done(release):
+            if release and config.app_update_notified != release.version:
+                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
+                config.app_update_notified = release.version
+            context.save_config()
+
+        self._app_update_thread = run_in_background(
+            work,
+            on_done=done,
+            on_error=lambda _error: context.save_config(),
+            name="tenga-app-update",
+        )
+
+    def do_open(self, files, _n_files, _hint) -> None:
+        self.activate()
+        for source in files:
+            self.import_app_link(source.get_uri())
+
+    def import_app_link(self, raw: str) -> None:
+        from src.fmt.app_links import parse_app_link
+        from src.ui.dialogs.confirm import build_delete_confirmation as build_confirmation
+        from src.ui.dialogs.subscription import SubscriptionDialog
+
+        try:
+            link = parse_app_link(raw, exceptions=self.context.config.sub_source_exceptions)
+        except ValueError as error:
+            self.toast(str(error))
+            return
+        if link.operation == "unsupported":
+            self.toast("VK-туннель пока не поддерживается в десктопной версии")
+        elif link.operation == "subscription":
+            dialog = SubscriptionDialog()
+            dialog.name_row.set_text(link.name)
+            dialog.url_row.set_text(link.url)
+            dialog.connect(
+                "subscription-ready", lambda _d, name, url: self.add_subscription(name, url)
+            )
+            self.present_dialog(dialog)
+        else:
+            old, new = self.context.config.routing, link.routing
+            lines = ["Будет заменена общая маршрутизация.", f"Режим: {old.mode} → {new.mode}"]
+            for key in ("direct_list", "proxy_list", "block_list"):
+                before, after = set(getattr(old, key)), set(getattr(new, key))
+                lines.append(f"{key}: +{len(after - before)}, −{len(before - after)}")
+                lines.extend(
+                    "+ " + value
+                    for value in list(dict.fromkeys(getattr(new, key)))[:10]
+                    if value not in before
+                )
+            lines.extend(link.warnings)
+            lines.append("DNS, VPN, порядок правил и адреса геобаз из ссылки не импортируются.")
+
+            def apply():
+                # Only the fields shown in the diff change.
+                old.mode = new.mode
+                old.use_saved_lists = True
+                for key in ("direct_list", "proxy_list", "block_list"):
+                    setattr(old, key, getattr(new, key))
+                self.apply_settings()
+
+            self.present_dialog(
+                build_confirmation(
+                    "Импорт маршрутизации", "\n".join(lines), apply, confirm_label="Импортировать"
+                )
+            )
 
     def resume_monitoring(self) -> None:
         """Start watching a proxy that is already running.
@@ -132,6 +228,8 @@ class TengaApplication(Adw.Application):
         self._release_fetcher = fetch
 
     def _refresh_core_releases_if_due(self) -> None:
+        if not self.context.config.core_update_enabled:
+            return
         """Remember the newest core releases, at most once in a few days.
 
         Только запоминает: о новой версии говорит страница «О программе».
@@ -292,6 +390,9 @@ class TengaApplication(Adw.Application):
 
     def connect_profile(self, profile_id: int) -> None:
         """Start the proxy for one profile in the background."""
+        if self._latency_runner is not None and self._latency_runner.is_busy:
+            self.toast("Дождитесь завершения проверки задержки")
+            return
         profile = self.context.profiles.get_profile(profile_id)
         if profile is None:
             self.toast("Профиль не найден")
@@ -412,6 +513,18 @@ class TengaApplication(Adw.Application):
 
     def add_subscription(self, name: str, url: str):
         """Create a subscription group and fetch it right away."""
+        try:
+            group = self.context.profiles.find_subscription_group(
+                url, exceptions=self.context.config.sub_source_exceptions
+            )
+        except RuntimeError as error:
+            self.toast(str(error))
+            return None
+        if group is not None:
+            self.context.profiles.current_group_id = group.id
+            self._refresh_pages()
+            self.update_subscription(group.id)
+            return group
         group = self.context.profiles.add_group(name, is_subscription=True)
         group.subscription_url = url
         self._save_profiles()
@@ -458,30 +571,38 @@ class TengaApplication(Adw.Application):
         """Persist the profile store after an external edit."""
         self._save_profiles()
         self._refresh_pages()
+        if self._window is not None:
+            self._window.refresh_status()
 
-    def apply_settings(self) -> None:
-        """Persist the configuration and push it into a running core."""
+    def apply_settings(self) -> bool:
+        """Persist settings; runtime changes await an explicit reconnect."""
         try:
-            self.context.save_config()
-        except Exception as e:
-            logger.warning("Could not persist settings: %s", e)
-            self.toast(f"Не удалось сохранить настройки: {e}")
-            return
+            if not self.context.save_config():
+                raise OSError("Запись настроек не выполнена")
+        except Exception as error:
+            logger.warning("Could not persist settings: %s", error)
+            self.toast("Не удалось сохранить настройки")
+            return False
+        monitor = self.context.monitor
+        if monitor is not None and self.context.proxy_state.is_running:
+            monitor.stop()
+            monitor.start()
+        if self._window is not None:
+            self._window.refresh_status()
+        return True
 
-        if not self.context.proxy_state.is_running:
-            return
-
-        result = self._ensure_connection_service().reload_config()
-        if result.ok:
-            self.toast("Настройки применены")
-        else:
-            self.toast(f"Настройки сохранены, но не применены: {result.error}")
+    def reconnect_current(self) -> None:
+        state = self.context.proxy_state
+        if state.is_running:
+            self.connect_profile(state.started_profile_id)
 
     def _save_profiles(self) -> None:
         try:
-            self.context.save_profiles()
+            if not self.context.save_profiles():
+                raise OSError("Запись профилей не выполнена")
         except Exception as e:
             logger.warning("Could not persist profiles: %s", e)
+            self.toast("Не удалось сохранить профили")
 
     def _refresh_pages(self) -> None:
         if self._window is not None:
@@ -548,12 +669,12 @@ class TengaApplication(Adw.Application):
         dialog = SettingsDialog(self.context.config, context=self.context)
         # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции
         # GNOME настройки применяются при закрытии.
-        dialog.connect("closed", lambda _d: self._save_and_apply(dialog))
+        dialog.connect("settings-saved", lambda _d: self.apply_settings())
         self.present_dialog(dialog)
 
     def _save_and_apply(self, dialog) -> None:
-        dialog.save()
-        self.apply_settings()
+        if dialog.save() is not False:
+            self.apply_settings()
 
     def _open_about(self) -> None:
         core = core_version(getattr(self.context, "xray_manager", None))
@@ -611,6 +732,11 @@ class TengaApplication(Adw.Application):
 
     def update_subscription(self, group_id: int) -> None:
         """Refresh one subscription group in the background."""
+        if self._subscription_busy or (
+            self._latency_runner is not None and self._latency_runner.is_busy
+        ):
+            self.toast("Обновление подписок или проверка задержки уже выполняется")
+            return
         group = self.context.profiles.get_group(group_id)
         if group is None or not group.subscription_url:
             self.toast("У подписки нет адреса")
@@ -626,6 +752,7 @@ class TengaApplication(Adw.Application):
                 self._propose_fallback_url(group_id, url)
                 raise
 
+        self._subscription_busy = True
         self.toast(f"Обновляю: {group.name}")
         self._subscriptions_thread = run_in_background(
             work,
@@ -686,6 +813,16 @@ class TengaApplication(Adw.Application):
         group = self.context.profiles.get_group(proposal.group_id)
         if group is None:
             return
+        try:
+            collision = self.context.profiles.find_subscription_group(
+                proposal.new_url, exceptions=self.context.config.sub_source_exceptions
+            )
+        except RuntimeError as error:
+            self.toast(str(error))
+            return
+        if collision is not None and collision.id != group.id:
+            self.toast("Этот адрес уже используется другой подпиской")
+            return
         self.update_group(proposal.group_id, name=group.name, url=proposal.new_url)
         self.update_subscription(proposal.group_id)
 
@@ -698,7 +835,83 @@ class TengaApplication(Adw.Application):
                 self._latency_runner = LatencyRunner(batch_probe=make_batch_probe(self.context))
         return self._latency_runner
 
+    def _can_probe(self) -> bool:
+        from src.db.config import ProxyMode
+
+        state = self.context.proxy_state
+        if state.is_running and state.started_mode == ProxyMode.TUN:
+            self.toast(
+                "Замер при активном TUN недоступен: независимый маршрут не обеспечен. Отключите TUN для проверки."
+            )
+            return False
+        if self._subscription_busy:
+            self.toast("Дождитесь обновления подписок")
+            return False
+        return True
+
+    def keep_working_profiles(self, group_id: int) -> None:
+        from src.ui.dialogs.confirm import build_delete_confirmation
+        from src.ui.logic.latency import failed_profile_ids
+
+        if not self._can_probe():
+            return
+        store = self.context.profiles
+
+        def signature():
+            return [(p.id, p.bean.to_share_link()) for p in store.get_profiles_in_group(group_id)]
+
+        before = signature()
+        ids = [profile_id for profile_id, _link in before]
+        if not ids:
+            return
+        results = {}
+        runner = self._ensure_latency_runner()
+
+        def result(profile_id, value):
+            results[profile_id] = value
+            self._on_latency_result(profile_id, value)
+
+        def finished():
+            self._on_latency_done()
+            if (
+                signature() != before
+                or not runner.last_run_complete
+                or not Gio.NetworkMonitor.get_default().get_network_available()
+            ):
+                self.toast("Фильтрация отменена: неполный замер, нет сети или группа изменилась")
+                return
+            removable = failed_profile_ids(
+                ids, results, complete=True, active_id=self.context.proxy_state.started_profile_id
+            )
+            working = sum(value >= 0 for value in results.values())
+            if not removable:
+                self.toast(f"Рабочих: {working} из {len(ids)}. Профили не удалены")
+                return
+
+            def remove():
+                if signature() != before or self._subscription_busy or runner.is_busy:
+                    self.toast("Группа изменилась; повторите проверку")
+                    return
+                for profile_id in removable:
+                    if profile_id != self.context.proxy_state.started_profile_id:
+                        store.remove_profile(profile_id)
+                self.save_profiles()
+
+            self.present_dialog(
+                build_delete_confirmation(
+                    "Оставить рабочие профили?",
+                    f"Рабочих: {working} из {len(ids)}. Будет удалено: {len(removable)}. Активный профиль сохраняется.",
+                    remove,
+                    confirm_label="Оставить рабочие",
+                )
+            )
+
+        if not runner.run(ids, on_result=result, on_done=finished):
+            self.toast("Проверка задержки уже идёт")
+
     def _test_latency(self) -> None:
+        if not self._can_probe():
+            return
         profile_ids = list(self.context.profiles.profiles)
         if not profile_ids:
             self.toast("Нет профилей для проверки")
@@ -724,6 +937,8 @@ class TengaApplication(Adw.Application):
 
     def test_latency_for(self, profile_id: int) -> None:
         """Measure the latency of one profile."""
+        if not self._can_probe():
+            return
         if self.context.profiles.get_profile(profile_id) is None:
             self.toast("Профиль не найден")
             return
@@ -739,6 +954,8 @@ class TengaApplication(Adw.Application):
 
     def test_latency_for_group(self, group_id: int) -> None:
         """Measure the latency of one group, ordering rows as results arrive."""
+        if not self._can_probe():
+            return
         store = self.context.profiles
         if store.get_group(group_id) is None:
             self.toast("Группа не найдена")
@@ -826,6 +1043,11 @@ class TengaApplication(Adw.Application):
         self.toast("Проверка задержки завершена")
 
     def _refresh_subscriptions(self) -> None:
+        if self._subscription_busy or (
+            self._latency_runner is not None and self._latency_runner.is_busy
+        ):
+            self.toast("Обновление подписок или проверка задержки уже выполняется")
+            return
         groups = [
             group
             for group in self.context.profiles.groups.values()
@@ -848,6 +1070,7 @@ class TengaApplication(Adw.Application):
                     self._propose_fallback_url(group_id, url)
             return total
 
+        self._subscription_busy = True
         self.toast(f"Обновляю подписки: {len(targets)}")
         self._subscriptions_thread = run_in_background(
             work,
@@ -857,6 +1080,7 @@ class TengaApplication(Adw.Application):
         )
 
     def _on_subscriptions_updated(self, total: int) -> None:
+        self._subscription_busy = False
         try:
             self.context.save_profiles()
         except Exception as e:
@@ -868,6 +1092,7 @@ class TengaApplication(Adw.Application):
         self._offer_url_change()
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
+        self._subscription_busy = False
         sent = self.context.config.sub_send_device_info
         reason = describe_update_error(error, device_info_sent=sent)
         self.toast(f"Не удалось обновить подписки: {reason}")
@@ -947,6 +1172,7 @@ class TengaApplication(Adw.Application):
         self._latency_probe = None
         self._subscription_updater = None
         self._subscriptions_thread = None
+        self._subscription_busy = False
         self._url_proposals = []
         self._profile_activation_handler = None
         self._connection_service = None
@@ -955,6 +1181,8 @@ class TengaApplication(Adw.Application):
         self._failover = None
         self._release_fetcher = None
         self._core_update_thread = None
+        self._app_update_thread = None
+        self._app_release_fetcher = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
 
@@ -981,7 +1209,7 @@ class TengaApplication(Adw.Application):
         return GLib.SOURCE_REMOVE
 
 
-def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
+def run_app(config_dir=None, lock=None, with_tray: bool = True, uris=()) -> int:
     """Entry point for the GTK4 interface."""
     from src.core.context import init_context
     from src.core.monitor import attach_monitor
@@ -993,4 +1221,10 @@ def run_app(config_dir=None, lock=None, with_tray: bool = True) -> int:
     attach_monitor(context)
     app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
     app.set_release_fetcher(fetch_releases)
-    return app.run([])
+    from src.core.app_update import fetch_app_releases
+    from src.sub.route import local_proxy_url
+
+    app.set_app_release_fetcher(
+        lambda: fetch_app_releases(lambda: local_proxy_url(context.config, context.proxy_state))
+    )
+    return app.run(["tenga-proxy", *uris])

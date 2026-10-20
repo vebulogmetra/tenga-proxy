@@ -78,7 +78,7 @@ class AddProfileDialog(FormDialog):
 
         result = validate_profile_link(text, name=self.name_row.get_text())
         self._bean = result.bean
-        self._set_status(result.message, error=not result.ok)
+        self._set_status("\n".join((result.message, *result.warnings)), error=not result.ok)
         self.add_button.set_sensitive(result.ok)
 
         if result.ok and not self._name_touched and result.bean.name:

@@ -17,16 +17,24 @@ URL = "https://provider.example/sub/secret-token"
 
 
 def _ok(text: str = "ok") -> Mock:
-    response = Mock()
-    response.text = text
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = (text).encode("utf-8")
     response.raise_for_status = Mock()
     return response
 
 
 def _http_error(status: int, body: str = "") -> Mock:
-    response = Mock()
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
     response.status_code = status
-    response.text = body
+    response._content = (body).encode("utf-8")
     response.raise_for_status = Mock(side_effect=requests.HTTPError(str(status)))
     return response
 
@@ -75,7 +83,7 @@ def test_wildcard_listen_address_is_reached_through_loopback(address):
 
 
 def test_without_a_proxy_the_request_goes_directly():
-    with patch("src.sub.updater.requests.get", return_value=_ok()) as mock_get:
+    with patch("src.sub.updater.pinned_get", return_value=_ok()) as mock_get:
         SubscriptionUpdater(proxy_url=lambda: None).fetch(URL)
 
     assert mock_get.call_count == 1
@@ -83,7 +91,7 @@ def test_without_a_proxy_the_request_goes_directly():
 
 
 def test_a_connected_proxy_is_tried_first():
-    with patch("src.sub.updater.requests.get", return_value=_ok("via proxy")) as mock_get:
+    with patch("src.sub.updater.pinned_get", return_value=_ok("via proxy")) as mock_get:
         result = SubscriptionUpdater(proxy_url=lambda: PROXY).fetch(URL)
 
     assert result == "via proxy"
@@ -98,7 +106,7 @@ def test_network_failure_through_the_proxy_falls_back_to_direct():
         return _ok("direct")
 
     with (
-        patch("src.sub.updater.requests.get", side_effect=get) as mock_get,
+        patch("src.sub.updater.pinned_get", side_effect=get) as mock_get,
         patch("src.sub.updater.time.sleep"),
     ):
         result = SubscriptionUpdater(proxy_url=lambda: PROXY).fetch(URL)
@@ -110,7 +118,7 @@ def test_network_failure_through_the_proxy_falls_back_to_direct():
 
 def test_http_error_through_the_proxy_is_not_final():
     """Провайдер может не отдавать подписку адресу выхода прокси (403 по стране)."""
-    with patch("src.sub.updater.requests.get") as mock_get:
+    with patch("src.sub.updater.pinned_get") as mock_get:
         mock_get.side_effect = [_http_error(403, "country code: US"), _ok("direct")]
         result = SubscriptionUpdater(proxy_url=lambda: PROXY).fetch(URL)
 
@@ -127,7 +135,7 @@ def test_the_servers_answer_beats_a_dropped_direct_connection():
         raise requests.ConnectionError("blocked")
 
     with (
-        patch("src.sub.updater.requests.get", side_effect=get),
+        patch("src.sub.updater.pinned_get", side_effect=get),
         patch("src.sub.updater.time.sleep"),
         pytest.raises(SubscriptionHttpError) as caught,
     ):
@@ -139,7 +147,7 @@ def test_the_servers_answer_beats_a_dropped_direct_connection():
 def test_two_http_errors_report_the_direct_one():
     answers = [_http_error(403), _http_error(404)]
     with (
-        patch("src.sub.updater.requests.get", side_effect=answers),
+        patch("src.sub.updater.pinned_get", side_effect=answers),
         pytest.raises(SubscriptionHttpError) as caught,
     ):
         SubscriptionUpdater(proxy_url=lambda: PROXY).fetch(URL)
@@ -150,7 +158,7 @@ def test_two_http_errors_report_the_direct_one():
 def test_an_oversized_response_through_the_proxy_is_final():
     huge = _ok("x" * (MAX_RESPONSE_SIZE + 1))
     with (
-        patch("src.sub.updater.requests.get", return_value=huge) as mock_get,
+        patch("src.sub.updater.pinned_get", return_value=huge) as mock_get,
         pytest.raises(SubscriptionTooLargeError),
     ):
         SubscriptionUpdater(proxy_url=lambda: PROXY).fetch(URL)
@@ -167,7 +175,7 @@ def test_the_subscription_address_never_reaches_the_log(caplog):
         return _ok()
 
     with (
-        patch("src.sub.updater.requests.get", side_effect=get),
+        patch("src.sub.updater.pinned_get", side_effect=get),
         patch("src.sub.updater.time.sleep"),
         caplog.at_level("DEBUG", logger="tenga.sub.updater"),
     ):
@@ -196,7 +204,7 @@ def test_local_ipv6_proxy_has_brackets_in_the_url():
 def test_an_oversized_direct_answer_is_not_hidden_by_a_proxy_http_error():
     with (
         patch(
-            "src.sub.updater.requests.get",
+            "src.sub.updater.pinned_get",
             side_effect=[_http_error(403), _ok("x" * (MAX_RESPONSE_SIZE + 1))],
         ),
         pytest.raises(SubscriptionTooLargeError),

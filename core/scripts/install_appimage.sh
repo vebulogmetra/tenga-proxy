@@ -158,7 +158,8 @@ install_appimage() {
 Name=Tenga Proxy
 GenericName=Proxy Client
 Comment=Secure proxy client with xray-core backend
-Exec=$installed_path %U
+Exec="$installed_path" %U
+MimeType=x-scheme-handler/veblock;x-scheme-handler/wingeon;
 Icon=tenga-proxy
 Terminal=false
 Type=Application

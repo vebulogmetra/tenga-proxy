@@ -268,3 +268,20 @@ def test_sync_group_keeps_duplicates_from_the_response(tmp_path):
     assert len(synced) == 2
     assert synced[0].id == first.id
     assert synced[1].id != first.id
+
+
+def test_find_subscription_keeps_token_path_and_exception_semantics(tmp_path):
+    from src.db.profiles import ProfileManager
+
+    manager = ProfileManager(profiles_dir=tmp_path)
+    group = manager.add_group("My subscription", is_subscription=True)
+    group.subscription_url = "https://EXAMPLE.com:443/Sub?token=A&x=1"
+    assert manager.find_subscription_group("https://example.com/Sub?token=A&x=1") is group
+    assert manager.find_subscription_group("https://example.com/sub?token=A&x=1") is None
+    assert manager.find_subscription_group("https://example.com/Sub?x=1&token=A") is None
+    assert (
+        manager.find_subscription_group(
+            "https://example.com/Sub?token=A&x=1", exceptions=[group.subscription_url]
+        )
+        is None
+    )

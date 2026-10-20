@@ -306,3 +306,16 @@ def test_core_accepts_vpn_dns_rule(context, profile, vpn, tmp_path):
 
     assert VPN_DNS_RULE in config["routing"]["rules"]
     assert "Configuration OK" in xray_verdict(with_socks_inbound(config), tmp_path)
+
+
+def test_additional_resolver_is_included_without_system_fallback(context, profile):
+    context.config.dns.additional_url = "https://dns.quad9.net/dns-query"
+    dns = dns_of(context, profile)
+    assert {"address": "https://dns.quad9.net/dns-query", "tag": "dns-remote"} in dns["servers"]
+    assert all(server != "localhost" for server in dns["servers"])
+    assert all(
+        not isinstance(server, dict)
+        or server.get("address") != "localhost"
+        or server.get("skipFallback")
+        for server in dns["servers"]
+    )

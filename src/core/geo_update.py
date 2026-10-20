@@ -12,12 +12,14 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import re
 import shutil
 import tempfile
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 import requests
@@ -33,7 +35,8 @@ from src.core.geo import (
 logger = logging.getLogger("tenga.core.geo_update")
 
 # Тот же источник, из которого берёт базы сборка самого xray-core.
-GEO_SOURCE = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/latest/download"
+GEO_SOURCE = "https://github.com/Loyalsoldier/v2ray-rules-dat/releases/download"
+GEO_LATEST = "https://api.github.com/repos/Loyalsoldier/v2ray-rules-dat/releases/latest"
 MAX_BASE_SIZE = 64 * 1024 * 1024
 MAX_CHECKSUM_SIZE = 4096
 
@@ -72,9 +75,11 @@ def _expected_sha256(checksum_file: bytes, name: str) -> str:
     return digest
 
 
-def _download_verified(name: str, fetch: Fetch) -> bytes:
-    data = fetch(f"{GEO_SOURCE}/{name}", MAX_BASE_SIZE)
-    expected = _expected_sha256(fetch(f"{GEO_SOURCE}/{name}.sha256sum", MAX_CHECKSUM_SIZE), name)
+def _download_verified(name: str, fetch: Fetch, release: str) -> bytes:
+    data = fetch(f"{GEO_SOURCE}/{release}/{name}", MAX_BASE_SIZE)
+    expected = _expected_sha256(
+        fetch(f"{GEO_SOURCE}/{release}/{name}.sha256sum", MAX_CHECKSUM_SIZE), name
+    )
     if hashlib.sha256(data).hexdigest() != expected:
         raise GeoUpdateError(f"{name}: контрольная сумма не совпала")
     return data
@@ -93,7 +98,31 @@ def update_geo_bases(target_dir: Path, *, fetch: Fetch = _http_fetch) -> GeoCata
     Raises:
         GeoUpdateError: что-то не сошлось; в `target_dir` ничего не изменилось.
     """
-    bases = {name: _download_verified(name, fetch) for name in (GEOSITE_FILE, GEOIP_FILE)}
+    try:
+        info = json.loads(fetch(GEO_LATEST, 16384))
+        release = info["tag_name"]
+        if not isinstance(release, str) or not re.fullmatch(r"[0-9]{12}", release):
+            raise ValueError
+        datetime.strptime(release, "%Y%m%d%H%M")
+    except (ValueError, KeyError, TypeError):
+        raise GeoUpdateError("не удалось определить фиксированный релиз геобаз") from None
+    manifest_path = target_dir / "release.json"
+    previous = None
+    if manifest_path.exists():
+        try:
+            previous = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(previous["release"], str) or not isinstance(
+                previous["digests"], dict
+            ):
+                raise ValueError
+            if release < previous["release"]:
+                raise GeoUpdateError("более старая версия геобаз отклонена")
+        except (ValueError, KeyError, TypeError, OSError):
+            raise GeoUpdateError("метаданные установленных геобаз повреждены") from None
+    bases = {name: _download_verified(name, fetch, release) for name in (GEOSITE_FILE, GEOIP_FILE)}
+    digests = {name: hashlib.sha256(data).hexdigest() for name, data in bases.items()}
+    if previous and release == previous["release"] and digests != previous["digests"]:
+        raise GeoUpdateError("контрольные суммы того же релиза изменились")
     catalog = GeoCatalog(
         geosite=_categories(GEOSITE_FILE, bases[GEOSITE_FILE]),
         geoip=_categories(GEOIP_FILE, bases[GEOIP_FILE]),
@@ -102,6 +131,9 @@ def update_geo_bases(target_dir: Path, *, fetch: Fetch = _http_fetch) -> GeoCata
     if missing:
         raise GeoUpdateError("в скачанных базах нет категорий: " + ", ".join(missing))
 
+    bases["release.json"] = json.dumps(
+        {"release": release, "digests": digests}, sort_keys=True
+    ).encode()
     try:
         target_dir.mkdir(parents=True, exist_ok=True)
         # Все временные файлы — на той же файловой системе: rename атомарен.

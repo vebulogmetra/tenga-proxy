@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
@@ -28,8 +29,10 @@ def make_fetch(files: dict[str, bytes], checksums: dict[str, bytes] | None = Non
 
     def fetch(url: str, limit: int) -> bytes:
         requested.append(url)
-        assert url.startswith(GEO_SOURCE + "/")
-        name = url.removeprefix(GEO_SOURCE + "/")
+        if url.endswith("/releases/latest"):
+            return json.dumps({"tag_name": "202610192206"}).encode()
+        assert url.startswith(GEO_SOURCE + "/202610192206/")
+        name = url.rsplit("/", 1)[1]
         if name.endswith(".sha256sum"):
             return checksums[name.removesuffix(".sha256sum")]
         data = files[name]
@@ -48,7 +51,7 @@ def test_verified_bases_are_installed(tmp_path):
 
     assert (target / GEOSITE_FILE).read_bytes() == GOOD[GEOSITE_FILE]
     assert (target / GEOIP_FILE).read_bytes() == GOOD[GEOIP_FILE]
-    assert sorted(p.name for p in target.iterdir()) == [GEOIP_FILE, GEOSITE_FILE]
+    assert sorted(p.name for p in target.iterdir()) == [GEOIP_FILE, GEOSITE_FILE, "release.json"]
 
 
 def test_checksum_mismatch_keeps_the_old_bases(tmp_path):

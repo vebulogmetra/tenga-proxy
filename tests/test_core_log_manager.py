@@ -100,7 +100,7 @@ def test_clear_all_logs(tmp_path):
 
     assert file_count == 3
     assert bytes_freed == 5 + 12 + 5  # 22 bytes
-    assert not log1.exists()
+    assert log1.read_text() == ""
     assert not log2.exists()
     assert not log3.exists()
 

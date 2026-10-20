@@ -107,11 +107,11 @@ def test_outbound_sets_hysteria_transport():
     assert stream["hysteriaSettings"] == {"version": 2, "auth": "pass123"}
 
 
-def test_outbound_carries_finalmask():
+def test_outbound_drops_unknown_legacy_finalmask_fields():
     bean = Hysteria2Bean()
     bean.try_parse_link(make_link(fm=quote(FM)))
     out = bean.build_outbound()
-    assert out["streamSettings"]["finalmask"] == json.loads(FM)
+    assert "finalmask" not in out["streamSettings"]
 
 
 def test_outbound_without_finalmask_has_no_key():

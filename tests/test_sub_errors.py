@@ -15,10 +15,14 @@ from src.sub.updater import SubscriptionUpdater
 
 
 def _http_error_response(status: int, body: str) -> Mock:
-    response = Mock()
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
     response.status_code = status
-    response.text = body
-    response.content = body.encode("utf-8")
+    response._content = (body).encode("utf-8")
+    response._content = body.encode("utf-8")
     response.encoding = "utf-8"
     response.headers = {"Content-Type": "text/plain; charset=utf-8"}
     response.raise_for_status = Mock(side_effect=requests.HTTPError(f"{status} Client Error"))
@@ -60,7 +64,7 @@ def test_other_http_errors_show_only_the_code():
 
 
 def test_fetch_raises_http_error_with_the_body_snippet():
-    with patch("src.sub.updater.requests.get") as mock_get:
+    with patch("src.sub.updater.pinned_get") as mock_get:
         mock_get.return_value = _http_error_response(403, "Device limit reached\n")
         with pytest.raises(SubscriptionHttpError) as caught:
             SubscriptionUpdater().fetch("https://example.com/sub/secret-token")
@@ -78,12 +82,16 @@ def test_http_error_is_still_a_requests_http_error():
 
 
 def test_fetch_rejects_a_response_over_the_size_limit():
-    response = Mock()
-    response.text = "x" * (MAX_RESPONSE_SIZE + 1)
+    response = requests.Response()
+    response.status_code = 200
+    response._content = b""
+    response._content_consumed = True
+    response.encoding = "utf-8"
+    response._content = ("x" * (MAX_RESPONSE_SIZE + 1)).encode("utf-8")
     response.raise_for_status = Mock()
 
     with (
-        patch("src.sub.updater.requests.get", return_value=response) as mock_get,
+        patch("src.sub.updater.pinned_get", return_value=response) as mock_get,
         pytest.raises(SubscriptionTooLargeError),
     ):
         SubscriptionUpdater().fetch("https://example.com/sub")

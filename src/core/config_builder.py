@@ -12,7 +12,7 @@ import logging
 
 from src.core.config_validator import exposed_inbounds, validate_session_config
 from src.core.context import AppContext
-from src.core.dns_config import DNS_TAG, build_dns, parse_dns_endpoint
+from src.core.dns_config import DNS_TAG, REMOTE_DNS_TAG, build_dns, parse_dns_endpoint
 from src.core.geo import (
     RU_DIRECT_GEOIP,
     RU_DIRECT_GEOSITES,
@@ -69,10 +69,8 @@ def _parse_list(
     ips, dropped_ips = catalog.split(ips)
     dropped = dropped_domains + dropped_ips
     if dropped:
-        logger.warning(
-            "Список «%s»: категорий нет в геобазах, записи пропущены: %s",
-            list_name,
-            ", ".join(dropped),
+        raise UnsafeConfigError(
+            ["В геобазах отсутствуют категории списка «" + list_name + "»: " + ", ".join(dropped)]
         )
     return domains, ips
 
@@ -161,7 +159,7 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
         routing = profile.routing_settings
         if routing is None:
             routing = context.config.routing
-            if routing.mode == RoutingMode.CUSTOM:
+            if routing.mode == RoutingMode.CUSTOM and not routing.use_saved_lists:
                 routing.load_lists_from_files(context.config_dir)
 
         route_rules: list[dict] = []
@@ -458,6 +456,15 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
             system_resolvers=system_resolvers,
         )
 
+        if any(
+            isinstance(server, dict) and server.get("tag") == REMOTE_DNS_TAG
+            for server in dns["servers"]
+        ):
+            route_rules.insert(
+                1 if system_resolvers else 0,
+                {"type": "field", "inboundTag": [REMOTE_DNS_TAG], "outboundTag": proxy_tag},
+            )
+
         inbounds = build_inbounds_for_mode(
             mode=getattr(context.config, "proxy_mode", None),
             address=context.config.inbound_address,
@@ -483,6 +490,8 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
 
         return config
 
+    except UnsafeConfigError:
+        raise
     except Exception as e:
         logger.exception(
             "Error creating profile configuration %s: %s",

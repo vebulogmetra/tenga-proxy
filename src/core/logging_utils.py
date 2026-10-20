@@ -7,6 +7,7 @@ from pathlib import Path
 
 from src.core.config import LOG_DIR
 from src.core.log_manager import LogManager
+from src.core.log_redaction import RedactingFormatter
 
 # Логи хранятся за три дня: сегодняшний файл и два суточных архива.
 LOG_RETENTION_DAYS = 3
@@ -49,7 +50,7 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
 
     file_handler = daily_file_handler(log_file)
     console_handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    formatter = RedactingFormatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     file_handler.setFormatter(formatter)
     console_handler.setFormatter(formatter)
     file_handler.setLevel(level)
@@ -71,6 +72,14 @@ def setup_logging(log_file: Path, level: int = logging.INFO) -> None:
         root_logger.addHandler(file_handler)
     if not has_console_handler:
         root_logger.addHandler(console_handler)
+
+    # A prior basicConfig (or repeated setup) may already own a sink. Keeping
+    # it must not leave an unredacted parallel path to disk or the console.
+    for handler in root_logger.handlers:
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+            handler.formatter, RedactingFormatter
+        ):
+            handler.setFormatter(RedactingFormatter(delegate=handler.formatter))
 
     for logger_name in logging.Logger.manager.loggerDict:
         logger_obj = logging.getLogger(logger_name)

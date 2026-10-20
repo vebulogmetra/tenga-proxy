@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
+import tempfile
 from abc import ABC
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -175,13 +177,27 @@ class ConfigBase(ABC):
     def save(self, filepath: Path | str, indent: int = 2) -> bool:
         """Save to JSON file."""
         path = Path(filepath)
+        temporary = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(self.to_json(indent=indent), encoding="utf-8")
+            with tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8", dir=path.parent, prefix=".settings-", delete=False
+            ) as stream:
+                temporary = Path(stream.name)
+                stream.write(self.to_json(indent=indent))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
             return True
         except Exception as e:
             print(f"Error saving config to {filepath}: {e}")
             return False
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def update(self, **kwargs) -> None:
         """Update fields from kwargs."""
@@ -233,13 +249,18 @@ class DnsProvider:
     CLOUDFLARE = "cloudflare"
     ADGUARD = "adguard"
 
-    ALL = [SYSTEM, GOOGLE, CLOUDFLARE, ADGUARD]
+    QUAD9 = "quad9"
+    COMSS = "comss"
+
+    ALL = [SYSTEM, GOOGLE, CLOUDFLARE, ADGUARD, QUAD9, COMSS]
 
     LABELS = {
         SYSTEM: "Системный DNS",
         GOOGLE: "Google DNS (DoH)",
         CLOUDFLARE: "Cloudflare DNS (DoH)",
         ADGUARD: "AdGuard DNS (DoH)",
+        QUAD9: "Quad9 (DoH)",
+        COMSS: "Comss.one (сторонний Smart DNS, DoH)",
     }
 
     # URLs for DoH
@@ -248,6 +269,8 @@ class DnsProvider:
         GOOGLE: "https://dns.google/dns-query",
         CLOUDFLARE: "https://cloudflare-dns.com/dns-query",
         ADGUARD: "https://dns.adguard.com/dns-query",
+        QUAD9: "https://dns.quad9.net/dns-query",
+        COMSS: "https://dns.comss.one/dns-query",
     }
 
 
@@ -257,6 +280,7 @@ class DnsSettings(ConfigBase):
 
     provider: str = DnsProvider.GOOGLE
     custom_url: str = ""
+    additional_url: str = ""
     # DNS via proxy
     use_proxy: bool = True
     # В режиме TUN отдавать DNS-запросы приложений DNS-модулю ядра: без этого
@@ -453,6 +477,9 @@ class RoutingSettings(ConfigBase):
     """Traffic routing settings."""
 
     mode: str = RoutingMode.CUSTOM
+    # Explicit UI imports use the atomic settings document; legacy installs
+    # continue reading their editable text files until such an import occurs.
+    use_saved_lists: bool = False
     proxy_list: list[str] = field(default_factory=list)
     direct_list: list[str] = field(default_factory=list)
     vpn_list: list[str] = field(default_factory=list)

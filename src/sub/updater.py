@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
+from urllib.parse import urljoin, urlsplit
 
 import requests
 
@@ -18,6 +19,7 @@ from src.sub.errors import (
     snippet_of,
 )
 from src.sub.metadata import apply_metadata, read_metadata
+from src.sub.url_policy import SubscriptionPolicyError, pinned_get, validate_url
 
 if TYPE_CHECKING:
     from src.db.profiles import ProfileManager
@@ -60,6 +62,7 @@ class SubscriptionUpdater:
 
     def fetch_response(self, url: str) -> FetchedSubscription:
         """Fetch subscription content together with the response headers."""
+        validate_url(url, exceptions=self._exceptions())
         headers = {}
 
         if self._config:
@@ -118,14 +121,7 @@ class SubscriptionUpdater:
         last_error: requests.RequestException | None = None
         for attempt in range(self.MAX_ATTEMPTS):
             try:
-                response = requests.get(url, headers=headers, timeout=30, verify=verify, **route)
-                self._raise_for_status(response)
-                content = self._decode(response)
-                # Как в Android: проверяется уже прочитанное тело. Защищает разбор
-                # от гигантского ответа, но не саму загрузку.
-                if len(content) > MAX_RESPONSE_SIZE:
-                    raise SubscriptionTooLargeError(len(content))
-                return FetchedSubscription(content, self._response_headers(response))
+                return self._fetch_once(url, headers, verify, **route)
             except requests.RequestException as e:
                 # Повторяем только сетевые сбои: HTTP-код — окончательный ответ
                 # сервера, повтор лишь задержит обновление.
@@ -146,6 +142,62 @@ class SubscriptionUpdater:
 
         # Недостижимо: последняя попытка либо возвращает результат, либо бросает.
         raise last_error or requests.RequestException("Не удалось загрузить подписку")
+
+    def _exceptions(self) -> list[str]:
+        return self._config.sub_source_exceptions if self._config else []
+
+    def _fetch_once(self, url, headers, verify, proxies=None) -> FetchedSubscription:
+        current = url
+        current_headers = dict(headers)
+        seen = set()
+        for _ in range(6):
+            validate_url(current, exceptions=self._exceptions())
+            if current in seen:
+                raise SubscriptionPolicyError("Циклическое перенаправление подписки")
+            seen.add(current)
+            response = pinned_get(
+                current,
+                headers=current_headers,
+                timeout=30,
+                verify=verify,
+                exceptions=self._exceptions(),
+                **({"proxies": proxies} if proxies else {}),
+            )
+            try:
+                if response.status_code in (301, 302, 303, 307, 308):
+                    target = urljoin(current, response.headers.get("Location", ""))
+                    validate_url(target, exceptions=self._exceptions())
+                    old, new = urlsplit(current), urlsplit(target)
+                    if old.scheme == "https" and new.scheme != "https":
+                        raise SubscriptionPolicyError("Переход с HTTPS на HTTP запрещён")
+                    if (old.scheme, old.hostname, old.port) != (new.scheme, new.hostname, new.port):
+                        current_headers = {
+                            k: v for k, v in current_headers.items() if k.lower() == "user-agent"
+                        }
+                    current = target
+                    continue
+                self._read_bounded(response)
+                self._raise_for_status(response)
+                content = self._decode(response)
+                return FetchedSubscription(content, self._response_headers(response))
+            finally:
+                response.close()
+                owner = getattr(response, "_subscription_session", None)
+                if owner is not None:
+                    owner.close()
+        raise SubscriptionPolicyError("Слишком много перенаправлений подписки")
+
+    @staticmethod
+    def _read_bounded(response):
+        chunks = []
+        size = 0
+        for chunk in response.iter_content(chunk_size=65536):
+            size += len(chunk)
+            if size > MAX_RESPONSE_SIZE:
+                raise SubscriptionTooLargeError(size)
+            chunks.append(chunk)
+        response._content = b"".join(chunks)
+        response._content_consumed = True
 
     @staticmethod
     def _response_headers(response: requests.Response) -> Mapping[str, str]:

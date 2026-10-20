@@ -32,6 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-c", "--config-dir", type=Path, help="Директория конфигурации (по умолчанию core/)"
     )
+    parser.add_argument("uris", nargs="*", help="Ссылки импорта приложения")
     parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     return parser
@@ -150,6 +151,7 @@ def main() -> int:
             config_dir=args.config_dir,
             lock=single_instance if holds_lock else None,
             with_tray=not args.no_tray,
+            uris=args.uris,
         )
     except ImportError as e:
         print(f"Ошибка импорта: {e}")

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from src.db.config import ConfigBase
+from src.fmt.tls_policy import normalize_fingerprint
+from src.fmt.transport_options import filter_xhttp_options
 
 logger = logging.getLogger("tenga.fmt.stream")
 
@@ -56,11 +58,8 @@ class StreamSettings(ConfigBase):
     # XHTTP
     xhttp_mode: str = ""  # auto | packet-up | stream-up | stream-one
     xhttp_padding_bytes: str = ""  # напр. "100-1000"; пустая строка → дефолт ядра
-    # Сырой JSON из `?extra={...}` share-ссылки — это буквально тело настроек xhttp.
-    # Хранится строкой намеренно: набор ключей у xray открытый (seqKey, xmux, sc*,
-    # xPadding*, downloadSettings, ...) и меняется от сервера к серверу. Разложение
-    # по типизированным полям требовало бы правки кода на каждый новый ключ и молча
-    # резало бы обфускацию у профилей, которые без неё не подключаются.
+    # Preserve the original share-link JSON for roundtrip; executable options
+    # are filtered against the pinned core schema on every build.
     xhttp_extra: str = ""
 
     def build_transport(self) -> dict[str, Any] | None:
@@ -104,10 +103,10 @@ class StreamSettings(ConfigBase):
 
         elif transport_type == "xhttp":
             stream_settings["network"] = "splithttp"
-            # extra из share-ссылки — готовое тело настроек транспорта (обфускация:
-            # seqKey/xmux/sc*/xPadding*). Берём его за основу, чтобы не потерять ключи,
-            # которых нет в StreamSettings: без них сервер с обфускацией не отвечает.
-            splithttp_settings: dict[str, Any] = parse_json_object(self.xhttp_extra)
+            # Filter stored profiles too; importing once is not a trust boundary.
+            splithttp_settings: dict[str, Any] = filter_xhttp_options(
+                parse_json_object(self.xhttp_extra)
+            )
 
             if self.path and self.path.strip() and self.path.strip() != "/":
                 splithttp_settings["path"] = self.path.strip()
@@ -129,6 +128,8 @@ class StreamSettings(ConfigBase):
                 splithttp_settings["mode"] = self.xhttp_mode
             if self.xhttp_padding_bytes:
                 splithttp_settings["xPaddingBytes"] = self.xhttp_padding_bytes
+                if "extra" in splithttp_settings:
+                    splithttp_settings["extra"]["xPaddingBytes"] = self.xhttp_padding_bytes
             stream_settings["splithttpSettings"] = splithttp_settings
 
         elif transport_type == "grpc":
@@ -197,7 +198,7 @@ class StreamSettings(ConfigBase):
 
         # uTLS fingerprint
         if self.utls_fingerprint:
-            tls_settings["fingerprint"] = self.utls_fingerprint
+            tls_settings["fingerprint"] = normalize_fingerprint(self.utls_fingerprint)
 
         return tls_settings
 
@@ -226,7 +227,9 @@ class StreamSettings(ConfigBase):
 
         # uTLS fingerprint (required for Reality)
         if self.utls_fingerprint:
-            reality_settings["fingerprint"] = self.utls_fingerprint
+            reality_settings["fingerprint"] = (
+                normalize_fingerprint(self.utls_fingerprint) or "chrome"
+            )
         else:
             reality_settings["fingerprint"] = "chrome"
 

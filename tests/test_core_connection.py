@@ -373,3 +373,30 @@ def test_shutdown_without_a_connection_touches_nothing(tmp_path):
     ConnectionService(context).shutdown()
 
     context.xray_manager.stop.assert_not_called()
+
+
+def test_connection_uses_a_frozen_copy_when_settings_change_during_build(tmp_path, monkeypatch):
+    from unittest.mock import MagicMock
+
+    from src.core.context import AppContext
+    from src.db.data_store import DataStore
+    from src.fmt.protocols import VLESSBean
+    from src.ui.logic.settings_state import runtime_snapshot
+
+    context = AppContext(config_dir=tmp_path, config=DataStore(proxy_mode="system_proxy"))
+    profile = context.profiles.add_profile(VLESSBean(server_address="example.com"))
+    context._xray_manager = MagicMock()
+    context._xray_manager.start.return_value = (True, "")
+    expected = runtime_snapshot(context.config, profile)
+    seen = []
+
+    def build(build_context, _profile):
+        context.config.log_level = "debug"
+        seen.append(build_context.config.log_level)
+        return {"outbounds": [{"protocol": "freedom", "tag": "proxy"}]}
+
+    monkeypatch.setattr("src.core.connection.build_session_config", build)
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_kw: True)
+    assert ConnectionService(context).connect(profile.id).ok
+    assert seen == ["info"]
+    assert context.proxy_state.applied_settings == expected
