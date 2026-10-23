@@ -10,7 +10,11 @@ RELEASE = {
 }
 
 
-def test_release_selection_handles_drafts_prereleases_and_architecture():
+def test_release_selection_handles_drafts_prereleases_and_architecture(monkeypatch):
+    from src.core import platform_info
+
+    # Ассеты здесь — AppImage: на Windows ищется установщик.
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     assert select_release([dict(RELEASE, draft=True)], "0.16.2") is None
     assert select_release([dict(RELEASE, prerelease=True)], "0.16.2") is None
     assert select_release([RELEASE], "0.16.2", architecture="x86_64").has_asset
