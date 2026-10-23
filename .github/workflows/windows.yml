@@ -132,5 +132,8 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          & dist\windows\tenga-proxy\tenga-proxy-svc.exe remove
-          & dist\windows\tenga-proxy\tenga-proxy-svc.exe cleanup
+          $svc = "dist\windows\tenga-proxy\tenga-proxy-svc.exe"
+          if (Test-Path $svc) {
+            & $svc remove
+            & $svc cleanup
+          }

@@ -16,6 +16,9 @@ from dataclasses import dataclass, field
 from src.sys.windows.powershell import run_json
 
 CACHE_SECONDS = 2.0
+# Первый вызов грузит модули NetTCPIP и CIM: на холодной системе это дольше
+# стандартных 15 секунд PowerShell-обёртки.
+SNAPSHOT_TIMEOUT = 45
 
 SCRIPT = r"""
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
@@ -168,6 +171,6 @@ def snapshot() -> NetSnapshot:
         now = time.monotonic()
         if _cached is not None and now - _cached[0] < CACHE_SECONDS:
             return _cached[1]
-        result = parse_snapshot(run_json(SCRIPT))
+        result = parse_snapshot(run_json(SCRIPT, timeout=SNAPSHOT_TIMEOUT))
         _cached = (now, result)
         return result

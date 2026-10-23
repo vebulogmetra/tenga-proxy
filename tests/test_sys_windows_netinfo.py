@@ -75,7 +75,9 @@ def test_garbage_gives_empty_snapshot():
 def test_snapshot_is_cached(monkeypatch):
     calls = []
     monkeypatch.setattr(
-        netinfo, "run_json", lambda script: calls.append(script) or json.dumps(SNAPSHOT)
+        netinfo,
+        "run_json",
+        lambda script, **_kw: calls.append(script) or json.dumps(SNAPSHOT),
     )
     netinfo.invalidate()
 
