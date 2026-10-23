@@ -7,25 +7,15 @@
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 import subprocess
 from pathlib import Path
 
+from src.sys.addresses import usable_ipv4
+
 logger = logging.getLogger("tenga.sys.resolver")
 
 RESOLV_CONF = Path("/etc/resolv.conf")
-
-
-def _usable_ipv4(value: str) -> str | None:
-    """IPv4-адрес настоящего сервера; loopback — заглушка локального резолвера."""
-    try:
-        address = ipaddress.ip_address(value.split("%")[0])
-    except ValueError:
-        return None
-    if address.version != 4 or address.is_loopback:
-        return None
-    return str(address)
 
 
 def link_dns_servers(interface: str) -> list[str]:
@@ -45,7 +35,7 @@ def link_dns_servers(interface: str) -> list[str]:
 
     # Строка вида «Link 2 (wlp1s0): 192.168.0.1 fe80::1%2».
     _, _, tail = result.stdout.partition("):")
-    servers = [_usable_ipv4(token) for token in tail.split()]
+    servers = [usable_ipv4(token) for token in tail.split()]
     return [server for server in servers if server]
 
 
@@ -59,7 +49,7 @@ def resolv_conf_servers(path: Path | None = None) -> list[str]:
     for line in lines:
         parts = line.split()
         if len(parts) >= 2 and parts[0] == "nameserver":
-            server = _usable_ipv4(parts[1])
+            server = usable_ipv4(parts[1])
             if server:
                 servers.append(server)
     return servers
