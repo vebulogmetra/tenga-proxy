@@ -23,6 +23,7 @@ from src.core.geo import ASSET_ENV, asset_dir_for_core
 from src.core.log_redaction import RedactingFormatter
 from src.core.logging_utils import daily_file_handler
 from src.core.performance import measure_time
+from src.core.platform_info import no_window
 from src.core.stats_endpoint import StatsEndpoint
 
 logger = logging.getLogger("tenga.xray_manager")
@@ -241,6 +242,7 @@ class XrayManager:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 env=self._core_env(),
+                **no_window(),
             )
             self._log_pump = threading.Thread(
                 target=_pump_core_output,
@@ -366,6 +368,7 @@ class XrayManager:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                **no_window(),
             )
             if result.returncode == 0:
                 version_str = result.stdout.strip()
@@ -412,6 +415,7 @@ class XrayManager:
                 text=True,
                 timeout=5,
                 check=False,
+                **no_window(),
             )
         except (OSError, subprocess.SubprocessError) as e:
             logger.debug("Stats query failed: %s", e)

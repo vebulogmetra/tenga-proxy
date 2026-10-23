@@ -467,3 +467,43 @@ def test_probe_profiles_reports_unbuildable_profiles_and_measures_the_rest(monke
 
     assert measured == [1, 3]
     assert results == {1: 42, 2: -1, 3: 42}
+
+
+def test_core_check_runs_without_console_window(monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    seen = {}
+
+    def fake_run(*args, **kwargs):
+        seen.update(kwargs)
+        return batch_probe.subprocess.CompletedProcess(args, 0)
+
+    monkeypatch.setattr(batch_probe.subprocess, "run", fake_run)
+
+    assert batch_probe.core_accepts("xray", {})
+    assert seen["creationflags"] == platform_info.CREATE_NO_WINDOW
+
+
+def test_batch_core_starts_without_console_window(monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            seen.update(kwargs)
+
+        def poll(self):
+            return 0
+
+    monkeypatch.setattr(batch_probe.subprocess, "Popen", FakePopen)
+
+    core = batch_probe.BatchCore("xray", {})
+    core.__enter__()
+    try:
+        assert seen["creationflags"] == platform_info.CREATE_NO_WINDOW
+    finally:
+        core._process = None
+        core.__exit__(None, None, None)

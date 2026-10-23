@@ -196,3 +196,50 @@ def test_get_traffic_ignores_a_malformed_counter_name(monkeypatch):
     )
 
     assert manager.get_traffic() == TrafficStats(upload=30, download=0)
+
+
+def test_core_is_started_without_console_window(monkeypatch, tmp_path):
+    import io
+
+    from src.core import platform_info, xray_manager
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    seen = {}
+
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            seen.update(kwargs)
+            self.stdout = io.BytesIO(b"")
+            self.pid = 1
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(xray_manager.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(XrayManager, "_core_logger", lambda _self: xray_manager.logger)
+    monkeypatch.setattr(XrayManager, "_wait_for_process_ready", lambda _self, **_kwargs: True)
+    manager = _make_manager(monkeypatch)
+    monkeypatch.setattr(manager, "_binary_path", str(tmp_path / "xray"))
+
+    ok, _error = manager.start({"inbounds": [], "outbounds": []})
+
+    assert ok
+    assert seen["creationflags"] == platform_info.CREATE_NO_WINDOW
+
+
+def test_stats_query_runs_without_console_window(monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    seen = {}
+
+    def fake_run(*args, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(args, 0, stdout='{"stat": []}', stderr="")
+
+    manager = _make_manager(monkeypatch)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    manager.get_traffic()
+
+    assert seen.get("creationflags") == platform_info.CREATE_NO_WINDOW

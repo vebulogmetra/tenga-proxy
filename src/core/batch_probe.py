@@ -27,6 +27,7 @@ from src.core.http_probe import (
     build_probe_inbound,
     measure_latency,
 )
+from src.core.platform_info import no_window
 from src.core.transport_tweaks import apply_transport_tweaks
 
 if TYPE_CHECKING:
@@ -132,6 +133,7 @@ def core_accepts(binary_path: str, config: dict[str, Any]) -> bool:
             capture_output=True,
             timeout=CORE_TEST_TIMEOUT_SECONDS,
             check=False,
+            **no_window(),
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning("Core could not check the probe config: %s", e)
@@ -214,6 +216,7 @@ class BatchCore:
                 [self._binary_path, "run", "-c", str(self._config_path)],
                 stdout=self._output,
                 stderr=subprocess.STDOUT,
+                **no_window(),
             )
         except OSError as e:
             logger.warning("Probe core could not be started: %s", e)

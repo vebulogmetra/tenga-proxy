@@ -5,6 +5,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.core.platform_info import no_window
+
 
 def _is_frozen() -> bool:
     """Check if running as a frozen executable (PyInstaller)."""
@@ -127,6 +129,7 @@ def find_xray_binary() -> str | None:
                     capture_output=True,
                     text=True,
                     timeout=5,
+                    **no_window(),
                 )
                 if result.returncode == 0:
                     return str(xray_path)
@@ -139,6 +142,7 @@ def find_xray_binary() -> str | None:
             capture_output=True,
             text=True,
             timeout=5,
+            **no_window(),
         )
         if result.returncode == 0:
             return XRAY_BINARY_NAME
