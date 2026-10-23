@@ -130,6 +130,11 @@ class NetOps:
     def run(self, cmd: list[str]) -> bool:
         return self._run(cmd)
 
+    def snapshot(self):
+        from src.sys.windows import netinfo
+
+        return netinfo.snapshot()
+
     def nrpt_add(self, server: str) -> str | None:
         name = self._powershell(nrpt_add_script(server)).strip().splitlines()
         return name[0] if name and _GUID.fullmatch(name[0]) else None
