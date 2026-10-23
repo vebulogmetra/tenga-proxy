@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tenga Proxy - это клиент прокси для Linux с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GTK GUI интерфейс с системным треем.
+Tenga Proxy - это клиент прокси для Linux и Windows с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GTK GUI интерфейс с системным треем.
 
 ## Common Commands
 
@@ -116,15 +116,22 @@ src/
 │   ├── pages/         # Страницы: профили, подписки, мониторинг
 │   ├── widgets/       # Виджеты (статус-карточка)
 │   ├── dialogs/       # Диалоги на Adw.Dialog / Adw.PreferencesDialog
-│   ├── tray/          # StatusNotifierItem + com.canonical.dbusmenu
+│   ├── tray/          # StatusNotifierItem + com.canonical.dbusmenu; win32/ — трей Windows
 │   ├── logic/         # Логика без GTK: форматирование, задержка, формы
 │   └── models/        # Модели и фильтры списков
-├── sys/           # Системные функции
+├── sys/           # Системные функции: фасады, реализация выбирается по ОС
 │   ├── proxy.py       # set_system_proxy(), clear_system_proxy()
 │   ├── vpn.py         # Управление VPN подключением
-│   └── single_instance.py # Контроль единственного экземпляра
+│   ├── tun_route.py, tun_dns.py # Маршруты и DNS режима TUN
+│   ├── single_instance.py # Контроль единственного экземпляра
+│   ├── linux/         # Реализации для Linux (NetworkManager, ip, resolvectl)
+│   └── windows/       # Реализации для Windows (WinINet, PowerShell, RAS, клиент службы)
+├── winsvc/        # Служба Windows TengaProxySvc: TUN, маршруты, DNS, откат
 └── sub/           # Обновление подписок
     └── updater.py     # SubscriptionUpdater
+
+packaging/windows/ # PyInstaller spec и сценарий Inno Setup
+svc_main.py        # Точка входа tenga-proxy-svc.exe (служба Windows)
 
 core/              # Директория конфигурации (в dev режиме)
 ├── bin/xray       # Бинарник xray-core
@@ -156,6 +163,19 @@ core/              # Директория конфигурации (в dev ре�
 - Генерация конфигурации из ProxyBean
 - Мониторинг через Stats API (gRPC или HTTP)
 - Получение статистики трафика
+
+**Фасады `src/sys/`** - `proxy.py`, `vpn.py`, `tun_route.py` и другие
+выбирают реализацию по `IS_WINDOWS` из `src/core/platform_info.py`:
+`src/sys/linux/` или `src/sys/windows/`. Windows-модули импортируются и на
+Linux (pywin32, winreg и ctypes — лениво), поэтому тестируются обычным pytest.
+
+**Windows и TUN** - TUN-интерфейс без прав администратора не создать, поэтому
+на Windows `AppContext.xray_manager` — `WindowsXrayManager`
+(`src/sys/windows/core_runner.py`): конфиг с TUN-inbound запускает служба
+`TengaProxySvc` (`src/winsvc/`), остальные — сам GUI. Служба принимает
+команды JSON-строками по named pipe `\\.\pipe\tenga-proxy-svc`, проверяет
+конфиг политикой (`policy.py`), журналирует каждое изменение сети и
+откатывает его при остановке, падении ядра, пропаже клиента и старте.
 
 **ConnectionMonitor (`src/core/monitor.py`)** - мониторинг соединения:
 - Периодическая проверка доступности proxy
@@ -212,6 +232,9 @@ pytest, без дисплея.
   второй запуск активирует окно первого и завершается
 - `src/sys/single_instance.py` держит файловую блокировку как страховку
   от двух процессов xray там, где D-Bus недоступен
+- На Windows шины сессии нет: единственность — именованный mutex, а второй
+  запуск передаёт активацию и ссылки первому через pipe
+  (`src/sys/windows/activation.py`)
 
 ### Routing System
 
@@ -256,6 +279,12 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   тесты окна пропускаются с объяснением, а не падают
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
+- Тесты, которым нужна настоящая Windows, помечены маркером `windows` и вне
+  win32 пропускаются. `tests/integration/` — служба на живой Windows (нужны
+  установленная служба, права администратора и `TENGA_SERVICE_TESTS=1`);
+  запускается в CI
+- Windows-разработка — MSYS2 UCRT64 (GTK из пакетов, не `uv`); Python MSYS2
+  по умолчанию читает файлы в cp1252, нужен `export PYTHONUTF8=1`
 
 ### Code Style
 - Линтер: ruff
@@ -276,6 +305,12 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
 - Python 3.11+
 - Основные зависимости: PyGObject, grpcio, requests, psutil
 - Dev зависимости: pytest, ruff, coverage
+
+### Windows Building
+- `bash core/scripts/build_windows.sh` в MSYS2: PyInstaller onedir
+  (`tenga-proxy.exe` и `tenga-proxy-svc.exe`), затем Inno Setup
+- CI `.github/workflows/windows.yml`: тесты, сборка установщика, установка
+  службы и интеграционные тесты; по тегу `v*` установщик уходит в релиз
 
 ### AppImage Building
 - PyInstaller для сборки в исполняемый файл

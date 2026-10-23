@@ -165,11 +165,81 @@ python cli.py bump-version
 python cli.py bump-version 1.0.0
 ```
 
+## Windows
+
+### Окружение
+
+Используется MSYS2 UCRT64, а не `uv`: PyGObject и GTK берутся из пакетов
+MSYS2, pip их не соберёт. В оболочке «MSYS2 UCRT64»:
+
+```bash
+pacman -S --needed git unzip \
+  mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
+  mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
+  mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
+  mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
+  mingw-w64-ucrt-x86_64-python-pywin32
+
+# Python MSYS2 по умолчанию читает файлы в cp1252
+export PYTHONUTF8=1
+
+bash core/scripts/install_dev.sh     # xray.exe, wintun.dll, геобазы
+python gui.py
+python -m pytest -q --no-cov
+```
+
+### Сборка установщика
+
+Нужен Inno Setup 6 (`ISCC.exe`; путь можно задать переменной `ISCC`):
+
+```bash
+python -m venv --system-site-packages .venv-win
+. .venv-win/bin/activate
+pip install pyinstaller pyinstaller-hooks-contrib
+bash core/scripts/build_windows.sh
+# → dist/windows/tenga-proxy-<версия>-windows-x64-setup.exe
+```
+
+В каталоге сборки два exe: `tenga-proxy.exe` (GUI) и `tenga-proxy-svc.exe`
+(служба; аргументы `install`, `remove`, `cleanup`, `debug`).
+
+### Устройство
+
+- `src/sys/*.py` — фасады: реализацию выбирает `IS_WINDOWS` из
+  `src/core/platform_info.py`, код для Linux лежит в `src/sys/linux/`, для
+  Windows — в `src/sys/windows/`.
+- `src/winsvc/` — служба: протокол канала, политика конфигурации, журнал
+  отката, команды `netsh`/PowerShell, состояние и pipe-сервер.
+- На Windows `AppContext.xray_manager` — `WindowsXrayManager`: конфиг с
+  TUN-inbound запускает служба, остальные — сам GUI.
+- `src/ui/tray/win32/` — трей через `Shell_NotifyIcon`.
+- `packaging/windows/` — spec PyInstaller и сценарий Inno Setup.
+
+### Тесты
+
+Windows-модули импортируются и на Linux: системные вызовы внедряются или
+импортируются лениво, поэтому большая часть их тестов идёт в обычном прогоне.
+Тесты, которым нужна настоящая Windows, помечены маркером `windows` и вне
+win32 пропускаются.
+
+`tests/integration/` — проверка службы на живой системе (TUN, маршруты,
+NRPT, откат). Нужны установленная служба и права администратора; включается
+переменной `TENGA_SERVICE_TESTS=1`. Запускается в CI или на тестовой машине,
+не на рабочей: маршруты на время теста перехватывают сеть.
+
+### CI
+
+`.github/workflows/windows.yml` на `windows-latest`: тесты Windows-кода,
+полный прогон (информационный), сборка установщика, установка службы из
+сборки и интеграционные тесты. По тегу `v*` установщик прикрепляется к
+релизу; тег обязан совпадать с версией в `src/__init__.py`.
+
 ## Отладка
 
 ### Логирование
 
-Логи лежат в `logs/` (в режиме разработки) или в `~/.config/tenga-proxy/logs/`:
+Логи лежат в `logs/` (в режиме разработки), в `~/.config/tenga-proxy/logs/`
+(AppImage) или в `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
 
 - `tenga_gui.log` - логи GUI
 - `tenga_cli.log` - логи CLI

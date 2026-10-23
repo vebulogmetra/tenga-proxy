@@ -30,6 +30,8 @@ VPN integration works together with routing system:
 
 ## Supported VPN Types
 
+### Linux
+
 Tenga Proxy supports VPN connections managed through NetworkManager:
 
 - **OpenVPN** - via .ovpn files
@@ -37,6 +39,21 @@ Tenga Proxy supports VPN connections managed through NetworkManager:
 - **IPsec/L2TP** - corporate VPN
 - **PPTP** - legacy but still used
 - **System VPN** - any VPN configured in NetworkManager
+
+### Windows
+
+The "Connection name" field accepts one of:
+
+- **Built-in Windows VPN** (IKEv2, L2TP, SSTP, PPTP) — the name shown in
+  "Settings → Network & Internet → VPN". Credentials must be saved in the
+  connection: the app brings it up with `rasdial` without asking for a password.
+- **WireGuard tunnel** — the tunnel name as shown in WireGuard for Windows.
+  The "Tenga Proxy" service brings the tunnel up and down, because WireGuard
+  configurations are readable by the system only.
+- **OpenVPN and other clients** — the app does not control them, but if an
+  adapter with that name is up, the profile uses its interface and DNS.
+
+If a built-in VPN and a WireGuard tunnel share a name, the built-in VPN wins.
 
 ## Auto Connection
 

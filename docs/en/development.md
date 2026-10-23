@@ -166,11 +166,81 @@ python cli.py bump-version
 python cli.py bump-version 1.0.0
 ```
 
+## Windows
+
+### Environment
+
+MSYS2 UCRT64 is used instead of `uv`: PyGObject and GTK come from MSYS2
+packages, pip cannot build them. In the "MSYS2 UCRT64" shell:
+
+```bash
+pacman -S --needed git unzip \
+  mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
+  mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
+  mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
+  mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
+  mingw-w64-ucrt-x86_64-python-pywin32
+
+# MSYS2 Python reads files as cp1252 by default
+export PYTHONUTF8=1
+
+bash core/scripts/install_dev.sh     # xray.exe, wintun.dll, geo databases
+python gui.py
+python -m pytest -q --no-cov
+```
+
+### Building the installer
+
+Inno Setup 6 is required (`ISCC.exe`; the `ISCC` variable overrides the path):
+
+```bash
+python -m venv --system-site-packages .venv-win
+. .venv-win/bin/activate
+pip install pyinstaller pyinstaller-hooks-contrib
+bash core/scripts/build_windows.sh
+# → dist/windows/tenga-proxy-<version>-windows-x64-setup.exe
+```
+
+The build folder holds two executables: `tenga-proxy.exe` (GUI) and
+`tenga-proxy-svc.exe` (the service; arguments `install`, `remove`, `cleanup`,
+`debug`).
+
+### Layout
+
+- `src/sys/*.py` are facades: `IS_WINDOWS` from `src/core/platform_info.py`
+  picks the implementation, Linux code lives in `src/sys/linux/`, Windows code
+  in `src/sys/windows/`.
+- `src/winsvc/` is the service: pipe protocol, configuration policy, rollback
+  journal, `netsh`/PowerShell commands, state and the pipe server.
+- On Windows `AppContext.xray_manager` is a `WindowsXrayManager`: a config with
+  a TUN inbound is started by the service, everything else by the GUI itself.
+- `src/ui/tray/win32/` is the tray on top of `Shell_NotifyIcon`.
+- `packaging/windows/` holds the PyInstaller spec and the Inno Setup script.
+
+### Tests
+
+Windows modules import on Linux too: system calls are injected or imported
+lazily, so most of their tests run in the regular suite. Tests that need real
+Windows carry the `windows` marker and are skipped elsewhere.
+
+`tests/integration/` checks the service on a live system (TUN, routes, NRPT,
+rollback). It needs the installed service and administrator rights and is
+enabled with `TENGA_SERVICE_TESTS=1`. Run it in CI or on a test machine, not
+on your workstation: the routes capture the network during the test.
+
+### CI
+
+`.github/workflows/windows.yml` on `windows-latest`: Windows-code tests, the
+full suite (informational), the installer build, installing the service from
+the build and the integration tests. On a `v*` tag the installer is attached
+to the release; the tag must match the version in `src/__init__.py`.
+
 ## Debugging
 
 ### Logging
 
-Logs live in `logs/` (development mode) or in `~/.config/tenga-proxy/logs/`:
+Logs live in `logs/` (development mode), in `~/.config/tenga-proxy/logs/`
+(AppImage) or in `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
 
 - `tenga_gui.log` - GUI logs
 - `tenga_cli.log` - CLI logs
