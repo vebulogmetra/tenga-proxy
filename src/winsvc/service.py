@@ -19,7 +19,7 @@ def data_dir() -> Path:
 
 
 def prepare_environment() -> None:
-    """До импорта src.core.config: конфигурация и логи службы — в ProgramData."""
+    """Каталог службы с правами; переменную раньше всех ставит svc_main.early_environment()."""
     directory = data_dir()
     directory.mkdir(parents=True, exist_ok=True)
     os.environ["TENGA_CONFIG_DIR"] = str(directory)

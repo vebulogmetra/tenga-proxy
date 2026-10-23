@@ -101,7 +101,9 @@ jobs:
       - name: Service log
         if: always()
         shell: pwsh
-        run: Get-Content "$env:ProgramData\tenga-proxy\logs\*" -ErrorAction SilentlyContinue
+        run: |
+          Get-ChildItem -Recurse "$env:ProgramData\tenga-proxy" -ErrorAction SilentlyContinue
+          Get-Content "$env:ProgramData\tenga-proxy\logs\*" -ErrorAction SilentlyContinue
 
       - name: Remove service
         if: always()
