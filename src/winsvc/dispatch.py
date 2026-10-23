@@ -19,6 +19,9 @@ ROUTES = {
     "routes.apply": ("routes_apply", ("tun_name", "proxy_host")),
     "routes.restore": ("routes_restore", ()),
     "dns.apply": ("dns_apply", ("tun_name",)),
+    "wireguard.list": ("wireguard_list", ()),
+    "wireguard.up": ("wireguard_up", ("name",)),
+    "wireguard.down": ("wireguard_down", ("name",)),
 }
 
 

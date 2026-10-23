@@ -8,6 +8,7 @@ import pytest
 
 from src.core.xray_manager import TrafficStats
 from src.sys.windows import netinfo
+from src.winsvc import wireguard
 from src.winsvc.journal import Journal
 from src.winsvc.state import ServiceError, ServiceState
 from tests.test_sys_windows_netinfo import SNAPSHOT
@@ -209,3 +210,29 @@ def test_stats(state):
     service, *_ = state
 
     assert service.core_stats() == {"upload": 5, "download": 7}
+
+
+def test_wireguard_up_unknown_tunnel_is_refused(state, monkeypatch):
+    service, _runner, net, _clock = state
+    monkeypatch.setattr(wireguard, "list_tunnels", lambda: ["home"])
+
+    with pytest.raises(ServiceError, match="не найден"):
+        service.wireguard_up("work")
+    assert net.commands == []
+
+
+def test_wireguard_up_runs_wireguard_exe(state, monkeypatch):
+    service, _runner, net, _clock = state
+    monkeypatch.setattr(wireguard, "list_tunnels", lambda: ["home"])
+
+    service.wireguard_up("home")
+
+    assert net.commands == [wireguard.up_command("home")]
+
+
+def test_wireguard_bad_name_runs_nothing(state):
+    service, _runner, net, _clock = state
+
+    with pytest.raises(ServiceError):
+        service.wireguard_down("a;b")
+    assert net.commands == []

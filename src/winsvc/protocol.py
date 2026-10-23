@@ -26,6 +26,7 @@ COMMANDS = frozenset(
         "routes.apply",
         "routes.restore",
         "dns.apply",
+        "wireguard.list",
         "wireguard.up",
         "wireguard.down",
     }

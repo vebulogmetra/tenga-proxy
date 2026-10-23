@@ -19,7 +19,7 @@ from src import __version__
 from src.core.proxy_mode import TUN_DNS_ADDRESS
 from src.sys.addresses import resolve_ipv4
 from src.sys.windows import netinfo
-from src.winsvc import netops
+from src.winsvc import netops, wireguard
 from src.winsvc.policy import PolicyError, sanitize_core_config
 
 logger = logging.getLogger("tenga.winsvc.state")
@@ -125,6 +125,31 @@ class ServiceState:
             if name is None:
                 raise ServiceError("Не удалось добавить правило NRPT")
             self._journal.record({"op": "nrpt.remove", "name": name})
+        return {}
+
+    # --- WireGuard ---
+
+    def wireguard_list(self) -> dict:
+        return {"tunnels": wireguard.list_tunnels()}
+
+    def wireguard_up(self, name: str) -> dict:
+        try:
+            command = wireguard.up_command(name)
+        except ValueError as e:
+            raise ServiceError(str(e)) from e
+        if name not in wireguard.list_tunnels():
+            raise ServiceError(f"Туннель WireGuard «{name}» не найден")
+        if not self._net.run(command):
+            raise ServiceError(f"WireGuard не поднял туннель «{name}»")
+        return {}
+
+    def wireguard_down(self, name: str) -> dict:
+        try:
+            command = wireguard.down_command(name)
+        except ValueError as e:
+            raise ServiceError(str(e)) from e
+        if not self._net.run(command):
+            raise ServiceError(f"WireGuard не опустил туннель «{name}»")
         return {}
 
     # --- жизненный цикл ---
