@@ -1995,5 +1995,16 @@ git commit -m "build: install_dev.sh ставит xray.exe и wintun.dll в MSYS
 - **1.5.** Тест Linux-модулей фасадов пропускается на Windows: они импортируют
   `fcntl`.
 
-Не проверено на Windows (ждёт 1.0/1.13): unix-сокет статистики, `sockopt.interface`,
-PowerShell-скрипт снимка сети, mutex и pipe активации, WinINet.
+Проверено в CI на `windows-latest` (после фазы 2): снимок сети PowerShell,
+pipe активации, запись прокси в реестр WinINet, полный набор тестов.
+
+- **Статистика по unix-сокету на Windows не работает.** xray 26.9.9 создаёт
+  сокет и принимает соединение, но падает с panic в `proxy/dokodemo/dokodemo.go:99`
+  при любой форме адреса (`unix://`, `unix:`, прямые и обратные слэши; проба в
+  CI). На Windows Stats API слушает `127.0.0.1` на свободном порту, выбранном
+  на каждый запуск (`StatsEndpoint.listen_settings()`); открыт только
+  `StatsService`, то есть счётчики трафика. На Linux — по-прежнему unix-сокет
+  в каталоге 0700.
+
+Не проверено (ждёт 1.0/1.13 на VM): `sockopt.interface`, GTK-окно и тёмная
+тема вживую.
