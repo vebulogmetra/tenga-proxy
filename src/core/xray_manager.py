@@ -197,8 +197,9 @@ class XrayManager:
         policy["system"] = system
         config["policy"] = policy
 
-        # The directory is 0700 and changes after every cleanup/restart. The
-        # core has no independent network API listener and exposes Stats only.
+        # Linux: a 0700 directory that changes after every cleanup/restart, no
+        # network API listener. Windows: loopback TCP (see stats_endpoint).
+        # Either way the core exposes Stats only.
         self._stats_api_addr = self._stats_endpoint.address
         config["api"] = {"tag": "api", "services": ["StatsService"]}
         config["inbounds"] = [
@@ -207,7 +208,7 @@ class XrayManager:
         config["inbounds"].append(
             {
                 "tag": "api",
-                "listen": self._stats_endpoint.path,
+                **self._stats_endpoint.listen_settings(),
                 "protocol": "dokodemo-door",
                 "settings": {"address": "127.0.0.1"},
             }

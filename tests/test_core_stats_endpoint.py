@@ -1,11 +1,14 @@
-"""Stats access must use a per-run private Unix socket, never an open TCP port."""
+"""Stats access: a per-run private Unix socket on Linux, loopback TCP on Windows."""
 
 import sys
 from pathlib import Path
 
+import pytest
+
 from src.core.xray_manager import XrayManager
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="unix-сокет статистики — только Linux")
 def test_stats_socket_is_private_and_input_config_is_not_modified(monkeypatch):
     monkeypatch.setattr(XrayManager, "_fetch_version", lambda _self: None)
     manager = XrayManager(binary_path="/nonexistent")
@@ -14,9 +17,7 @@ def test_stats_socket_is_private_and_input_config_is_not_modified(monkeypatch):
     inbound = next(item for item in config["inbounds"] if item["tag"] == "api")
     assert "port" not in inbound
     assert Path(inbound["listen"]).is_absolute()
-    if sys.platform != "win32":
-        # На Windows каталог закрывает ACL профиля, биты режима там условны.
-        assert Path(inbound["listen"]).parent.stat().st_mode & 0o777 == 0o700
+    assert Path(inbound["listen"]).parent.stat().st_mode & 0o777 == 0o700
     assert original["inbounds"] == []
     assert original["routing"]["rules"] == []
     assert config["api"]["services"] == ["StatsService"]
@@ -28,12 +29,10 @@ def test_stats_socket_is_private_and_input_config_is_not_modified(monkeypatch):
     manager._cleanup()
 
 
-def test_real_core_can_query_private_socket_without_tcp(tmp_path):
+def test_real_core_answers_stats_query(tmp_path):
     import json
     import subprocess
     import time
-
-    import pytest
 
     from src.core.config import XRAY_BINARY_NAME, find_xray_binary
 
@@ -43,39 +42,43 @@ def test_real_core_can_query_private_socket_without_tcp(tmp_path):
         pytest.skip("xray is unavailable")
     manager = XrayManager(binary_path=binary)
     config = manager._inject_stats_api({"outbounds": [{"protocol": "freedom", "tag": "proxy"}]})
-    path = Path(config["inbounds"][0]["listen"])
     source = tmp_path / "config.json"
     source.write_text(json.dumps(config))
     process = subprocess.Popen(
         [binary, "run", "-c", str(source)], stdout=subprocess.PIPE, stderr=subprocess.STDOUT
     )
     try:
-        deadline = time.monotonic() + 3
-        while not path.exists() and process.poll() is None and time.monotonic() < deadline:
-            time.sleep(0.02)
-        answer = subprocess.run(
-            [binary, "api", "statsquery", f"--server=unix://{path}"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
+        deadline = time.monotonic() + 5
+        while True:
+            answer = subprocess.run(
+                [binary, "api", "statsquery", f"--server={manager._stats_api_addr}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if answer.returncode == 0 or time.monotonic() >= deadline:
+                break
+            time.sleep(0.2)
         assert answer.returncode == 0, answer.stderr
         assert isinstance(json.loads(answer.stdout), dict)
-        assert all("port" not in inbound for inbound in config["inbounds"])
+        if sys.platform != "win32":
+            assert all("port" not in inbound for inbound in config["inbounds"])
     finally:
         process.terminate()
         process.communicate(timeout=3)
         manager._cleanup()
-    assert not path.parent.exists()
 
 
-def test_windows_socket_lives_in_default_temp(monkeypatch, tmp_path):
+def test_windows_stats_listen_on_loopback_port(monkeypatch):
     from src.core import platform_info, stats_endpoint
 
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
-    monkeypatch.setattr(stats_endpoint.tempfile, "tempdir", str(tmp_path))
     endpoint = stats_endpoint.StatsEndpoint()
-    try:
-        assert endpoint.path.startswith(str(tmp_path))
-    finally:
-        endpoint.close()
+
+    settings = endpoint.listen_settings()
+
+    assert settings["listen"] == "127.0.0.1"
+    assert 0 < settings["port"] < 65536
+    assert endpoint.address == f"127.0.0.1:{settings['port']}"
+    endpoint.close()
+    assert endpoint._port is None
