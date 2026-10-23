@@ -49,23 +49,14 @@ Name: "{autodesktop}\Tenga Proxy"; Filename: "{app}\tenga-proxy.exe"; Tasks: des
 
 [Registry]
 ; Автозапуск — для того пользователя, который ставит, без прав администратора при входе.
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-  ValueName: "Tenga Proxy"; ValueData: """{app}\tenga-proxy.exe"""; Tasks: autostart; \
-  Flags: uninsdeletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tenga Proxy"; ValueData: """{app}\tenga-proxy.exe"""; Tasks: autostart; Flags: uninsdeletevalue
 ; Ссылки импорта: аналог MimeType в tenga-proxy.desktop.
-Root: HKCU; Subkey: "Software\Classes\veblock"; ValueType: string; ValueData: "URL:veblock"; \
-  Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\veblock"; ValueType: string; ValueName: "URL Protocol"; \
-  ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\veblock\shell\open\command"; ValueType: string; \
-  ValueData: """{app}\tenga-proxy.exe"" ""%1"""
-Root: HKCU; Subkey: "Software\Classes\wingeon"; ValueType: string; ValueData: "URL:wingeon"; \
-  Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\wingeon"; ValueType: string; ValueName: "URL Protocol"; \
-  ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\wingeon\shell\open\command"; ValueType: string; \
-  ValueData: """{app}\tenga-proxy.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\veblock"; ValueType: string; ValueData: "URL:veblock"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\veblock"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\veblock\shell\open\command"; ValueType: string; ValueData: """{app}\tenga-proxy.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\wingeon"; ValueType: string; ValueData: "URL:wingeon"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\wingeon"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\wingeon\shell\open\command"; ValueType: string; ValueData: """{app}\tenga-proxy.exe"" ""%1"""
 
 [Run]
-Filename: "{app}\tenga-proxy.exe"; Description: "{cm:LaunchProgram,Tenga Proxy}"; \
-  Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\tenga-proxy.exe"; Description: "{cm:LaunchProgram,Tenga Proxy}"; Flags: nowait postinstall skipifsilent runasoriginaluser
