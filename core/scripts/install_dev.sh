@@ -331,7 +331,8 @@ download_xray() {
         return 1
     fi
 
-    if ! unzip -q -o xray.zip; then
+    # -n: геобазы в core/bin лежат в git, архив их не перезаписывает.
+    if ! unzip -q -n xray.zip; then
         error "Ошибка при распаковке архива"
         rm -f xray.zip
         cd "$PROJECT_ROOT"

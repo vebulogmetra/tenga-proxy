@@ -4,6 +4,7 @@ __pycache__/
 *.pyd
 
 .venv/
+.venv-win/
 env/
 venv/
 
@@ -36,3 +37,10 @@ dist/
 
 *.egg-info/
 .egg-info/
+
+# Windows: install_dev.sh кладёт их рядом с геобазами из git
+core/bin/xray.exe
+core/bin/wintun.dll
+core/bin/LICENSE
+core/bin/LICENSE-Wintun
+core/bin/README.md
