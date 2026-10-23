@@ -16,15 +16,13 @@ import logging
 import re
 import shutil
 
+from src.core.proxy_mode import TUN_DNS_ADDRESS
 from src.sys.linux.tun_route import _run_command, _run_helper
 
 logger = logging.getLogger("tenga.sys.tun_dns")
 
-# Адрес, который объявляется DNS-сервером TUN-интерфейса. Запрос к нему
-# перехватывает правило `tun-in:53 → dns-out`, до самого адреса он не доходит.
-# Публичный адрес выбран на случай, если перехват не сработает: тогда запрос
-# уйдёт через прокси и всё равно получит ответ.
-TUN_DNS_ADDRESS = "1.1.1.1"
+__all__ = ["TUN_DNS_ADDRESS", "route_system_dns_to_tun"]
+
 # «Все домены»: с ним интерфейс выигрывает у DNS физического интерфейса.
 ALL_DOMAINS = "~."
 

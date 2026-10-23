@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.sys.linux.tun_dns import TUN_DNS_ADDRESS
+from src.core.proxy_mode import TUN_DNS_ADDRESS
 from src.sys.windows.tun_route import NO_SERVICE
 
 __all__ = ["TUN_DNS_ADDRESS", "route_system_dns_to_tun"]

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import ipaddress
 import logging
 import os
 import shlex
 import shutil
-import socket
 import subprocess
 from dataclasses import dataclass
+
+from src.sys.addresses import resolve_ipv4
 
 logger = logging.getLogger("tenga.sys.tun_route")
 HELPER_PATH = "/usr/local/libexec/tenga-proxy/tun-route-helper"
@@ -124,29 +124,8 @@ def _parse_default_route(line: str) -> tuple[str | None, str | None, str | None]
     return gateway, dev, metric
 
 
-def _resolve_ipv4(host: str) -> str | None:
-    """Resolve host to IPv4 address."""
-    host = (host or "").strip()
-    if not host:
-        return None
-
-    try:
-        return str(ipaddress.IPv4Address(host))
-    except Exception:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_STREAM)
-        for info in infos:
-            ip = info[4][0]
-            if ip:
-                try:
-                    return str(ipaddress.IPv4Address(ip))
-                except Exception:
-                    continue
-    except Exception as e:
-        logger.warning("Failed to resolve host '%s': %s", host, e)
-    return None
+# Имя сохранено ради тестов модуля.
+_resolve_ipv4 = resolve_ipv4
 
 
 def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteState | None, str]:
