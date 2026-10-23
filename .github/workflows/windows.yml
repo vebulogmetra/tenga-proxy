@@ -79,3 +79,33 @@ jobs:
           name: tenga-proxy-windows-setup
           path: dist/windows/*.exe
           if-no-files-found: error
+
+      # Служба из собранного каталога: TUN, маршруты, NRPT и их откат на
+      # настоящей Windows. Маршруты /1 на секунды перехватывают сеть раннера,
+      # поэтому окно с ними в тестах минимальное.
+      - name: Install service from build
+        shell: pwsh
+        run: |
+          & dist\windows\tenga-proxy\tenga-proxy-svc.exe install
+          Start-Sleep -Seconds 3
+          Get-Service TengaProxySvc
+
+      - name: Service integration tests
+        timeout-minutes: 5
+        env:
+          TENGA_SERVICE_TESTS: "1"
+        run: |
+          . .venv-win/bin/activate
+          python -m pytest tests/integration -m windows -p no:cacheprovider --no-cov -v
+
+      - name: Service log
+        if: always()
+        shell: pwsh
+        run: Get-Content "$env:ProgramData\tenga-proxy\logs\*" -ErrorAction SilentlyContinue
+
+      - name: Remove service
+        if: always()
+        shell: pwsh
+        run: |
+          & dist\windows\tenga-proxy\tenga-proxy-svc.exe remove
+          & dist\windows\tenga-proxy\tenga-proxy-svc.exe cleanup
