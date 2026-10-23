@@ -5,6 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+from src.core import platform_info
 from src.core.platform_info import no_window
 
 
@@ -25,9 +26,15 @@ def _get_bundle_dir() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
+def _windows_dir(variable: str, fallback: str) -> Path:
+    """Каталог из переменной окружения Windows (`APPDATA`, `LOCALAPPDATA`)."""
+    return Path(os.environ.get(variable) or os.path.expanduser(fallback))
+
+
 def _get_config_dir() -> Path:
     """Get configuration directory.
 
+    When running frozen on Windows: %APPDATA%\\tenga-proxy
     When running from AppImage/frozen: ~/.config/tenga-proxy
     When running from source: ./core
     Environment variable TENGA_CONFIG_DIR takes priority.
@@ -35,6 +42,9 @@ def _get_config_dir() -> Path:
     env_dir = os.environ.get("TENGA_CONFIG_DIR")
     if env_dir:
         return Path(env_dir)
+
+    if _is_frozen() and platform_info.IS_WINDOWS:
+        return _windows_dir("APPDATA", "~/AppData/Roaming") / "tenga-proxy"
 
     # Frozen or AppImage: use XDG config dir
     if _is_frozen() or _is_appimage():
@@ -47,6 +57,9 @@ def _get_config_dir() -> Path:
 
 def _get_log_dir() -> Path:
     """Get log directory."""
+    if _is_frozen() and platform_info.IS_WINDOWS and "TENGA_CONFIG_DIR" not in os.environ:
+        # Логи не роуминговые: им место в Local, а не в Roaming.
+        return _windows_dir("LOCALAPPDATA", "~/AppData/Local") / "tenga-proxy" / "logs"
     if _is_frozen() or _is_appimage():
         return _get_config_dir() / "logs"
     return Path(__file__).resolve().parent.parent.parent / "logs"
@@ -58,7 +71,7 @@ PROJECT_ROOT: Path = (
 )
 CORE_DIR: Path = _get_config_dir()
 CORE_BIN_DIR: Path = BUNDLE_DIR / "core" / "bin" if _is_frozen() else CORE_DIR / "bin"
-XRAY_BINARY_NAME: str = "xray"
+XRAY_BINARY_NAME: str = "xray.exe" if platform_info.IS_WINDOWS else "xray"
 
 LOG_DIR: Path = _get_log_dir()
 GUI_LOG_FILE: Path = LOG_DIR / "tenga_gui.log"

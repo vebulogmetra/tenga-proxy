@@ -80,3 +80,42 @@ def test_get_lock_file_default_and_custom(tmp_path):
     custom_lock = config.get_lock_file(custom_dir)
     assert custom_lock.parent == custom_dir
     assert custom_lock.name == "tenga-proxy.lock"
+
+
+@pytest.fixture
+def as_windows(monkeypatch, clean_env, tmp_path):
+    """Windows-ветка `config` на Linux: признак платформы и переменные окружения."""
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    monkeypatch.setenv("APPDATA", str(tmp_path / "Roaming"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "Local"))
+    yield tmp_path
+    # Следующие тесты должны видеть модуль в Linux-состоянии.
+    monkeypatch.undo()
+    _reload_config_module()
+
+
+def test_windows_frozen_uses_appdata(as_windows, monkeypatch):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(as_windows / "bundle"), raising=False)
+
+    config = _reload_config_module()
+
+    assert as_windows / "Roaming" / "tenga-proxy" == config.CORE_DIR
+    assert as_windows / "Local" / "tenga-proxy" / "logs" == config.LOG_DIR
+
+
+def test_windows_binary_name_has_exe(as_windows):
+    config = _reload_config_module()
+
+    assert config.XRAY_BINARY_NAME == "xray.exe"
+
+
+def test_windows_env_var_still_wins(as_windows, monkeypatch):
+    custom = as_windows / "custom"
+    monkeypatch.setenv("TENGA_CONFIG_DIR", str(custom))
+
+    config = _reload_config_module()
+
+    assert custom == config.CORE_DIR
