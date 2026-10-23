@@ -96,3 +96,8 @@ def build_inbounds_for_mode(
 def should_manage_system_proxy(mode: str | None) -> bool:
     """Return True when desktop system proxy should be configured."""
     return normalize_proxy_mode(mode) == ProxyMode.SYSTEM_PROXY
+
+
+def has_tun_inbound(config: dict) -> bool:
+    """Конфиг поднимает TUN-интерфейс: на Windows такой запускает служба."""
+    return any(inbound.get("protocol") == "tun" for inbound in config.get("inbounds", []))

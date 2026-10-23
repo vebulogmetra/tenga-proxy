@@ -73,3 +73,11 @@ def test_every_inbound_sniffs_quic(mode):
 
     for inbound in inbounds:
         assert "quic" in inbound["sniffing"]["destOverride"], inbound["protocol"]
+
+
+def test_has_tun_inbound():
+    from src.core.proxy_mode import has_tun_inbound
+
+    assert has_tun_inbound({"inbounds": [{"protocol": "tun"}]})
+    assert not has_tun_inbound({"inbounds": [{"protocol": "mixed"}]})
+    assert not has_tun_inbound({})

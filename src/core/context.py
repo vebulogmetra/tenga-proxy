@@ -135,6 +135,13 @@ class AppContext:
             from src.core.xray_manager import XrayManager
 
             self._xray_manager = XrayManager(binary_path=None)
+
+            from src.core import platform_info
+
+            if platform_info.IS_WINDOWS:
+                from src.sys.windows.core_runner import ServiceCoreRunner, WindowsXrayManager
+
+                self._xray_manager = WindowsXrayManager(self._xray_manager, ServiceCoreRunner())
         return self._xray_manager
 
     # alias (deprecated)
