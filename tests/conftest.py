@@ -6,7 +6,19 @@ GTK-зависимые тесты помечаются маркером `gtk` и
 
 from __future__ import annotations
 
+import sys
+
 import pytest
+
+
+def pytest_collection_modifyitems(config, items):
+    """Тесты с маркером `windows` идут только на Windows (в CI — job windows)."""
+    if sys.platform == "win32":
+        return
+    skip = pytest.mark.skip(reason="requires Windows")
+    for item in items:
+        if "windows" in item.keywords:
+            item.add_marker(skip)
 
 
 @pytest.fixture(autouse=True)

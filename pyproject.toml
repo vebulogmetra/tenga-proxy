@@ -60,6 +60,7 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 markers = [
     "gtk: requires a display, run through make test-gtk",
+    "windows: requires real Windows, skipped elsewhere",
 ]
 
 [tool.ruff]
