@@ -31,6 +31,19 @@ def _default_dispatch(fn: Callable[..., object], *args: object) -> None:
     GLib.idle_add(_once)
 
 
+def _default_item():
+    """Панель Linux говорит по D-Bus (SNI), Windows — через Shell_NotifyIcon."""
+    from src.core import platform_info
+
+    if platform_info.IS_WINDOWS:
+        from src.ui.tray.win32 import item as win32_item
+
+        return win32_item.Win32TrayItem()
+    from src.ui.tray.sni import StatusNotifierItem
+
+    return StatusNotifierItem()
+
+
 class TrayController:
     """Keeps the tray item in step with the proxy state."""
 
@@ -50,9 +63,7 @@ class TrayController:
         self._running = False
 
         if item is None:
-            from src.ui.tray.sni import StatusNotifierItem
-
-            item = StatusNotifierItem()
+            item = _default_item()
         self._item = item
 
     def start(self) -> None:

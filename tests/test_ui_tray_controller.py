@@ -229,3 +229,22 @@ def test_a_state_change_is_delivered_through_the_dispatcher(context):
     context.proxy_state.set_running(profile_id=1)
 
     assert len(delivered) == 1
+
+
+def test_windows_uses_win32_item(monkeypatch):
+    from src.core import platform_info
+    from src.ui.tray import controller
+    from src.ui.tray.win32 import item as win32_item
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    created = []
+
+    class FakeItem:
+        def __init__(self, **_kwargs):
+            created.append(self)
+
+    monkeypatch.setattr(win32_item, "Win32TrayItem", FakeItem)
+
+    controller.TrayController(object(), object())
+
+    assert len(created) == 1
