@@ -11,6 +11,7 @@ from gi.repository import Adw, GLib, GObject, Gtk
 
 from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.ui.dialogs.settings import KeyedCombo
+from src.ui.logic import platform_texts
 from src.ui.logic.forms import parse_host_list
 from src.ui.logic.routing_form import BLOCK_HINT, LIST_HINT, current_catalog, ru_direct_subtitle
 
@@ -130,8 +131,8 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         profile_group.add(self.address_row)
 
         group = Adw.PreferencesGroup(
-            title="Подключение NetworkManager",
-            description="Профиль может поднимать VPN перед запуском прокси",
+            title=platform_texts.vpn_group_title(),
+            description=platform_texts.vpn_group_description(),
         )
         page.add(group)
 

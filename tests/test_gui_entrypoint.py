@@ -53,3 +53,11 @@ def test_unknown_args_are_passed_through(entry):
 )
 def test_libadwaita_version_gate(entry, major, minor, ok):
     assert entry.adwaita_is_supported(major, minor) is ok
+
+
+def test_install_hint_mentions_installer_on_windows(entry, monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+
+    assert "apt" not in entry.gtk_install_hint()

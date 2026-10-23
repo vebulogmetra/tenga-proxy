@@ -52,6 +52,14 @@ def adwaita_is_supported(major: int, minor: int) -> bool:
     return (major, minor) >= MIN_ADWAITA
 
 
+def gtk_install_hint() -> str:
+    from src.core import platform_info
+
+    if platform_info.IS_WINDOWS:
+        return "Среда GTK входит в установщик: переустановите Tenga Proxy."
+    return "Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1"
+
+
 # --- GTK bootstrap ---
 
 logger = setup_early_logging()
@@ -91,7 +99,7 @@ try:
             f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
             f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
         )
-        print("Установите пакеты: sudo apt install gir1.2-gtk-4.0 gir1.2-adw-1")
+        print(gtk_install_hint())
         sys.exit(1)
 
     logger.info("GTK4 imported successfully")
@@ -110,7 +118,7 @@ try:
 except ImportError as e:
     logger.exception(f"Error importing GTK: {e}")
     print(f"Ошибка импорта GTK: {e}")
-    print("Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1")
+    print(gtk_install_hint())
     sys.exit(1)
 except Exception as e:
     logger.exception(f"Error initializing GTK: {e}")
@@ -164,9 +172,7 @@ def main() -> int:
         )
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
-        print("\nУбедитесь, что установлены зависимости:")
-        print("  pip install PyGObject")
-        print("  sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1")
+        print(gtk_install_hint())
         return 1
     except Exception as e:
         print(f"Ошибка: {e}")

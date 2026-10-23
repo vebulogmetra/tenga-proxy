@@ -18,6 +18,7 @@ from src.core.geo_update import update_geo_bases
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
+from src.ui.logic import platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
@@ -571,7 +572,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             self.app_check_button.set_sensitive(True)
             text = f"Доступна версия {release.version}" if release else "Новых версий нет"
             if release and not release.has_asset:
-                text += "; AppImage для этой архитектуры отсутствует"
+                text += "; " + platform_texts.missing_release_asset()
             self.app_update_row.set_subtitle(text)
             self.app_release_button.set_sensitive(bool(release))
             if self._context:
