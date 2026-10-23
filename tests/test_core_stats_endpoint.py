@@ -64,3 +64,15 @@ def test_real_core_can_query_private_socket_without_tcp(tmp_path):
         process.communicate(timeout=3)
         manager._cleanup()
     assert not path.parent.exists()
+
+
+def test_windows_socket_lives_in_default_temp(monkeypatch, tmp_path):
+    from src.core import platform_info, stats_endpoint
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    monkeypatch.setattr(stats_endpoint.tempfile, "tempdir", str(tmp_path))
+    endpoint = stats_endpoint.StatsEndpoint()
+    try:
+        assert endpoint.path.startswith(str(tmp_path))
+    finally:
+        endpoint.close()
