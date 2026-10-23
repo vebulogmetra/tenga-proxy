@@ -100,3 +100,31 @@ def test_real_snapshot_has_adapters_and_default_route():
     assert snapshot.adapters
     route = netinfo.default_route(snapshot)
     assert route is not None and route.alias
+
+
+def test_ip_only_interfaces_become_unlisted_adapters():
+    data = dict(
+        SNAPSHOT,
+        ips=[*SNAPSHOT["ips"], {"alias": "Work VPN", "ip": "10.9.0.2", "index": 55}],
+        dns=[*SNAPSHOT["dns"], {"alias": "Work VPN", "servers": ["10.9.0.1"]}],
+    )
+
+    adapter = netinfo.parse_snapshot(json.dumps(data)).adapter("Work VPN")
+
+    assert adapter.ipv4 == ["10.9.0.2"]
+    assert adapter.dns == ["10.9.0.1"]
+    assert adapter.index == 55
+    assert adapter.listed is False
+
+
+def test_unlisted_adapters_are_tunnels():
+    data = dict(SNAPSHOT, ips=[{"alias": "Work VPN", "ip": "10.9.0.2", "index": 55}])
+
+    assert netinfo.is_tunnel(netinfo.parse_snapshot(json.dumps(data)).adapter("Work VPN"))
+
+
+def test_loopback_pseudo_interface_is_not_an_adapter():
+    loopback = {"alias": "Loopback Pseudo-Interface 1", "ip": "127.0.0.1", "index": 1}
+    data = dict(SNAPSHOT, ips=[*SNAPSHOT["ips"], loopback])
+
+    assert netinfo.parse_snapshot(json.dumps(data)).adapter(loopback["alias"]) is None

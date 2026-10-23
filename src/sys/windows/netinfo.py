@@ -24,7 +24,7 @@ $result = @{
     @{ alias = $_.Name; index = $_.ifIndex; status = [string]$_.Status;
        description = $_.InterfaceDescription } })
   ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
-    @{ alias = $_.InterfaceAlias; ip = $_.IPAddress } })
+    @{ alias = $_.InterfaceAlias; ip = $_.IPAddress; index = $_.InterfaceIndex } })
   dns = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     ForEach-Object { @{ alias = $_.InterfaceAlias; servers = @($_.ServerAddresses) } })
   routes = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' `
@@ -49,6 +49,8 @@ class Adapter:
     description: str
     ipv4: list[str] = field(default_factory=list)
     dns: list[str] = field(default_factory=list)
+    # Нет в Get-NetAdapter: так выглядят PPP-интерфейсы встроенных VPN.
+    listed: bool = True
 
 
 @dataclass(frozen=True)
@@ -93,9 +95,22 @@ def parse_snapshot(text: str) -> NetSnapshot:
                 description=str(item.get("description", "")),
             )
     for item in _as_list(data.get("ips")):
-        adapter = adapters.get(str(item.get("alias", "")))
-        if adapter and item.get("ip"):
-            adapter.ipv4.append(str(item["ip"]))
+        alias, ip = str(item.get("alias", "")), str(item.get("ip") or "")
+        if not alias or not ip:
+            continue
+        adapter = adapters.get(alias)
+        if adapter is None:
+            if ip.startswith("127."):
+                # Loopback Pseudo-Interface: в адаптерах его нет, но и VPN он не является.
+                continue
+            adapter = adapters[alias] = Adapter(
+                alias=alias,
+                index=int(item.get("index") or 0),
+                status="Up",
+                description="",
+                listed=False,
+            )
+        adapter.ipv4.append(ip)
     for item in _as_list(data.get("dns")):
         adapter = adapters.get(str(item.get("alias", "")))
         if adapter:
@@ -119,6 +134,9 @@ def parse_snapshot(text: str) -> NetSnapshot:
 def is_tunnel(adapter: Adapter | None) -> bool:
     if adapter is None:
         return False
+    if not adapter.listed:
+        # Не сетевой адаптер — значит, и не физический интерфейс.
+        return True
     description = adapter.description.lower()
     return any(marker in description for marker in _TUNNEL_MARKERS)
 
