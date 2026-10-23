@@ -109,6 +109,9 @@ def private_bus():
     регистрируется у watcher, а делать это на живой шине пользователя нельзя —
     там работает установленное приложение.
     """
+    if sys.platform == "win32":
+        # Gio.TestDBus на Windows роняет процесс abort(), а трей там Win32.
+        pytest.skip("D-Bus трея есть только в Linux")
     pytest.importorskip("gi")
     from gi.repository import Gio
 
