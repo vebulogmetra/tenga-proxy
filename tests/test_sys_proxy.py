@@ -1,4 +1,4 @@
-from src.sys import proxy
+from src.sys.linux import proxy
 
 
 class _FakeResult:

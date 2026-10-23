@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 
-from src.sys import resolver
+from src.sys.linux import resolver
 
 
 def fake_resolvectl(monkeypatch, stdout: str, returncode: int = 0) -> list[list[str]]:

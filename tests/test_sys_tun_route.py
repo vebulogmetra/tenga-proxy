@@ -1,5 +1,5 @@
-import src.sys.tun_route as tun_route
-from src.sys.tun_route import _parse_default_route, _resolve_ipv4
+import src.sys.linux.tun_route as tun_route
+from src.sys.linux.tun_route import _parse_default_route, _resolve_ipv4
 
 
 def test_parse_default_route_with_gateway_and_metric():

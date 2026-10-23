@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from src.sys import tun_dns
+from src.sys.linux import tun_dns
 
 
 def test_installed_helper_is_preferred(monkeypatch):

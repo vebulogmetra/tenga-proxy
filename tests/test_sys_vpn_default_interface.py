@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import subprocess
 
-from src.sys import vpn
+from src.sys.linux import vpn
 
 ROUTES_WITH_TUN_UP = """\
 default dev xray0 scope link

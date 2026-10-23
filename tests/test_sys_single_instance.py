@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from src.sys.single_instance import SingleInstance
+from src.sys.linux.single_instance import SingleInstance
 
 
 def test_is_running_false_when_no_file(tmp_path):
@@ -102,7 +102,9 @@ def test_is_running_read_error(monkeypatch, tmp_path):
     def fake_read_text(path):
         raise OSError("read error")
 
-    monkeypatch.setattr("src.sys.single_instance.Path.read_text", lambda self: fake_read_text(self))
+    monkeypatch.setattr(
+        "src.sys.linux.single_instance.Path.read_text", lambda self: fake_read_text(self)
+    )
 
     inst = SingleInstance(lock)
     assert inst.is_running() is False
@@ -175,7 +177,7 @@ def test_release_unlink_error(monkeypatch, tmp_path):
     def fake_unlink(path):
         raise OSError("unlink error")
 
-    monkeypatch.setattr("src.sys.single_instance.Path.unlink", lambda self: fake_unlink(self))
+    monkeypatch.setattr("src.sys.linux.single_instance.Path.unlink", lambda self: fake_unlink(self))
 
     inst.release()
     assert not inst._acquired
