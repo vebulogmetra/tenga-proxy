@@ -1,7 +1,8 @@
 # Дизайн: порт Tenga Proxy на Windows
 
 Дата: 2026-10-23
-Статус: одобрено (brainstorming с владельцем проекта)
+Статус: одобрено (brainstorming с владельцем проекта); уточнено при планировании,
+планы — `2026-10-23-windows-port-plan.md`
 База: desktop 0.17.0 (`37ad36a`)
 
 ## Цель
@@ -42,7 +43,9 @@ Stats API, пробы, failover, geo), `src/ui/logic/`, `src/ui/models/`, мод
 | `src/sys/single_instance.py` | fcntl | именованный mutex |
 | `src/ui/tray/` | SNI + dbusmenu по D-Bus | `Shell_NotifyIcon` через ctypes |
 | `src/core/config.py` | XDG, AppImage | `%APPDATA%`, `%LOCALAPPDATA%`, `xray.exe` |
-| `core_update`, `app_update` | AppImage, `xray-linux-64` | установщик, `Xray-windows-64.zip` |
+| `app_update` | ищет AppImage в релизе | ищет установщик в релизе |
+| `xray_manager`, `batch_probe` | subprocess, unix-сокет статистики в `/tmp` | `CREATE_NO_WINDOW`, сокет в `%TEMP%`; в TUN ядро в службе |
+| `application.py` | `GLib.unix_signal_add` | на Windows не вызывается |
 
 ## Архитектура
 
@@ -59,10 +62,13 @@ src/sys/
     ├── single_instance.py  именованный mutex + pipe активации
     └── service_client.py   клиент pipe службы
 src/winsvc/
-    ├── service.py          pywin32 ServiceFramework
     ├── protocol.py         JSON-сообщения, без зависимостей от Windows
     ├── policy.py           проверка и переписывание конфига xray
-    └── handlers.py         xray-TUN, маршруты, DNS, журнал отката
+    ├── journal.py          журнал отката
+    ├── netops.py           команды netsh и PowerShell (NRPT)
+    ├── state.py            ядро, маршруты, DNS, откат; dispatch.py — команды
+    ├── server.py           named pipe (pywin32)
+    └── service.py          ServiceFramework; install.py — установка
 src/ui/tray/win32/          Shell_NotifyIcon, нативное меню из menu.py
 ```
 
@@ -81,29 +87,44 @@ src/ui/tray/win32/          Shell_NotifyIcon, нативное меню из men
 
 ### Служба `TengaProxySvc`
 
-- Работает от SYSTEM, тип запуска — по требованию. GUI стартует её через SCM;
-  право старта пользователям выдаёт установщик.
+- Работает от SYSTEM, тип запуска — автоматически с задержкой. Правила NRPT
+  хранятся в реестре и переживают перезагрузку, поэтому служба должна
+  стартовать при загрузке и откатить незавершённую сессию по журналу. Право
+  запуска и остановки интерактивным пользователям выдаёт установщик.
+- Внутри использует тот же `XrayManager`, что и GUI: с бинарником из каталога
+  установки и логом в `%ProgramData%`.
+- На Windows `AppContext.xray_manager` — диспетчер: конфиг с inbound `tun`
+  уходит в службу, остальные запускаются локально, как на Linux.
 - Запускает только свой `xray.exe` из каталога установки (рядом
   `wintun.dll`). Пути к чужим бинарникам не принимает.
 
 ### Протокол
 
 Pipe `\\.\pipe\tenga-proxy-svc`, JSON по строкам, `{"v":1,"id":…,"cmd":…}`.
+Команды повторяют вызовы, которые `connection.py` уже делает на Linux, поэтому
+сам `connection.py` не меняется: на Windows фасады `src/sys/` и менеджер ядра
+переадресуют вызовы службе.
 
-| Команда | Назначение |
+| Команда | Аналог на Linux |
 |---|---|
-| `hello {version}` | версии GUI и службы должны совпадать, иначе GUI просит переустановить |
-| `tun.start {config, tun_name, proxy_host}` | `ok` или `error` с текстом |
-| `tun.stop`, `status` | остановка и состояние |
-| `vpn.wireguard.up/down {name}` | службы `WireGuardTunnel$<name>` |
-| `core.install {zip_path}` | замена `xray.exe` в Program Files после проверки архива |
+| `hello {version}` | — (версии GUI и службы должны совпадать, иначе GUI просит переустановить) |
+| `core.start {config}`, `core.stop` | `XrayManager.start/stop` |
+| `core.status` → `{running, exited, log}` | `XrayManager.is_running`; заодно отдаёт накопленные строки лога ядра |
+| `core.stats` | `XrayManager.get_traffic`: `xray api statsquery` выполняет служба |
+| `routes.apply {tun_name, proxy_host}`, `routes.restore` | `apply_tun_routes`, `restore_tun_routes` |
+| `dns.apply {tun_name}` | `route_system_dns_to_tun` |
+| `wireguard.list`, `wireguard.up/down {name}` | `nmcli connection up/down` для WireGuard |
 
-События от службы: `xray.exited {code}`, `xray.log {line}`.
+Служба ничего не присылает сама. Синхронный named pipe сериализует ввод-вывод
+на одном дескрипторе, поэтому push-события мешали бы ответам. Лог ядра и факт
+его падения GUI получает в ответе на `core.status`, который монитор и так
+опрашивает.
 
 ### Безопасность канала
 
 - DACL пускает только SYSTEM и интерактивных пользователей (S-1-5-4).
-- `policy.py` прогоняет конфиг через `config_validator` и переписывает
+- `policy.py` прогоняет конфиг через `config_validator`, отклоняет любые ключи
+  с путями к файлам (`certificateFile`, `keyFile` и т. п.) и переписывает
   опасные поля: `log.access` и `log.error` уводятся в каталог службы. Inbound
   разрешены только `tun`, а также `socks`, `http` и `dokodemo-door` на loopback;
   API — только на `127.0.0.1`. Через службу нельзя писать файлы от имени SYSTEM
@@ -116,8 +137,11 @@ Pipe `\\.\pipe\tenga-proxy-svc`, JSON по строкам, `{"v":1,"id":…,"cmd
 
 Default-маршрут не заменяется. Добавляются `0.0.0.0/1` и `128.0.0.0/1` через
 TUN и host-маршрут до IP прокси-сервера через исходный шлюз (аналог
-`apply_tun_routes`). Реализация — `CreateIpForwardEntry2` или `netsh`. Разбор
-вывода и сборка команд — чистые функции.
+`apply_tun_routes`). Реализация — `netsh interface ipv4 add route … store=active`:
+такие маршруты не переживают перезагрузку. Интерфейсы задаются индексом, а не
+именем: в именах бывают пробелы и скобки. Сведения о сети — PowerShell с
+выводом в JSON, он не зависит от языка системы. Разбор вывода и сборка команд —
+чистые функции.
 
 Привязка outbound к физическому интерфейсу (`sockopt.interface`) на Windows
 используется, только если её поддержку подтвердит проверка версии xray.
@@ -156,10 +180,12 @@ Windows нет. На Windows приложение запускается с `NON
 
 ### VPN-режимы (`VPN_WITH_*`)
 
-- Встроенные VPN Windows (IKEv2, L2TP, SSTP): список из phonebook-файлов,
-  подключение и отключение через `rasdial`, без прав администратора.
-- WireGuard: туннели `WireGuardTunnel$<имя>` поднимаются и останавливаются
-  через службу.
+- Встроенные VPN Windows (IKEv2, L2TP, SSTP) подключаются без прав администратора.
+- Встроенные VPN: список и состояние — `Get-VpnConnection`, подключение —
+  `rasdial`.
+- WireGuard: конфигурации в каталоге данных WireGuard доступны только SYSTEM,
+  поэтому список, подъём (`wireguard.exe /installtunnelservice`) и опускание
+  туннеля идут через службу.
 - Интерфейс, IP и DNS VPN берутся из `GetAdaptersAddresses`.
 - OpenVPN и прочие VPN только обнаруживаются по адаптеру, без управления;
   UI это показывает.
@@ -180,9 +206,10 @@ Windows нет. На Windows приложение запускается с `NON
 - Установщик на Inno Setup: Program Files, регистрация службы и права на её
   старт, ярлык в меню «Пуск», опциональный автозапуск (`HKCU\…\Run`). При
   удалении сначала откат сети через службу, затем удаление службы.
-- `core_update` скачивает `Xray-windows-64.zip`, установку выполняет служба
-  (`core.install`): Program Files пользователю доступен только на чтение.
-  `app_update` скачивает и запускает новый установщик.
+- `xray.exe`, `wintun.dll` и геобазы входят в установщик и обновляются вместе с
+  приложением. `core_update` и `app_update`, как и на Linux, только сообщают о
+  новой версии и ничего не устанавливают; `app_update` на Windows ищет в релизе
+  установщик вместо AppImage.
 - `python cli.py build` и `setup` получают ветку для Windows.
 
 ## Тестирование
