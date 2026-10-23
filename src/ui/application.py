@@ -1212,7 +1212,14 @@ class TengaApplication(Adw.Application):
     # Сигналы
 
     def _setup_signal_handlers(self) -> None:
-        """Deliver SIGINT/SIGTERM through the GLib main loop (safe for GTK)."""
+        """Deliver SIGINT/SIGTERM through the GLib main loop (safe for GTK).
+
+        На Windows `GLib.unix_signal_add` нет, а закрытие приходит оконными
+        сообщениями, которые GTK обрабатывает сам.
+        """
+        if platform_info.IS_WINDOWS:
+            self._signal_source_ids = []
+            return
         self._signal_source_ids = [
             GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self._on_signal, signum)
             for signum in (signal.SIGINT, signal.SIGTERM)
