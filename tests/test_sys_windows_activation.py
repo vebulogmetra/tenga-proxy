@@ -2,10 +2,25 @@
 
 from __future__ import annotations
 
+import sys
 import threading
 import time
+import uuid
+
+import pytest
 
 from src.sys.windows.activation import ActivationServer, pipe_address, send_activation
+
+# Протокол один и тот же; на Windows проверяется настоящий named pipe, на
+# Linux — сокет AF_UNIX того же multiprocessing.connection.
+FAMILY = "AF_PIPE" if sys.platform == "win32" else "AF_UNIX"
+
+
+@pytest.fixture
+def address(tmp_path):
+    if FAMILY == "AF_PIPE":
+        return f"\\\\.\\pipe\\tenga-test-{uuid.uuid4().hex}"
+    return str(tmp_path / "activate.sock")
 
 
 def test_address_is_a_named_pipe_per_user_and_config():
@@ -16,8 +31,7 @@ def test_address_is_a_named_pipe_per_user_and_config():
     assert first != second
 
 
-def test_second_instance_delivers_uris(tmp_path):
-    address = str(tmp_path / "activate.sock")
+def test_second_instance_delivers_uris(address):
     got = []
     done = threading.Event()
 
@@ -25,10 +39,10 @@ def test_second_instance_delivers_uris(tmp_path):
         got.append(uris)
         done.set()
 
-    server = ActivationServer(address, on_request, family="AF_UNIX")
+    server = ActivationServer(address, on_request, family=FAMILY)
     server.start()
     try:
-        assert send_activation(address, ["veblock://add/x"], family="AF_UNIX") is True
+        assert send_activation(address, ["veblock://add/x"], family=FAMILY) is True
         assert done.wait(5)
     finally:
         server.stop()
@@ -36,22 +50,21 @@ def test_second_instance_delivers_uris(tmp_path):
     assert got == [["veblock://add/x"]]
 
 
-def test_send_without_server_reports_failure(tmp_path):
-    assert send_activation(str(tmp_path / "none.sock"), [], family="AF_UNIX") is False
+def test_send_without_server_reports_failure(address):
+    assert send_activation(address, [], family=FAMILY) is False
 
 
-def test_garbage_request_is_ignored(tmp_path):
+def test_garbage_request_is_ignored(address):
     from multiprocessing.connection import Client
 
-    address = str(tmp_path / "activate.sock")
     got = []
-    server = ActivationServer(address, got.append, family="AF_UNIX")
+    server = ActivationServer(address, got.append, family=FAMILY)
     server.start()
     try:
-        with Client(address, family="AF_UNIX", authkey=b"tenga-activate") as conn:
+        with Client(address, family=FAMILY, authkey=b"tenga-activate") as conn:
             conn.send({"uris": "not-a-list"})
         # Второй, нормальный запрос доказывает, что поток сервера жив.
-        assert send_activation(address, [], family="AF_UNIX") is True
+        assert send_activation(address, [], family=FAMILY) is True
         time.sleep(0.2)
     finally:
         server.stop()
