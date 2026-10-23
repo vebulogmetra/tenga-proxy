@@ -66,6 +66,14 @@ jobs:
             tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
             tests/test_packaging_version_info.py tests/test_cli_build.py
 
+      # ВРЕМЕННО: проба форм пути unix-сокета статистики.
+      - name: Probe unix stats socket
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          $env:LOCALTEMP = $env:TEMP
+          D:\a\_temp\msys64\ucrt64\bin\python.exe tools\probe_unix_stats.py core\bin\xray.exe
+
       # Весь набор: тесты Linux-реализаций здесь падать вправе, прогон
       # показывает, что ещё зависит от POSIX.
       - name: Full test suite (informational)
