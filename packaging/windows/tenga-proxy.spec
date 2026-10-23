@@ -56,9 +56,33 @@ gui_exe = EXE(  # noqa: F821
     console=False,
 )
 
+# Служба: свой exe в том же каталоге, GTK ей не нужен. Если анализ всё же
+# находит gi, какой-то импорт в src.core стоит сделать ленивым.
+svc = Analysis(  # noqa: F821
+    [str(ROOT / "svc_main.py")],
+    pathex=[str(ROOT)],
+    binaries=binaries,
+    hiddenimports=["win32timezone", "servicemanager"],
+    excludes=["tkinter", "gi"],
+)
+svc_pyz = PYZ(svc.pure)  # noqa: F821
+svc_exe = EXE(  # noqa: F821
+    svc_pyz,
+    svc.scripts,
+    PYTHON_OPTIONS,
+    exclude_binaries=True,
+    name="tenga-proxy-svc",
+    icon=str(ASSETS / "tenga-proxy.ico"),
+    version=str(ROOT / "build" / "windows" / "version_info.txt"),
+    console=True,
+)
+
 coll = COLLECT(  # noqa: F821
     gui_exe,
     gui.binaries,
     gui.datas,
+    svc_exe,
+    svc.binaries,
+    svc.datas,
     name="tenga-proxy",
 )

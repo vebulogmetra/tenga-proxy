@@ -35,6 +35,8 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 [CustomMessages]
 ru.AutoStart=Запускать Tenga Proxy при входе в систему
 en.AutoStart=Start Tenga Proxy when I sign in
+ru.RegisterService=Регистрация службы Tenga Proxy...
+en.RegisterService=Registering the Tenga Proxy service...
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -59,4 +61,24 @@ Root: HKCU; Subkey: "Software\Classes\wingeon"; ValueType: string; ValueName: "U
 Root: HKCU; Subkey: "Software\Classes\wingeon\shell\open\command"; ValueType: string; ValueData: """{app}\tenga-proxy.exe"" ""%1"""
 
 [Run]
+Filename: "{app}\tenga-proxy-svc.exe"; Parameters: "install"; StatusMsg: "{cm:RegisterService}"; Flags: runhidden waituntilterminated
 Filename: "{app}\tenga-proxy.exe"; Description: "{cm:LaunchProgram,Tenga Proxy}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+
+[UninstallRun]
+; remove останавливает службу, и она сама откатывает сеть; cleanup — страховка,
+; если служба не ответила.
+Filename: "{app}\tenga-proxy-svc.exe"; Parameters: "remove"; Flags: runhidden waituntilterminated; RunOnceId: "RemoveService"
+Filename: "{app}\tenga-proxy-svc.exe"; Parameters: "cleanup"; Flags: runhidden waituntilterminated; RunOnceId: "CleanupNetwork"
+
+[Code]
+// Обновление поверх установленной версии: служба держит свой exe, её нужно
+// остановить до копирования файлов и зарегистрировать заново после.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  ResultCode: Integer;
+begin
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop TengaProxySvc', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\sc.exe'), 'delete TengaProxySvc', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+  Result := '';
+end;

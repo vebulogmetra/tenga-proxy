@@ -22,7 +22,9 @@ python -m PyInstaller --noconfirm --clean \
     --workpath build/windows/pyinstaller --distpath dist/windows \
     packaging/windows/tenga-proxy.spec
 
-[ -f dist/windows/tenga-proxy/tenga-proxy.exe ] || { echo "[ERROR] exe не собран"; exit 1; }
+for exe in tenga-proxy.exe tenga-proxy-svc.exe; do
+    [ -f "dist/windows/tenga-proxy/$exe" ] || { echo "[ERROR] $exe не собран"; exit 1; }
+done
 
 ISCC="${ISCC:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
 [ -x "$ISCC" ] || { echo "[ERROR] Inno Setup 6 не найден: $ISCC (переменная ISCC задаёт путь)"; exit 1; }
