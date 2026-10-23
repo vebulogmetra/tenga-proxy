@@ -38,6 +38,22 @@ def _pump_core_output(stream: IO[bytes] | None, sink: logging.Logger) -> None:
             sink.info(raw.decode("utf-8", errors="replace").rstrip("\n"))
 
 
+def core_output_logger() -> logging.Logger:
+    """Logger for the core's own output, written as is to the daily xray log.
+
+    Логгер не регистрируется в `logging.getLogger`: `setup_logging`
+    включает распространение всем зарегистрированным, и вывод ядра
+    продублировался бы в лог приложения.
+    """
+    handler = daily_file_handler(XRAY_LOG_FILE)
+    # Строки ядра уже несут своё время и уровень.
+    handler.setFormatter(RedactingFormatter("%(message)s"))
+    core_log = logging.Logger("tenga.xray.core", logging.INFO)
+    core_log.propagate = False
+    core_log.addHandler(handler)
+    return core_log
+
+
 @dataclass
 class TrafficStats:
     """Traffic statistics."""
@@ -269,21 +285,14 @@ class XrayManager:
             return False, f"Startup error: {e}"
 
     def _core_logger(self) -> logging.Logger:
-        """Logger for the core's own output, written as is to the daily xray log.
-
-        Логгер не регистрируется в `logging.getLogger`: `setup_logging`
-        включает распространение всем зарегистрированным, и вывод ядра
-        продублировался бы в лог приложения.
-        """
+        """Logger for the core's own output, created once per manager."""
         if self._core_log is None:
-            handler = daily_file_handler(XRAY_LOG_FILE)
-            # Строки ядра уже несут своё время и уровень.
-            handler.setFormatter(RedactingFormatter("%(message)s"))
-            core_log = logging.Logger("tenga.xray.core", logging.INFO)
-            core_log.propagate = False
-            core_log.addHandler(handler)
-            self._core_log = core_log
+            self._core_log = core_output_logger()
         return self._core_log
+
+    def add_output_handler(self, handler: logging.Handler) -> None:
+        """Ещё один получатель строк ядра (служба пересылает их в GUI)."""
+        self._core_logger().addHandler(handler)
 
     def reload_config(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
