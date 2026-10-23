@@ -3,8 +3,13 @@ name: Windows
 on:
   push:
     branches: [develop, master]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
+
+# Публикация установщика в релиз по тегу.
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -79,6 +84,24 @@ jobs:
           name: tenga-proxy-windows-setup
           path: dist/windows/*.exe
           if-no-files-found: error
+
+      # Тег создаёт владелец при выпуске версии; v0.18.0 обязан собрать 0.18.0.
+      - name: Tag matches version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION="$(python -c 'import runpy; print(runpy.run_path("packaging/windows/version_info.py")["project_version"]())')"
+          [ "v$VERSION" = "${{ github.ref_name }}" ] || { echo "Тег ${{ github.ref_name }} не совпадает с версией $VERSION"; exit 1; }
+
+      - name: Attach installer to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) { gh release create $tag --draft --title $tag --notes "" }
+          gh release upload $tag (Get-Item dist\windows\*.exe).FullName --clobber
 
       # Служба из собранного каталога: TUN, маршруты, NRPT и их откат на
       # настоящей Windows. Маршруты /1 на секунды перехватывают сеть раннера,
