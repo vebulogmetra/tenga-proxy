@@ -10,6 +10,8 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlsplit
 
+from src.core import platform_info
+
 RELEASES_URL = "https://api.github.com/repos/vebulogmetra/tenga-proxy/releases?per_page=30"
 RELEASE_PREFIX = "/vebulogmetra/tenga-proxy/releases/tag/"
 CHECK_INTERVAL_SECONDS = 86400
@@ -53,11 +55,24 @@ def _version(value):
     )
 
 
+def _asset_matches(name: str, aliases: tuple[str, ...]) -> bool:
+    """Сборка для этой системы: установщик на Windows, AppImage на Linux."""
+    name = name.lower()
+    if platform_info.IS_WINDOWS:
+        return (
+            name.endswith("-setup.exe")
+            and "windows" in name
+            and ("x64" in name or any(alias in name for alias in aliases))
+        )
+    return name.endswith(".appimage") and any(alias in name for alias in aliases)
+
+
 def select_release(payload, current, *, include_prerelease=False, architecture=None):
     installed = _version(current)
     if installed is None:
         return None
-    arch = architecture or platform.machine().lower()
+    # platform.machine() на Windows — «AMD64».
+    arch = (architecture or platform.machine()).lower()
     aliases = (
         ("x86_64", "amd64")
         if arch in ("x86_64", "amd64")
@@ -82,11 +97,8 @@ def select_release(payload, current, *, include_prerelease=False, architecture=N
         if not isinstance(assets, list):
             assets = []
         has_asset = any(
-            isinstance(asset, dict)
-            and str(asset.get("name", "")).lower().endswith(".appimage")
-            and any(alias in str(asset.get("name", "")).lower() for alias in aliases)
+            isinstance(asset, dict) and _asset_matches(str(asset.get("name", "")), aliases)
             for asset in assets
-            if isinstance(assets, list)
         )
         candidates.append((parsed, AppRelease(version, url, has_asset)))
     return max(candidates, key=lambda item: item[0])[1] if candidates else None

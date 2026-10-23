@@ -43,3 +43,35 @@ def test_failed_check_is_rate_limited_separately_from_success():
 )
 def test_untrusted_release_link_is_rejected(url):
     assert not safe_release_url(url)
+
+
+def test_windows_release_needs_setup_exe(monkeypatch):
+    from src.core import app_update, platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    payload = [
+        {
+            "tag_name": "v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.18.0",
+            "assets": [{"name": "tenga-proxy-0.18.0-windows-x64-setup.exe"}],
+        }
+    ]
+
+    release = app_update.select_release(payload, "0.17.0", architecture="AMD64")
+
+    assert release.has_asset is True
+
+
+def test_windows_ignores_appimage(monkeypatch):
+    from src.core import app_update, platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    payload = [
+        {
+            "tag_name": "v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.18.0",
+            "assets": [{"name": "tenga-proxy-0.18.0-x86_64.AppImage"}],
+        }
+    ]
+
+    assert app_update.select_release(payload, "0.17.0", architecture="AMD64").has_asset is False
