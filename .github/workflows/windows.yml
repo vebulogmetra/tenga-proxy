@@ -1,0 +1,79 @@
+name: Windows
+
+on:
+  push:
+    branches: [develop, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    env:
+      # install_dev.sh отвечает на свои вопросы по умолчанию.
+      CI: "true"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            git unzip
+            mingw-w64-ucrt-x86_64-python
+            mingw-w64-ucrt-x86_64-python-pip
+            mingw-w64-ucrt-x86_64-python-gobject
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-python-requests
+            mingw-w64-ucrt-x86_64-python-pytest
+            mingw-w64-ucrt-x86_64-python-pytest-cov
+            mingw-w64-ucrt-x86_64-python-pywin32
+
+      - name: Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Python tools
+        run: |
+          python -m venv --system-site-packages .venv-win
+          . .venv-win/bin/activate
+          pip install pyinstaller pyinstaller-hooks-contrib
+
+      - name: xray-core
+        run: bash core/scripts/install_dev.sh
+
+      # Windows-код и общая логика: обязаны проходить.
+      - name: Windows tests
+        run: |
+          . .venv-win/bin/activate
+          python -m pytest -q --no-cov -p no:cacheprovider \
+            tests/test_core_platform_info.py tests/test_sys_facades.py \
+            tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py \
+            tests/test_packaging_version_info.py tests/test_cli_build.py
+
+      # Весь набор: тесты Linux-реализаций здесь падать вправе, прогон
+      # показывает, что ещё зависит от POSIX.
+      - name: Full test suite (informational)
+        continue-on-error: true
+        run: |
+          . .venv-win/bin/activate
+          python -m pytest -q --no-cov -p no:cacheprovider
+
+      - name: Build installer
+        run: |
+          . .venv-win/bin/activate
+          bash core/scripts/build_windows.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tenga-proxy-windows-setup
+          path: dist/windows/*.exe
+          if-no-files-found: error
