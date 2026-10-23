@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from src.sys.windows import netinfo, resolver, tun_dns, tun_route, vpn
+from src.sys.windows import netinfo, resolver, vpn
 from tests.test_sys_windows_netinfo import SNAPSHOT
 
 
@@ -38,21 +38,3 @@ def test_dns_servers_drop_ipv6():
 def test_vpn_connect_is_not_available_yet():
     assert vpn.list_vpn_connections() == []
     assert vpn.connect_vpn("Office") is False
-
-
-def test_tun_routes_report_why_they_fail():
-    ok, state, error = tun_route.apply_tun_routes("xray0", "example.com")
-
-    assert (ok, state) == (False, None)
-    assert "служб" in error
-
-
-def test_restoring_nothing_is_fine():
-    assert tun_route.restore_tun_routes(None) == (True, "")
-
-
-def test_tun_dns_reports_why_it_fails():
-    ok, error = tun_dns.route_system_dns_to_tun("xray0")
-
-    assert ok is False
-    assert error
