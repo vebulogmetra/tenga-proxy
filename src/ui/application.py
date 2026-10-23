@@ -14,6 +14,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, Gtk
 
+from src.core import platform_info
 from src.core.context import AppContext, get_context
 from src.core.core_update import fetch_releases, is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
@@ -63,11 +64,23 @@ class TengaApplication(Adw.Application):
     __gtype_name__ = "TengaApplication"
 
     def __init__(
-        self, context: AppContext | None = None, lock=None, *, with_tray: bool = False
+        self,
+        context: AppContext | None = None,
+        lock=None,
+        *,
+        with_tray: bool = False,
+        lock_path=None,
     ) -> None:
-        super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_OPEN)
+        flags = Gio.ApplicationFlags.HANDLES_OPEN
+        if platform_info.IS_WINDOWS:
+            # Уникальность GApplication держится на D-Bus, которой на Windows нет;
+            # её обеспечивают mutex и pipe активации (src/sys/windows).
+            flags |= Gio.ApplicationFlags.NON_UNIQUE
+        super().__init__(application_id=APP_ID, flags=flags)
         self.context = context or get_context()
         self._lock = lock
+        self._lock_path = lock_path
+        self._activation = None
         self.tray = None
         self._with_tray = with_tray
         self._signal_source_ids: list[int] = []
@@ -103,6 +116,7 @@ class TengaApplication(Adw.Application):
         apply_theme(getattr(self.context.config, "theme", None))
         self._register_actions()
         self._setup_signal_handlers()
+        self._start_activation_server()
         self.watch_monitor()
         if self._with_tray:
             self.start_tray()
@@ -304,6 +318,7 @@ class TengaApplication(Adw.Application):
         for source_id in self._signal_source_ids:
             GLib.source_remove(source_id)
         self._signal_source_ids.clear()
+        self._stop_activation_server()
 
         if self._lock is not None:
             self._lock.release()
@@ -1203,13 +1218,41 @@ class TengaApplication(Adw.Application):
             for signum in (signal.SIGINT, signal.SIGTERM)
         ]
 
+    # Активация второго запуска на Windows
+
+    def _start_activation_server(self) -> None:
+        if not platform_info.IS_WINDOWS or self._lock is None or self._lock_path is None:
+            return
+        from src.sys.windows.activation import ActivationServer, pipe_address
+
+        def deliver(uris: list[str]) -> None:
+            def _apply() -> bool:
+                self.activate()
+                for uri in uris:
+                    self.import_app_link(uri)
+                return GLib.SOURCE_REMOVE
+
+            GLib.idle_add(_apply)
+
+        try:
+            self._activation = ActivationServer(pipe_address(str(self._lock_path)), deliver)
+            self._activation.start()
+        except OSError as e:
+            logger.warning("Activation server did not start: %s", e)
+            self._activation = None
+
+    def _stop_activation_server(self) -> None:
+        if self._activation is not None:
+            self._activation.stop()
+            self._activation = None
+
     def _on_signal(self, signum: int) -> bool:
         logger.info("Received signal %s, terminating application", signum)
         self.quit()
         return GLib.SOURCE_REMOVE
 
 
-def run_app(config_dir=None, lock=None, with_tray: bool = True, uris=()) -> int:
+def run_app(config_dir=None, lock=None, with_tray: bool = True, uris=(), lock_path=None) -> int:
     """Entry point for the GTK4 interface."""
     from src.core.context import init_context
     from src.core.monitor import attach_monitor
@@ -1219,7 +1262,7 @@ def run_app(config_dir=None, lock=None, with_tray: bool = True, uris=()) -> int:
     # подключение не начинает наблюдение — `ConnectionService` запускает уже
     # готовый монитор, но сам его не создаёт.
     attach_monitor(context)
-    app = TengaApplication(context=context, lock=lock, with_tray=with_tray)
+    app = TengaApplication(context=context, lock=lock, with_tray=with_tray, lock_path=lock_path)
     app.set_release_fetcher(fetch_releases)
     from src.core.app_update import fetch_app_releases
     from src.sub.route import local_proxy_url

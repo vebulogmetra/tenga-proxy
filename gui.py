@@ -139,6 +139,14 @@ def main() -> int:
     single_instance = SingleInstance(lock_file)
     holds_lock = single_instance.acquire()
     if not holds_lock:
+        from src.core.platform_info import IS_WINDOWS
+
+        if IS_WINDOWS:
+            # Без D-Bus Gio.Application не найдёт первый экземпляр сам.
+            from src.sys.windows.activation import pipe_address, send_activation
+
+            delivered = send_activation(pipe_address(str(lock_file)), args.uris)
+            return 0 if delivered else 1
         # Приложение всё равно запускается: имя на шине занято первым
         # процессом, он получит `activate` и поднимет окно, а этот процесс
         # сразу завершится. Блокировку он не трогает — xray остаётся один.
@@ -150,6 +158,7 @@ def main() -> int:
         return run_app(
             config_dir=args.config_dir,
             lock=single_instance if holds_lock else None,
+            lock_path=lock_file,
             with_tray=not args.no_tray,
             uris=args.uris,
         )
