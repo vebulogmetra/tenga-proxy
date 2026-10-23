@@ -1,5 +1,6 @@
 """Stats access must use a per-run private Unix socket, never an open TCP port."""
 
+import sys
 from pathlib import Path
 
 from src.core.xray_manager import XrayManager
@@ -13,7 +14,9 @@ def test_stats_socket_is_private_and_input_config_is_not_modified(monkeypatch):
     inbound = next(item for item in config["inbounds"] if item["tag"] == "api")
     assert "port" not in inbound
     assert Path(inbound["listen"]).is_absolute()
-    assert Path(inbound["listen"]).parent.stat().st_mode & 0o777 == 0o700
+    if sys.platform != "win32":
+        # На Windows каталог закрывает ACL профиля, биты режима там условны.
+        assert Path(inbound["listen"]).parent.stat().st_mode & 0o777 == 0o700
     assert original["inbounds"] == []
     assert original["routing"]["rules"] == []
     assert config["api"]["services"] == ["StatsService"]
@@ -32,9 +35,9 @@ def test_real_core_can_query_private_socket_without_tcp(tmp_path):
 
     import pytest
 
-    from src.core.config import find_xray_binary
+    from src.core.config import XRAY_BINARY_NAME, find_xray_binary
 
-    bundled = Path(__file__).resolve().parents[1] / "core" / "bin" / "xray"
+    bundled = Path(__file__).resolve().parents[1] / "core" / "bin" / XRAY_BINARY_NAME
     binary = str(bundled) if bundled.is_file() else find_xray_binary()
     if not binary:
         pytest.skip("xray is unavailable")

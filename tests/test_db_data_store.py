@@ -127,4 +127,4 @@ def test_failed_atomic_settings_save_preserves_previous_file(tmp_path, monkeypat
     monkeypatch.setattr("os.replace", fail)
     assert config.save(path) is False
     assert path.read_bytes() == before
-    assert list(tmp_path.iterdir()) == [path]
+    assert [item.name for item in tmp_path.iterdir()] == [path.name]

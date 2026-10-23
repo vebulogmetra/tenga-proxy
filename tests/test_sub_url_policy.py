@@ -1,3 +1,5 @@
+import sys
+
 import pytest
 
 from src.sub.url_policy import SubscriptionPolicyError, resolve_destination, validate_url
@@ -148,6 +150,9 @@ def test_stream_limit_stops_before_reading_remaining_body(monkeypatch):
     response.close.assert_called_once()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="localhost на Windows сначала разрешается в ::1"
+)
 @pytest.mark.parametrize("through_proxy", [False, True])
 def test_real_tls_pinned_ip_retains_hostname_and_certificate_verification(tmp_path, through_proxy):
     import ssl

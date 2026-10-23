@@ -8,6 +8,10 @@ from pathlib import Path
 from src import __version__
 from src.core.log_redaction import redact
 
+_OPEN_FLAGS = (
+    getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+)
+
 
 def read_diagnostics(log_dir: Path, *, max_bytes: int = 256 * 1024) -> str:
     max_bytes = min(max(0, max_bytes), 1024 * 1024)
@@ -18,7 +22,10 @@ def read_diagnostics(log_dir: Path, *, max_bytes: int = 256 * 1024) -> str:
             break
         try:
             # Never follow a substituted symlink out of the log directory.
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+            # Windows has no O_NOFOLLOW/O_NONBLOCK, but needs O_BINARY.
+            if path.is_symlink():
+                continue
+            fd = os.open(path, os.O_RDONLY | _OPEN_FLAGS)
             with os.fdopen(fd, "rb") as stream:
                 import stat
 

@@ -1,4 +1,10 @@
+import sys
+
+import pytest
+
 from src.sys.linux import proxy
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="реализация для Linux")
 
 
 class _FakeResult:
