@@ -3,6 +3,9 @@ from pathlib import Path
 
 import pytest
 
+# Блокировка Linux держится на fcntl, которого на Windows нет.
+pytest.importorskip("fcntl")
+
 from src.sys.linux.single_instance import SingleInstance
 
 

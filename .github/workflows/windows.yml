@@ -15,6 +15,8 @@ jobs:
     env:
       # install_dev.sh отвечает на свои вопросы по умолчанию.
       CI: "true"
+      # Как в собранном exe (PYTHON_OPTIONS в spec): UTF-8 вместо cp1252.
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +67,7 @@ jobs:
         continue-on-error: true
         run: |
           . .venv-win/bin/activate
-          python -m pytest -q --no-cov -p no:cacheprovider
+          python -m pytest -q --no-cov -p no:cacheprovider --continue-on-collection-errors
 
       - name: Build installer
         run: |

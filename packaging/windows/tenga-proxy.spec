@@ -41,11 +41,14 @@ gui = Analysis(  # noqa: F821
     hooksconfig=hooksconfig,
     excludes=["tkinter", "gi.repository.Gtk3"],
 )
+# Режим UTF-8: иначе open()/read_text() без encoding читали бы в cp1252.
+PYTHON_OPTIONS = [("X utf8_mode=1", None, "OPTION")]
+
 gui_pyz = PYZ(gui.pure)  # noqa: F821
 gui_exe = EXE(  # noqa: F821
     gui_pyz,
     gui.scripts,
-    [],
+    PYTHON_OPTIONS,
     exclude_binaries=True,
     name="tenga-proxy",
     icon=str(ASSETS / "tenga-proxy.ico"),

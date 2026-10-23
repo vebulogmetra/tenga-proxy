@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
-VERSION="$(python -c 'import re,pathlib; print(re.search(r"__version__ = \"(.+?)\"", pathlib.Path("src/__init__.py").read_text()).group(1))')"
+VERSION="$(python -c 'import runpy; print(runpy.run_path("packaging/windows/version_info.py")["project_version"]())')"
 
 for f in xray.exe wintun.dll geoip.dat geosite.dat; do
     [ -f "core/bin/$f" ] || { echo "[ERROR] core/bin/$f не найден: bash core/scripts/install_dev.sh"; exit 1; }
