@@ -359,16 +359,38 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
     return 0
 
 
+def build_script_path() -> Path:
+    """Сценарий сборки дистрибутива для текущей ОС."""
+    from src.core import platform_info
+
+    scripts = Path(__file__).parent / "core" / "scripts"
+    return scripts / ("build_windows.sh" if platform_info.IS_WINDOWS else "build_appimage.sh")
+
+
+def _windows_has_no_system_install() -> bool:
+    """На Windows приложение ставит Inno Setup: сообщить и отказаться."""
+    from src.core import platform_info
+
+    if not platform_info.IS_WINDOWS:
+        return False
+    print("[INFO] На Windows приложение устанавливает установщик.")
+    print("  Соберите его: python cli.py build")
+    print("  и запустите tenga-proxy-<версия>-windows-x64-setup.exe из dist/windows/")
+    return True
+
+
 def cmd_build(_args: argparse.Namespace) -> int:
-    """Собрать AppImage."""
+    """Собрать дистрибутив: AppImage на Linux, установщик на Windows."""
+    from src.core.config import XRAY_BINARY_NAME
+
     project_root = Path(__file__).parent
-    build_script = project_root / "core" / "scripts" / "build_appimage.sh"
+    build_script = build_script_path()
 
     if not build_script.exists():
         print(f"[ERROR] Скрипт сборки не найден: {build_script}")
         return 1
 
-    if not (project_root / "core" / "bin" / "xray").exists():
+    if not (project_root / "core" / "bin" / XRAY_BINARY_NAME).exists():
         print("[ERROR] xray-core не найден в core/bin/")
         print()
         print("Для разработки запустите:")
@@ -376,7 +398,7 @@ def cmd_build(_args: argparse.Namespace) -> int:
         return 1
 
     print("==========================================")
-    print("      Tenga Proxy - AppImage Build        ")
+    print("          Tenga Proxy - Build             ")
     print("==========================================")
     print()
 
@@ -390,6 +412,8 @@ def cmd_build(_args: argparse.Namespace) -> int:
 
 def cmd_install(args: argparse.Namespace) -> int:
     """Установить AppImage в систему."""
+    if _windows_has_no_system_install():
+        return 1
     project_root = Path(__file__).parent
     install_script = project_root / "core" / "scripts" / "install_appimage.sh"
 
@@ -416,6 +440,8 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 def cmd_setup(_args: argparse.Namespace) -> int:
     """Собрать и установить AppImage (аналог core/scripts/setup.sh)."""
+    if _windows_has_no_system_install():
+        return 1
     project_root = Path(__file__).parent
 
     if not (project_root / "core" / "bin" / "xray").exists():
