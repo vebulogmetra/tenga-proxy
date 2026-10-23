@@ -22,7 +22,7 @@ def test_linux_module_provides_every_facade_name(name):
     assert missing == []
 
 
-WINDOWS_READY = ["proxy", "single_instance"]
+WINDOWS_READY = FACADES
 
 
 @pytest.mark.parametrize("name", WINDOWS_READY)
