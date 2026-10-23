@@ -8,6 +8,14 @@ set -e
 
 # Закреплено вместе с core/bin/xray: latest не включает нужные маски пререлиза.
 XRAY_VERSION="26.9.9"
+# Архив Windows закреплён по sha256: в нём же лежит wintun.dll (0.14.1, тот же
+# файл, что на wintun.net), который нужен ядру для TUN.
+XRAY_WINDOWS_SHA256="244deaba2098c2964e49bba90df3707777e5f5f428a82d2f29604015f24beec2"
+
+case "$(uname -s)" in
+    MINGW*|MSYS*|CYGWIN*) XRAY_OS="windows"; XRAY_BIN="xray.exe" ;;
+    *) XRAY_OS="linux"; XRAY_BIN="xray" ;;
+esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
@@ -34,6 +42,18 @@ warning() {
 
 error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+# Вопрос «да/нет». В CI (CI=true) вопросов нет: берётся ответ по умолчанию.
+confirm() {
+    local prompt="$1" default="$2"
+    if [ "${CI:-}" = "true" ]; then
+        REPLY="$default"
+    else
+        read -p "$prompt" -n 1 -r
+        echo
+    fi
+    [[ $REPLY =~ ^[Yy]$ ]]
 }
 
 
@@ -69,8 +89,11 @@ check_os() {
             exit 1
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            error "Windows не поддерживается."
-            exit 1
+            if [ "${MSYSTEM:-}" != "UCRT64" ]; then
+                warning "Ожидается оболочка MSYS2 UCRT64, сейчас: ${MSYSTEM:-не MSYS2}"
+            fi
+            success "Система: Windows (MSYS2 ${MSYSTEM:-})"
+            return 0
             ;;
         *)
             error "Неподдерживаемая операционная система: $OS"
@@ -82,7 +105,8 @@ check_os() {
 
 
 check_root() {
-    if [ "$EUID" -eq 0 ]; then
+    # В MSYS2 EUID не означает администратора: проверка только для Linux.
+    if [ "$XRAY_OS" = "linux" ] && [ "$EUID" -eq 0 ]; then
         error "Не запускайте скрипт от имени root!"
         error "Скрипт сам запросит sudo при необходимости."
         exit 1
@@ -97,8 +121,36 @@ check_command() {
     return 0
 }
 
+# Windows: GTK, PyGObject и requests берутся из пакетов MSYS2, а не из pip.
+MSYS2_PACKAGES="git unzip mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
+mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
+mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
+mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
+mingw-w64-ucrt-x86_64-python-pywin32"
+
+install_windows_deps() {
+    info "Проверка пакетов MSYS2..."
+    if python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); \
+from gi.repository import Gtk, Adw; import requests" 2>/dev/null; then
+        success "GTK 4, libadwaita и requests доступны из Python"
+        return 0
+    fi
+    info "Нужны пакеты MSYS2: $MSYS2_PACKAGES"
+    if ! confirm "Установить их через pacman? (y/n): " "y"; then
+        error "Установите вручную: pacman -S --needed $MSYS2_PACKAGES"
+        exit 1
+    fi
+    # shellcheck disable=SC2086
+    pacman -S --needed --noconfirm $MSYS2_PACKAGES
+    success "Пакеты MSYS2 установлены"
+}
+
 # System deps
 install_system_deps() {
+    if [ "$XRAY_OS" = "windows" ]; then
+        install_windows_deps
+        return 0
+    fi
     info "Проверка системных зависимостей..."
     
     MISSING_DEPS=()
@@ -170,6 +222,11 @@ install_system_deps() {
 }
 
 install_python_deps() {
+    if [ "$XRAY_OS" = "windows" ]; then
+        # uv поставил бы PyGObject из PyPI, а его колесо без GTK не работает.
+        info "Python-зависимости на Windows приходят пакетами MSYS2, uv не нужен"
+        return 0
+    fi
     info "Проверка Python зависимостей..."
     
     if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
@@ -203,15 +260,15 @@ install_python_deps() {
 }
 
 check_xray() {
-    local bin_path="$PROJECT_ROOT/core/bin/xray"
+    local bin_path="$PROJECT_ROOT/core/bin/$XRAY_BIN"
     if [ -f "$bin_path" ] && [ -x "$bin_path" ]; then
         if "$bin_path" version &>/dev/null 2>&1; then
             return 0
         fi
     fi
     
-    # Также проверяем системный xray
-    if check_command xray; then
+    # Также проверяем системный xray (на Windows wintun.dll нужен рядом, в core/bin)
+    if [ "$XRAY_OS" = "linux" ] && check_command xray; then
         return 0
     fi
     
@@ -244,22 +301,20 @@ download_xray() {
     LATEST_VERSION="$XRAY_VERSION"
     info "Версия xray-core: $LATEST_VERSION"
     
-    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/v${LATEST_VERSION}/Xray-linux-${ARCH}.zip"
+    DOWNLOAD_URL="https://github.com/XTLS/Xray-core/releases/download/v${LATEST_VERSION}/Xray-${XRAY_OS}-${ARCH}.zip"
     
     info "Скачивание: $DOWNLOAD_URL"
     
     mkdir -p "$PROJECT_ROOT/core/bin"
     cd "$PROJECT_ROOT/core/bin"
     
-    if [ -f "xray" ]; then
+    if [ -f "$XRAY_BIN" ]; then
         warning "Найдена нерабочая версия xray-core"
-        read -p "Перезаписать? (y/n): " -n 1 -r
-        echo
-        if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        if ! confirm "Перезаписать? (y/n): " "y"; then
             cd "$PROJECT_ROOT"
             return 0
         fi
-        rm -f xray
+        rm -f "$XRAY_BIN"
     fi
     
     if ! curl -L -o xray.zip "$DOWNLOAD_URL"; then
@@ -268,7 +323,15 @@ download_xray() {
         return 1
     fi
     
-    if ! unzip -q xray.zip; then
+    if [ "$XRAY_OS" = "windows" ] && \
+        ! echo "$XRAY_WINDOWS_SHA256  xray.zip" | sha256sum -c - >/dev/null; then
+        error "Контрольная сумма архива xray-core не совпала"
+        rm -f xray.zip
+        cd "$PROJECT_ROOT"
+        return 1
+    fi
+
+    if ! unzip -q -o xray.zip; then
         error "Ошибка при распаковке архива"
         rm -f xray.zip
         cd "$PROJECT_ROOT"
@@ -277,8 +340,13 @@ download_xray() {
 
     rm xray.zip
 
-    if [ -f "xray" ]; then
-        chmod +x xray
+    if [ "$XRAY_OS" = "windows" ]; then
+        # Обёртки «без окна» из архива не нужны: приложение скрывает консоль само.
+        rm -f xray_no_window.ps1 xray_no_window.vbs xray_no_window.cmd
+    fi
+
+    if [ -f "$XRAY_BIN" ]; then
+        [ "$XRAY_OS" = "linux" ] && chmod +x "$XRAY_BIN"
     else
         error "Бинарник xray не найден в архиве"
         cd "$PROJECT_ROOT"
@@ -304,8 +372,12 @@ install_xray() {
     echo "  2. Пропустить (установите вручную позже)"
     echo
     
-    read -p "Выберите вариант (1-2) [1]: " -n 1 -r
-    echo
+    if [ "${CI:-}" = "true" ]; then
+        REPLY="1"
+    else
+        read -p "Выберите вариант (1-2) [1]: " -n 1 -r
+        echo
+    fi
     
     case $REPLY in
         1|"")
