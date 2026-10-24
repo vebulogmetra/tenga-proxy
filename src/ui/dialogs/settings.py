@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
+from src.core import platform_info
 from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
 from src.core.geo_update import update_geo_bases
@@ -124,6 +125,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _build_general_page(self) -> None:
         page = Adw.PreferencesPage(title="Общие", icon_name="preferences-system-symbolic")
+        self._general_page = page
         self.add(page)
 
         inbound = Adw.PreferencesGroup(
@@ -175,10 +177,15 @@ class SettingsDialog(Adw.PreferencesDialog):
         logs.add(self.log_level_row)
 
     def _build_monitoring_page(self) -> None:
-        page = Adw.PreferencesPage(
-            title="Мониторинг", icon_name="utilities-system-monitor-symbolic"
-        )
-        self.add(page)
+        if platform_info.IS_WINDOWS:
+            # Параметры проверки относятся к общим настройкам. Пять разделов
+            # помещаются в нижней навигации узкого Windows-диалога.
+            page = self._general_page
+        else:
+            page = Adw.PreferencesPage(
+                title="Мониторинг", icon_name="utilities-system-monitor-symbolic"
+            )
+            self.add(page)
 
         group = Adw.PreferencesGroup(
             title="Проверка соединения",
@@ -252,7 +259,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         options.add(self.dns_intercept_row)
 
     def _build_bypass_page(self) -> None:
-        page = Adw.PreferencesPage(title="Обход блокировок", icon_name="security-high-symbolic")
+        page = Adw.PreferencesPage(
+            title="Обход" if platform_info.IS_WINDOWS else "Обход блокировок",
+            icon_name="security-high-symbolic",
+        )
         self.add(page)
 
         fragment = Adw.PreferencesGroup(
@@ -286,7 +296,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         mux.add(self.mux_row)
 
     def _build_subscriptions_page(self) -> None:
-        page = Adw.PreferencesPage(title="Подписки", icon_name="folder-download-symbolic")
+        page = Adw.PreferencesPage(
+            title="Ссылки" if platform_info.IS_WINDOWS else "Подписки",
+            icon_name="folder-download-symbolic",
+        )
         self.add(page)
 
         request = Adw.PreferencesGroup(
@@ -314,7 +327,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         request.add(self.sub_insecure_row)
 
     def _build_about_page(self) -> None:
-        page = Adw.PreferencesPage(title="О программе", icon_name="help-about-symbolic")
+        page = Adw.PreferencesPage(
+            title="Версия" if platform_info.IS_WINDOWS else "О программе",
+            icon_name="help-about-symbolic",
+        )
         self.add(page)
 
         group = Adw.PreferencesGroup(title="Tenga Proxy")

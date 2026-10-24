@@ -91,6 +91,12 @@ viewswitcherbar {
   padding: 8px 12px;
 }
 
+/* Шесть разделов настроек должны помещаться и в узком диалоге. */
+.preferences viewswitcherbar button {
+  min-width: 0;
+  padding: 6px 2px;
+}
+
 toast {
   margin: 12px;
 }
