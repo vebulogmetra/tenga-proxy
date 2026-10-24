@@ -15,6 +15,8 @@ datas = [
     if path.is_file() and not path.name.startswith("screen-")
 ]
 datas += [
+    (str(ROOT / "src" / "ui" / "style.css"), "src/ui"),
+    (str(ROOT / "src" / "ui" / "style-windows.css"), "src/ui"),
     (str(CORE_BIN / "geoip.dat"), "core/bin"),
     (str(CORE_BIN / "geosite.dat"), "core/bin"),
 ]

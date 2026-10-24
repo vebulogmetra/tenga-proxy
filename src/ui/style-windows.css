@@ -1,0 +1,32 @@
+/* Только Windows: логические размеры масштабирует GTK под DPI монитора.
+   Не задаём GDK_SCALE: он дублировал бы системное масштабирование. */
+window {
+  font-family: "Segoe UI";
+  font-size: 11pt;
+}
+
+headerbar button,
+viewswitcherbar button {
+  min-width: 36px;
+  min-height: 36px;
+}
+
+headerbar button image,
+viewswitcherbar button image {
+  -gtk-icon-size: 20px;
+}
+
+/* У Adwaita подписи переключателя уменьшены относительно основного текста. */
+viewswitcher button label {
+  font-size: 10pt;
+}
+
+.status-card button {
+  min-height: 36px;
+  padding-left: 16px;
+  padding-right: 16px;
+}
+
+.metrics {
+  font-size: 1em;
+}

@@ -13,6 +13,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
+from src.core import platform_info
 from src.core.config import get_asset_path
 from src.ui.logic.appearance import normalize_theme
 from src.ui.logic.geometry import (
@@ -54,16 +55,19 @@ def load_css() -> None:
     if display is None:
         return
 
-    path = Path(__file__).with_name("style.css")
-    if not path.exists():
-        logger.warning("Stylesheet not found, using the plain system theme")
-        return
-
-    provider = Gtk.CssProvider()
-    provider.load_from_path(str(path))
-    Gtk.StyleContext.add_provider_for_display(
-        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-    )
+    names = ["style.css"]
+    if platform_info.IS_WINDOWS:
+        names.append("style-windows.css")
+    for name in names:
+        path = Path(__file__).with_name(name)
+        if not path.exists():
+            logger.warning("Stylesheet not found: %s", path)
+            continue
+        provider = Gtk.CssProvider()
+        provider.load_from_path(str(path))
+        Gtk.StyleContext.add_provider_for_display(
+            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
 
 
 def apply_theme(theme: str | None) -> None:
