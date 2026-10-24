@@ -4,8 +4,8 @@
 TUN или пользовательский SOCKS/HTTP-inbound — проверять нельзя: запрос
 подчинился бы правилам маршрутизации и, попав под direct-правило, прошёл бы
 мимо прокси. Мёртвый сервер тогда выглядел бы живым. Правило
-`health-in → proxy` стоит первым, поэтому проверка всегда идёт через сервер
-профиля.
+`health-in → proxy` стоит перед пользовательскими правилами, поэтому проверка
+всегда идёт через сервер профиля. На Windows перехват DNS для TUN остаётся первым.
 """
 
 from __future__ import annotations
@@ -13,7 +13,9 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from src.core import platform_info
 from src.core.batch_probe import reserve_ports
+from src.core.config_validator import DNS_OUT_TAG, TUN_INBOUND_TAG
 from src.core.http_probe import ProbeCredentials, ProbeEndpoint, build_probe_inbound
 
 HEALTH_INBOUND_TAG = "health-in"
@@ -32,8 +34,17 @@ def attach_health_inbound(config: dict[str, Any], endpoint: ProbeEndpoint) -> di
     proxy_tag = (outbounds[0].get("tag") if outbounds else None) or DEFAULT_PROXY_TAG
 
     config.setdefault("inbounds", []).append(build_probe_inbound(HEALTH_INBOUND_TAG, endpoint))
-    config.setdefault("routing", {}).setdefault("rules", []).insert(
-        0,
+    rules = config.setdefault("routing", {}).setdefault("rules", [])
+    first = rules[0] if rules else {}
+    # Служба Windows повторно валидирует конфиг после добавления health-in.
+    # DNS-правило относится только к TUN и проверке соединения не мешает.
+    after_dns = platform_info.IS_WINDOWS and (
+        first.get("outboundTag") == DNS_OUT_TAG
+        and str(first.get("port")) == "53"
+        and TUN_INBOUND_TAG in first.get("inboundTag", [])
+    )
+    rules.insert(
+        1 if after_dns else 0,
         {"type": "field", "inboundTag": [HEALTH_INBOUND_TAG], "outboundTag": proxy_tag},
     )
     return config

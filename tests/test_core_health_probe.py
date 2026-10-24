@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 import requests
 
+from src.core import platform_info
 from src.core.batch_probe import BatchCore, core_accepts, reserve_ports
 from src.core.config_builder import build_session_config
 from src.core.context import init_context
@@ -91,6 +92,26 @@ def test_health_inbound_tolerates_a_config_without_routing():
 
     assert config["inbounds"][0]["tag"] == HEALTH_INBOUND_TAG
     assert config["routing"]["rules"][0]["outboundTag"] == "proxy"
+
+
+@pytest.mark.parametrize("is_windows", [False, True])
+def test_dns_interception_keeps_priority_only_on_windows(monkeypatch, is_windows):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", is_windows)
+    config = session_config()
+    dns_rule = {
+        "type": "field",
+        "inboundTag": ["tun-in"],
+        "port": "53",
+        "outboundTag": "dns-out",
+    }
+    config["routing"]["rules"].insert(0, dns_rule)
+
+    attach_health_inbound(config, ENDPOINT)
+
+    rules = config["routing"]["rules"]
+    assert rules[0 if is_windows else 1] == dns_rule
+    assert rules[1 if is_windows else 0]["inboundTag"] == [HEALTH_INBOUND_TAG]
+    assert rules[2]["domain"] == ["example.com"]
 
 
 def test_redacted_copy_hides_credentials_and_leaves_the_config_intact():

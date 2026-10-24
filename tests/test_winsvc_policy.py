@@ -122,13 +122,14 @@ def test_inbound_without_listen_is_refused():
 
 def test_config_built_by_the_gui_passes(tmp_path, monkeypatch):
     """Политика не отвергает то, что собирает сам GUI в режиме TUN."""
-    from src.core import config_builder
+    from src.core import config_builder, platform_info
     from src.core.config_builder import build_session_config
     from src.core.health_probe import attach_health_inbound
     from src.core.http_probe import ProbeCredentials, ProbeEndpoint
     from src.db.config import ProxyMode
     from tests.support.session import make_context, make_profile, use_bundled_geo
 
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
     use_bundled_geo(monkeypatch)
     monkeypatch.setattr(config_builder, "get_default_interface", lambda *_a, **_k: "Ethernet")
     context = make_context(tmp_path)
