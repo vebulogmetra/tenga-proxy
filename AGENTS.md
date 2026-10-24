@@ -1,52 +1,211 @@
-# Repository Guidelines
+# Инструкции для работы с Tenga Proxy
 
-## Always respond on Russian language.
+## Язык и область действия
 
-## Project Structure & Module Organization
-Main code lives in `src/`, split by responsibility:
-- `src/core/`: app context, xray process management, monitoring, logging.
-- `src/fmt/`: share-link/subscription parsing and protocol models.
-- `src/db/`: JSON-backed profiles and app settings storage.
-- `src/ui/`: GTK4 + libadwaita app, window, pages, dialogs, tray, GTK-free logic.
-- `src/sys/`: system proxy, VPN, single-instance logic.
-- `src/sub/`: subscription update flow.
+Всегда отвечай пользователю на русском языке. Инструкции действуют для всего
+репозитория. Перед изменениями изучи затронутый код, ближайшие тесты и
+`git status`; сохраняй изменения пользователя.
 
-Entrypoints are `cli.py` (CLI) and `gui.py` (desktop app). Tests are in `tests/` (`test_*.py`). Dev/runtime assets and binaries are in `assets/` and `core/bin/`.
+## Проект и окружение
 
-## Build, Test, and Development Commands
-- `uv sync --extra dev`: install dependencies including test/lint tools.
-- `uv run python gui.py`: run GUI locally.
-- `uv run python cli.py --help`: inspect CLI commands.
-- `make test` or `uv run pytest`: run test suite (GTK widget tests are excluded).
-- `make test-gtk`: run the widget tests, which need a display or `xvfb-run`.
-- `make test-cov`: run tests with coverage (terminal + `htmlcov/`).
-- `make lint`, `make lint-fix`: run Ruff checks / auto-fix.
-- `make format`, `make format-check`: apply/check formatting.
-- `uv run python cli.py build`: build AppImage into `dist/`.
+Tenga Proxy — прокси-клиент для Linux и Windows на Python 3.11+ с xray-core, CLI
+и GUI на GTK 4 и libadwaita 1.5+. Протоколы: VLESS, Trojan, VMess,
+Shadowsocks, Hysteria2, SOCKS и HTTP. Режимы работы — TUN и системный
+прокси; VPN-интеграция зависит от ОС: NetworkManager на Linux, RAS и WireGuard на Windows.
 
-## Coding Style & Naming Conventions
-Python 3.11+; 4-space indentation; max line length 100. Formatting/linting is enforced via Ruff (`pyproject.toml`), with import sorting aligned to first-party package `src`.
+На Linux менеджер зависимостей — uv; на Windows используй MSYS2 UCRT64. PyGObject и Pycairo требуют системных библиотек.
+Наличие Windows-окружения не позволяет автоматически проверить
+Linux GUI, D-Bus, TUN и сборку AppImage. Сообщай, какие проверки выполнены,
+какие недоступны; не выдавай пропущенные проверки за успешные.
 
-Use:
-- `snake_case` for functions/modules/variables.
-- `PascalCase` for classes (`AppContext`, `XrayManager` style).
-- `UPPER_SNAKE_CASE` for constants.
+## Карта исходников
 
-Keep new modules consistent with existing domain split (`core`, `fmt`, `db`, `ui`, `sys`, `sub`).
+- `cli.py`, `gui.py` — точки входа CLI и GUI.
+- `src/core/context.py` — AppContext, зависимости и состояние приложения.
+- `src/core/connection.py` — ConnectionService: подключение, отключение,
+  применение режима работы и взаимодействие с системой, без GTK.
+- `src/core/config_builder.py`, `config_validator.py`, `dns_config.py` —
+  конфигурация рабочей сессии, безопасность, DNS и маршрутизация.
+- `src/core/xray_manager.py` — процесс xray-core, окружение и статистика.
+- `src/core/monitor.py`, `health_probe.py`, `http_probe.py`, `batch_probe.py` —
+  мониторинг, проверки соединения и пакетный замер задержки.
+- `src/core/geo*.py`, `core_update.py` — геобазы и обновление ядра;
+  `log_manager.py`, `logging_utils.py` — журналы.
+- `src/fmt/` — ссылки, подписки, JSON-конфигурации, ProxyBean,
+  настройки транспорта и реализации протоколов в `protocols/`.
+- `src/db/` — JSON-хранилище, настройки, профили и группы:
+  DataStore, ProfileStore, ProfileEntry.
+- `src/sub/` — загрузка и обновление подписок, метаданные, ошибки и повторы.
+- `src/sys/` — системный прокси, VPN, DNS, маршруты TUN, единственный экземпляр.
+- `src/ui/` — приложение, окно, страницы, диалоги, виджеты и трей;
+  `src/ui/logic/` — логика без GTK.
+- `tests/` — pytest-тесты; `tests/conftest.py` — общие фикстуры;
+  `tests/support/` — вспомогательный код.
+- `core/scripts/` — сборка, установка, подготовка окружения и TUN helper;
+  `core/bin/` — бинарники и ресурсы ядра; `assets/` — ресурсы интерфейса.
+- `docs/ru/`, `docs/en/` — документация; `docs/plans/` — планы изменений.
 
-## Testing Guidelines
-Framework: `pytest` with `pytest-cov`. Discovery is configured for `tests/test_*.py`. Prefer focused unit tests close to touched behavior (parser logic, config/store updates, monitor/system interactions). Run `make test-cov` before opening a PR and verify no regressions in covered paths.
+Документация и CLAUDE.md могут отставать от реализации. Проверяй пути,
+имена классов и команды по исходникам, Makefile и pyproject.toml.
 
-## Commit & Pull Request Guidelines
-History shows concise, imperative commit messages (e.g., `Add log manager integration`), plus version-tag commits (`0.9.0`) for releases. Follow:
-- One logical change per commit.
-- Subject line in imperative mood; optional scope (`core:`, `ui:`) is welcome.
+## Команды
 
-For PRs, include:
-- Problem and solution summary.
-- Linked issue/task (if available).
-- Test evidence (`make test`, lint/format status).
-- Screenshots/GIFs for UI changes (`src/ui/*`, dialogs, tray behavior).
+Выполняй команды из корня репозитория. Makefile и shell-скрипты рассчитаны
+на Linux.
 
-## Security & Configuration Tips
-Do not commit secrets or personal subscription links. Respect config locations: dev mode uses local `core/` and `logs/`; packaged mode uses user config dirs. Ensure `core/bin/xray` is executable and sourced from a trusted release.
+| Задача | Команда |
+| --- | --- |
+| Зависимости разработки | `uv sync --extra dev` |
+| Подготовка dev-окружения и ядра | `uv run python cli.py setup-dev` |
+| Запуск GUI | `uv run python gui.py` |
+| Справка CLI | `uv run python cli.py --help` |
+| Основные тесты | `make test` или `uv run pytest` |
+| Покрытие | `make test-cov` |
+| Целевые тесты без покрытия | `uv run pytest tests/test_core_connection.py --no-cov` |
+| GTK-тесты | `make test-gtk` |
+| Тесты трея | `make test-tray` |
+| Линтер | `make lint` или `uv run python cli.py lint` |
+| Автоисправления линтера | `make lint-fix` |
+| Форматирование | `make format` |
+| Проверка форматирования | `make format-check` |
+| Линтер и форматирование | `make lint-all` |
+| Сборка AppImage | `uv run python cli.py build` |
+
+Сборка вызывает `core/scripts/build_appimage.sh`, использует PyInstaller
+и appimagetool, требует `core/bin/xray`; результат находится в `dist/`.
+Для зависимостей сборки есть extra `build`. Установку приложения и изменение
+версии выполняй в рамках задачи. Для версии используй `cli.py bump-version`,
+изучив его поведение, чтобы согласованно обновить связанные файлы.
+
+## Архитектурные правила
+
+- Сохраняй разделение core, fmt, db, sub, sys, ui. Логику подключения
+  и генерации конфигурации не переноси в виджеты.
+- `src/ui/logic/` должен оставаться без импортов GTK. Длительные и сетевые
+  операции не должны блокировать главный цикл. Используй принятый механизм
+  фоновых задач и доставки результатов из `src/ui/logic/async_utils.py`.
+- Меню, сочетания клавиш и трей используют общие Gio.SimpleAction приложения.
+- На Linux трей реализован через StatusNotifierItem и D-BusMenu на Gio; на Windows — через Shell_NotifyIcon в `src/ui/tray/win32/`.
+  Не добавляй AppIndicator3 в процесс GTK 4: он связан с GTK 3.
+- Не обходи проверки безопасности конфигурации ради успешного подключения.
+  Для изменений DNS, маршрутов, TUN и системного прокси проверяй обработку
+  ошибок и восстановление состояния при отключении.
+
+## Диагностика подключения
+
+Успешный замер задержки группы не доказывает работоспособность рабочей сессии.
+`batch_probe.py` создаёт отдельную конфигурацию с HTTP-inbound на loopback
+и outbound профилей, без рабочих правил, DNS и TUN. При ошибке подключения
+проверяй ConnectionService, build_session_config, валидатор, запуск
+XrayManager, доступность геобаз и применение системного режима.
+
+Для установленной сборки учитывай версию и фактический бинарник xray,
+состав AppImage, пути ресурсов, права TUN и stderr ядра. Не объявляй причину
+установленной без текста ошибки, логов или воспроизводящего теста.
+
+## Настройки, логи и секреты
+
+Пути определяются в `src/core/config.py`:
+
+- Из исходников: конфигурация в `core/`, журналы в `logs/` корня проекта.
+- Linux AppImage/frozen: `${XDG_CONFIG_HOME:-~/.config}/tenga-proxy/`, журналы
+  в подкаталоге `logs/`.
+- Windows frozen: настройки в `%APPDATA%/tenga-proxy/`, журналы в `%LOCALAPPDATA%/tenga-proxy/logs/` без переопределения TENGA_CONFIG_DIR.
+- `TENGA_CONFIG_DIR` переопределяет каталог конфигурации и учитывается
+  при выборе режима путей. Не зашивай пользовательские пути в код.
+- Журналы: `tenga_gui.log`, `tenga_cli.log`, `xray.log`.
+- `settings.json`, `profiles/`, `current_config.json` — рабочие данные.
+  Не коммить их и не меняй реальные профили ради тестов.
+
+Не коммить личные ссылки подписок, UUID, пароли и токены. В тестах используй
+синтетические данные. `current_config.json` может содержать учётные данные
+профиля, хотя служебные health credentials удаляются перед записью.
+Не публикуй конфигурации и логи без удаления секретов. Сохраняй исполняемость
+Linux-скриптов и xray; бинарники бери из доверенных релизов.
+
+## Стиль и проверки
+
+Python: четыре пробела, длина строки 100, двойные кавычки, Ruff для линтинга
+и форматирования. Правила и исключения бери из pyproject.toml;
+`src` — first-party пакет для сортировки импортов.
+Имена: snake_case, классы PascalCase, константы UPPER_SNAKE_CASE.
+Аннотации типов и структура новых модулей должны соответствовать соседнему коду.
+
+Для изменения поведения добавляй целевые тесты, особенно для парсеров,
+конфигурации, подписок и обработки отказов. Сеть, subprocess, DNS,
+системный прокси и маршруты подменяй; данные храни в tmp_path.
+Учитывай autouse-фикстуры tests/conftest.py: они отключают системный DNS
+и определение реальной сети при сборке конфигурации.
+
+По умолчанию pytest исключает маркер gtk и формирует покрытие src
+в терминале и htmlcov/. `make test-gtk` использует отдельную сессионную
+шину D-Bus и, если доступен, xvfb-run, чтобы не активировать установленное
+приложение вместо тестового. `make test-tray` запускается отдельно:
+тесты создают собственную шину через Gio.TestDBus; не оборачивай их
+в дополнительный dbus-run-session.
+
+Начинай с тестов затронутой области. Перед PR выполни `make test-cov`,
+линтинг и проверку форматирования; для изменений GTK и трея — соответствующие
+наборы в Linux. Недоступные проверки явно перечисли в отчёте.
+Для изменений только документации достаточно проверки содержания и diff.
+
+## Коммиты и PR
+
+Один коммит — одно логическое изменение. Сообщение короткое, в повелительном
+наклонении; допустим префикс core: или ui:.
+В PR опиши проблему, результат, связанную задачу и фактические проверки.
+Для изменений интерфейса добавь скриншоты или GIF, если среда позволяет.
+Не включай несвязанные рефакторинги, пользовательские данные и артефакты сборки.
+
+
+## Windows и ветка develop
+
+Текущая работа по портированию на Windows ведётся в develop. Сохраняй
+работоспособность Linux и Windows. Сверяй решения с исходниками и планами
+`docs/plans/2026-10-23-windows-*.md`.
+
+- `src/core/platform_info.py` — определение платформы и параметры subprocess.
+- Модули верхнего уровня `src/sys/` — фасады. Реализации находятся
+  в `src/sys/linux/` и `src/sys/windows/`. Общий код должен вызывать фасады;
+  не разбрасывай проверки ОС и Windows-only импорты по общим модулям.
+- `src/winsvc/` — привилегированная Windows-служба, протокол named pipe,
+  проверка запросов, управление ядром, сетью и восстановлением состояния.
+  GUI работает без повышения прав; служба устанавливается установщиком.
+  Не ослабляй проверку команд, путей, конфигурации и прав доступа к pipe.
+- `src/ui/tray/win32/` — Windows-трей; не переноси зависимость D-Bus
+  в Windows-ветку исполнения. Единственный экземпляр и активация окна
+  на Windows используют платформенную реализацию.
+- `packaging/windows/` — PyInstaller spec, Inno Setup и сведения о версии.
+  `.github/workflows/windows.yml` — фактическая последовательность CI.
+
+На Windows Python, GTK, libadwaita, PyGObject, requests и pywin32 берутся
+из пакетов MSYS2 UCRT64. Не заменяй их обычным pip/uv-окружением без проверки
+совместимости. Подготовка: `bash core/scripts/install_dev.sh` в UCRT64.
+Сборка: `bash core/scripts/build_windows.sh` с PyInstaller и Inno Setup;
+результат — `dist/windows/tenga-proxy-<версия>-windows-x64-setup.exe`.
+CLI build выбирает скрипт по ОС; таблица команд uv выше относится к Linux.
+
+В подготовленном MSYS2-окружении запускай Windows-набор как в CI:
+
+```bash
+python -m pytest -q --no-cov -p no:cacheprovider \
+  tests/test_core_platform_info.py tests/test_sys_facades.py \
+  tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
+  tests/test_packaging_version_info.py tests/test_cli_build.py
+```
+
+Тесты `tests/integration/` с маркером windows требуют настоящей Windows
+и установленной службы, могут менять сетевое состояние. Изучи условия
+в workflow перед запуском. Полный набор на Windows в CI информационный:
+Linux-зависимые тесты могут падать; это не отменяет обязательный Windows-набор.
+Проверки GTK с D-Bus из раздела выше относятся к Linux.
+
+При ситуации «пинг работает, подключение нет» отдельно проверяй путь запуска
+через службу, её состояние, доступ к named pipe, xray.exe, wintun.dll,
+маршруты и DNS. Пакетный замер и рабочая TUN-сессия используют разные пути.
+
+В корне может находиться переданный пользователем установщик из Actions
+`tenga-proxy-0.17.0-windows-x64-setup.exe`. Это локальный диагностический
+артефакт: не удаляй, не перезаписывай и не коммить его. Перед сравнением
+с исходниками уточняй соответствие сборки версии или коммиту; одно имя файла
+не доказывает идентичность содержимого текущей ветке.
