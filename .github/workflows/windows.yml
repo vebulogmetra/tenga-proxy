@@ -66,6 +66,16 @@ jobs:
             tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
             tests/test_packaging_version_info.py tests/test_cli_build.py
 
+      - name: Windows UI tests
+        run: |
+          . .venv-win/bin/activate
+          python -m pytest -q --no-cov -p no:cacheprovider -m gtk \
+            tests/test_ui_styles.py tests/test_ui_pages_profiles.py \
+            tests/test_ui_pages_subscriptions.py tests/test_ui_pages_monitoring.py \
+            tests/test_ui_dialogs_group.py tests/test_ui_dialogs_add_profile.py \
+            tests/test_ui_dialogs_subscription.py tests/test_ui_dialogs_edit_profile.py \
+            tests/test_ui_dialogs_settings.py
+
       # Весь набор: тесты Linux-реализаций здесь падать вправе, прогон
       # показывает, что ещё зависит от POSIX.
       - name: Full test suite (informational)

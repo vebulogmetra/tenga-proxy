@@ -10,8 +10,9 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, GObject, Gtk
+from gi.repository import Adw, Gio, GObject, Gtk, Pango
 
+from src.core import platform_info
 from src.ui.logic.subscriptions_view import SubscriptionRow, build_subscription_rows
 
 
@@ -97,6 +98,8 @@ class SubscriptionsPage(Gtk.Box):
         action_row = Adw.ActionRow()
         action_row.set_use_markup(False)
         action_row.set_title(row.name)
+        if platform_info.IS_WINDOWS:
+            action_row.set_title_lines(2)
         action_row.set_subtitle(row.url)
         action_row.set_subtitle_lines(1)
         action_row.set_activatable(True)
@@ -111,10 +114,18 @@ class SubscriptionsPage(Gtk.Box):
         meta = Gtk.Label(label=f"{row.profile_count} · {row.updated_text}", xalign=1.0)
         meta.add_css_class("dim-label")
         meta.add_css_class("caption")
+        if platform_info.IS_WINDOWS:
+            meta.set_max_width_chars(18)
+            meta.set_ellipsize(Pango.EllipsizeMode.END)
+            meta.set_tooltip_text(meta.get_text())
         meta_box.append(meta)
         if row.details_text:
             details = Gtk.Label(label=row.details_text, xalign=1.0)
             details.add_css_class("caption")
+            if platform_info.IS_WINDOWS:
+                details.set_max_width_chars(18)
+                details.set_ellipsize(Pango.EllipsizeMode.END)
+                details.set_tooltip_text(row.details_text)
             # Истёкшую подписку видно сразу: серверов в ней обычно уже нет.
             details.add_css_class("error" if row.expired else "dim-label")
             meta_box.append(details)

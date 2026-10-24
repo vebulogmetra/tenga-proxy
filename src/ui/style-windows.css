@@ -5,6 +5,41 @@ window {
   font-size: 11pt;
 }
 
+/* Единая плотность для форм, списков и диалогов. Размеры логические. */
+button {
+  min-height: 32px;
+  padding: 6px 12px;
+}
+
+button.image-button {
+  min-width: 32px;
+  padding: 6px;
+}
+
+button.image-button image {
+  -gtk-icon-size: 20px;
+}
+
+entry {
+  min-height: 32px;
+  padding: 6px 10px;
+}
+
+row.activatable {
+  min-height: 56px;
+}
+
+.caption {
+  font-size: 10pt;
+}
+
+/* Системные кнопки окна должны оставаться компактными. */
+windowcontrols button {
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+}
+
 headerbar button,
 viewswitcherbar button {
   min-width: 36px;
@@ -41,7 +76,11 @@ headerbar {
 }
 
 .profiles-tree {
-  margin: 0 12px 12px;
+  margin: 0 16px 16px;
+}
+
+.profiles-tree > header > button {
+  padding: 8px 16px;
 }
 
 .profiles-tree > listview > row > cell {
@@ -54,4 +93,12 @@ viewswitcherbar {
 
 toast {
   margin: 12px;
+}
+
+.diagnostic-actions > flowboxchild {
+  padding: 0;
+}
+
+textview {
+  padding: 12px;
 }

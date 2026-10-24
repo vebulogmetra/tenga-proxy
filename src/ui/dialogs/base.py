@@ -9,6 +9,8 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk
 
+from src.core import platform_info
+
 DEFAULT_WIDTH = 520
 
 
@@ -47,7 +49,13 @@ class FormDialog(Adw.Dialog):
         self._toolbar.add_top_bar(header)
 
         self.page = Adw.PreferencesPage()
-        self.page.set_size_request(DEFAULT_WIDTH, -1)
+        if platform_info.IS_WINDOWS:
+            # Предпочтительная ширина вместо жёсткого минимума:
+            # диалог может стать листом внутри узкого окна.
+            self.set_follows_content_size(False)
+            self.set_content_width(560)
+        else:
+            self.page.set_size_request(DEFAULT_WIDTH, -1)
         self._toolbar.set_content(self.page)
 
     def set_content_widget(self, widget: Gtk.Widget) -> None:

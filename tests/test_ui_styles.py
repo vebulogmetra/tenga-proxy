@@ -97,3 +97,43 @@ def test_toasts_leave_windows_navigation_outside_overlay(gtk_ready, monkeypatch,
         assert (main.toast_overlay in ancestors) is not windows
     finally:
         main.destroy()
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_form_width_can_adapt_on_windows(gtk_ready, monkeypatch, windows):
+    from src.core import platform_info
+    from src.ui.dialogs.base import DEFAULT_WIDTH, FormDialog
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
+    dialog = FormDialog("Тест", "Сохранить")
+    if windows:
+        assert dialog.page.get_size_request().width == -1
+        assert not dialog.get_follows_content_size()
+        assert dialog.get_content_width() == 560
+    else:
+        assert dialog.page.get_size_request().width == DEFAULT_WIDTH
+        assert dialog.get_follows_content_size()
+
+
+@pytest.mark.parametrize("windows", [False, True])
+def test_diagnostics_actions_can_wrap_on_windows(gtk_ready, monkeypatch, windows):
+    from gi.repository import Gtk
+
+    from src.core import platform_info
+    from src.ui.pages.monitoring import MonitoringPage
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
+    page = MonitoringPage()
+
+    def descendants(widget):
+        child = widget.get_first_child()
+        while child is not None:
+            yield child
+            yield from descendants(child)
+            child = child.get_next_sibling()
+
+    groups = [w for w in descendants(page) if w.has_css_class("diagnostic-actions")]
+    assert len(groups) == int(windows)
+    if windows:
+        assert isinstance(groups[0], Gtk.FlowBox)
+        assert groups[0].get_min_children_per_line() == 1

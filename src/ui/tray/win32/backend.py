@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ctypes
 import logging
+import re
 import threading
 from ctypes import wintypes
 
@@ -37,6 +38,23 @@ LR_LOADFROMFILE = 0x10
 SM_CXSMICON, SM_CYSMICON = 49, 50
 MF_STRING, MF_GRAYED, MF_CHECKED, MF_POPUP, MF_SEPARATOR = 0x0, 0x1, 0x8, 0x10, 0x800
 TPM_RIGHTBUTTON, TPM_NONOTIFY, TPM_RETURNCMD = 0x2, 0x80, 0x100
+
+
+class MENUITEMINFOW(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.UINT),
+        ("fMask", wintypes.UINT),
+        ("fType", wintypes.UINT),
+        ("fState", wintypes.UINT),
+        ("wID", wintypes.UINT),
+        ("hSubMenu", wintypes.HMENU),
+        ("hbmpChecked", wintypes.HBITMAP),
+        ("hbmpUnchecked", wintypes.HBITMAP),
+        ("dwItemData", ctypes.c_size_t),
+        ("dwTypeData", wintypes.LPWSTR),
+        ("cch", wintypes.UINT),
+        ("hbmpItem", wintypes.HBITMAP),
+    ]
 
 
 class WNDCLASSEXW(ctypes.Structure):
@@ -152,6 +170,11 @@ def _api():
         ),
         (user32.DestroyMenu, [wintypes.HMENU], wintypes.BOOL),
         (
+            user32.SetMenuItemInfoW,
+            [wintypes.HMENU, wintypes.UINT, wintypes.BOOL, ctypes.POINTER(MENUITEMINFOW)],
+            wintypes.BOOL,
+        ),
+        (
             user32.TrackPopupMenu,
             [
                 wintypes.HMENU,
@@ -185,6 +208,9 @@ class NotifyIconWindow:
         # имени не удалась бы, и новое окно получило бы WNDPROC прежнего.
         self._class_name = f"TengaProxyTrayWindow-{id(self):x}"
         self._user32, self._shell32, self._kernel32 = _api()
+        self._gdi32 = ctypes.WinDLL("gdi32", use_last_error=True)
+        self._gdi32.DeleteObject.argtypes = [wintypes.HANDLE]
+        self._gdi32.DeleteObject.restype = wintypes.BOOL
         self._lock = threading.Lock()
         self._pending: tuple[str, str] = ("", "")
         self._hwnd = None
@@ -225,8 +251,10 @@ class NotifyIconWindow:
 
     def show_menu(self, ops) -> int:
         """Показать меню и вернуть id выбранного пункта (0 — закрыто без выбора)."""
-        menu = self._build_menu(ops)
+        bitmaps = []
+        menu = None
         try:
+            menu = self._build_menu(ops, bitmaps)
             point = wintypes.POINT()
             self._user32.GetCursorPos(ctypes.byref(point))
             # Без SetForegroundWindow меню не закрывается щелчком мимо него
@@ -244,26 +272,58 @@ class NotifyIconWindow:
             self._user32.PostMessageW(self._hwnd, WM_NULL, 0, 0)
             return int(chosen)
         finally:
-            self._user32.DestroyMenu(menu)
+            if menu:
+                self._user32.DestroyMenu(menu)
+            for bitmap in bitmaps:
+                self._gdi32.DeleteObject(bitmap)
 
-    def _build_menu(self, ops):
+    def _build_menu(self, ops, bitmaps):
         from src.ui.tray.win32.menu_ops import Entry, Popup, Separator
 
         menu = self._user32.CreatePopupMenu()
-        for op in ops:
+        for position, op in enumerate(ops):
+            label = op.label
+            bitmap = None
+            if not isinstance(op, Separator):
+                label, bitmap = self._menu_flag(label)
+                if bitmap:
+                    bitmaps.append(bitmap)
             if isinstance(op, Separator):
                 self._user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
             elif isinstance(op, Popup):
-                sub = self._build_menu(op.children)
-                self._user32.AppendMenuW(menu, MF_POPUP, sub, op.label)
+                sub = self._build_menu(op.children, bitmaps)
+                self._user32.AppendMenuW(menu, MF_POPUP, sub, label)
             elif isinstance(op, Entry):
                 flags = MF_STRING
                 if not op.enabled:
                     flags |= MF_GRAYED
                 if op.checked:
                     flags |= MF_CHECKED
-                self._user32.AppendMenuW(menu, flags, op.id, op.label)
+                self._user32.AppendMenuW(menu, flags, op.id, label)
+            if bitmap:
+                info = MENUITEMINFOW()
+                info.cbSize = ctypes.sizeof(info)
+                info.fMask = 0x80  # MIIM_BITMAP: сохраняет checkmark активного профиля.
+                info.hbmpItem = bitmap
+                self._user32.SetMenuItemInfoW(menu, position, True, ctypes.byref(info))
         return menu
+
+    def _menu_flag(self, label):
+        from src.core.config import get_asset_path
+        from src.ui.logic.country_flags import split_flag_prefix
+
+        match = re.search(r"[\U0001f1e6-\U0001f1ff]{2}\ufe0f?", label)
+        if match is None:
+            return label, None
+        code, _ = split_flag_prefix(match[0])
+        path = get_asset_path(f"flags/win/{code}.bmp")
+        if not path.is_file():
+            return label, None
+        height = max(16, self._user32.GetSystemMetrics(72))  # SM_CYMENUCHECK
+        bitmap = self._user32.LoadImageW(None, str(path), 0, height * 4 // 3, height, 0x2010)
+        if not bitmap:
+            return label, None
+        return (label[: match.start()] + label[match.end() :]).strip(), bitmap
 
     def _run(self) -> None:
         try:
