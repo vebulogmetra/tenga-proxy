@@ -128,10 +128,13 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_ui(self) -> None:
         self.toast_overlay = Adw.ToastOverlay()
-        self.set_content(self.toast_overlay)
-
         toolbar = Adw.ToolbarView()
-        self.toast_overlay.set_child(toolbar)
+        if platform_info.IS_WINDOWS:
+            # Панели вне overlay: уведомления не закрывают нижние вкладки.
+            self.set_content(toolbar)
+        else:
+            self.set_content(self.toast_overlay)
+            self.toast_overlay.set_child(toolbar)
 
         self.view_stack = Adw.ViewStack()
         self._add_pages()
@@ -168,7 +171,11 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.view_stack.set_vexpand(True)
         content.append(self.view_stack)
-        toolbar.set_content(content)
+        if platform_info.IS_WINDOWS:
+            self.toast_overlay.set_child(content)
+            toolbar.set_content(self.toast_overlay)
+        else:
+            toolbar.set_content(content)
 
     def _add_pages(self) -> None:
         self.profiles_page = ProfilesPage()

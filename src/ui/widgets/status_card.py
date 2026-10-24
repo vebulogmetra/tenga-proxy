@@ -14,6 +14,7 @@ from gi.repository import Gdk, GdkPixbuf, GLib, GObject, Gtk, Pango
 
 from src.core.config import get_asset_path
 from src.ui.logic.status import StatusView
+from src.ui.widgets.name_label import name_label
 
 logger = logging.getLogger("tenga.ui.status_card")
 
@@ -88,7 +89,7 @@ class StatusCard(Gtk.Box):
         self._title.add_css_class("heading")
         text_box.append(self._title)
 
-        self._subtitle = Gtk.Label(xalign=0.0)
+        self._subtitle = name_label(xalign=0.0)
         self._subtitle.add_css_class("dim-label")
         self._subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         text_box.append(self._subtitle)
