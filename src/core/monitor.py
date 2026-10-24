@@ -322,7 +322,10 @@ class ConnectionMonitor:
                     if profile_name:
                         return profile_name
 
-        return (self._context.config.vpn.connection_name or "").strip()
+        vpn = self._context.config.vpn
+        if vpn.enabled:
+            return (vpn.connection_name or "").strip()
+        return ""
 
     def _should_check_vpn(self) -> bool:
         """Return True when VPN should be checked in monitoring."""

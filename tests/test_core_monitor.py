@@ -154,10 +154,15 @@ def test_connection_monitor_check_proxy_success(tmp_path):
 def test_connection_monitor_check_vpn_not_enabled(tmp_path):
     context = AppContext(config_dir=tmp_path)
     context.config.vpn.enabled = False
-    context.config.vpn.connection_name = ""
+    context.config.vpn.connection_name = "my-vpn"
     monitor = ConnectionMonitor(context)
 
-    ok, error = monitor._check_vpn_status()
+    with patch("src.sys.vpn.is_vpn_active") as mock_is_active:
+        ok, error = monitor._check_vpn_status()
+
+    mock_is_active.assert_not_called()
+    assert monitor._get_effective_vpn_connection_name() == ""
+    assert monitor._should_check_vpn() is False
 
     assert ok is True
     assert error == ""
@@ -249,7 +254,7 @@ def test_connection_monitor_check_vpn_uses_active_profile_connection_name(tmp_pa
 def test_connection_monitor_should_check_vpn_for_active_profile_when_global_disabled(tmp_path):
     context = AppContext(config_dir=tmp_path)
     context.config.vpn.enabled = False
-    context.config.vpn.connection_name = ""
+    context.config.vpn.connection_name = "my-vpn"
     context.proxy_state.is_running = True
     context.proxy_state.started_profile_id = 7
 
@@ -261,6 +266,9 @@ def test_connection_monitor_should_check_vpn_for_active_profile_when_global_disa
     monitor = ConnectionMonitor(context)
 
     assert monitor._should_check_vpn() is True
+    with patch("src.sys.vpn.is_vpn_active", return_value=True) as mock_is_active:
+        assert monitor._check_vpn_status() == (True, "")
+    mock_is_active.assert_called_once_with("aiso")
 
 
 def test_connection_monitor_status_changed(tmp_path):
