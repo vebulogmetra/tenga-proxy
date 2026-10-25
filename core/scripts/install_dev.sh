@@ -203,9 +203,7 @@ install_system_deps() {
     fi
 
     info "Необходимо установить следующие пакеты: ${MISSING_DEPS[*]}"
-    read -p "Установить их сейчас? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    if ! confirm "Установить их сейчас? (y/n): " y; then
         error "Установка отменена. Установите зависимости вручную:"
         echo "  sudo apt update"
         echo "  sudo apt install -y ${MISSING_DEPS[*]}"

@@ -54,6 +54,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # install_dev.sh ставит и Python-зависимости: PyGObject собирается из исходников.
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $APT_PACKAGES
+
+      - uses: astral-sh/setup-uv@v5
+
       - name: xray-core
         run: bash core/scripts/install_dev.sh
 
