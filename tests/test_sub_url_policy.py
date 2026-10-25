@@ -195,7 +195,18 @@ def test_real_tls_pinned_ip_retains_hostname_and_certificate_verification(tmp_pa
         def log_message(self, *args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    # pinned_get закрепляется за первым адресом localhost, а он зависит от
+    # /etc/hosts: у разработчика 127.0.0.1, на раннере GitHub — ::1.
+    import socket as socket_module
+
+    family, *_rest, sockaddr = socket_module.getaddrinfo(
+        "localhost", None, type=socket_module.SOCK_STREAM
+    )[0]
+
+    class Server(ThreadingHTTPServer):
+        address_family = family
+
+    server = Server((sockaddr[0], 0), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(cert, key)
     sni = []
