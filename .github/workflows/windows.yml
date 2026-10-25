@@ -64,7 +64,9 @@ jobs:
           python -m pytest -q --no-cov -p no:cacheprovider \
             tests/test_core_platform_info.py tests/test_sys_facades.py \
             tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
-            tests/test_packaging_version_info.py tests/test_cli_build.py
+            tests/test_packaging_version_info.py tests/test_cli_build.py \
+            tests/test_sys_tun_access.py tests/test_core_net_journal.py \
+            tests/test_ui_logic_platform_*.py tests/test_ui_platform_branches.py
 
       - name: Windows UI tests
         run: |
