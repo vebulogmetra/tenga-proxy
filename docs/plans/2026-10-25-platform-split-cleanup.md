@@ -134,9 +134,9 @@
 
 | Фаза | Состояние |
 |---|---|
-| 1 | не начата |
-| 2 | не начата |
-| 3 | не начата |
-| 4 | ждёт решения |
-| 5 | не начата |
-| 6 | не начата |
+| 1 | сделана: `.github/workflows/linux.yml` — lint, pytest, `make test-gtk`, `make test-tray`, AppImage (артефакт, по тегу — в релиз). На GitHub ещё не запускался |
+| 2 | сделана: тест сигнатур в `tests/test_sys_facades.py` (`TunRouteState` — непрозрачный, не сравнивается); вариант А — выбор при импорте, docstring исправлен; реэкспорт `src/sys/__init__.py` убран |
+| 3 | сделана: `src/core/net_journal.py`; журнал маршрута по умолчанию в `src/sys/linux/tun_route.py`, `recover_tun_routes()` из `gui.py` после захвата блокировки. DNS не журналируется: настройки resolvectl живут на интерфейсе и уходят вместе с ним. На живой системе не проверялось — только unit-тесты с подменой `ip` и помощника |
+| 4 | вариант 1: `src/sys/tun_access.py` (Linux — `cap_net_admin+ep` у xray, `sudo -n -l` для помощника или `ip`; Windows — служба установлена по данным SCM). Предупреждение в настройках, причина в ошибке подключения. Разбор capability проверен на реальных бинарниках |
+| 5 | сделана: `src/ui/logic/platform_layout.py`, заголовки страниц настроек — в `platform_texts`; сторож `tests/test_ui_platform_branches.py`. В CSS ничего не перенесено: оставшиеся отличия — свойства виджетов и их структура, CSS их не задаёт |
+| 6 | сделана: `CLAUDE.md`, `AGENTS.md`, `docs/{ru,en}/development.md` |
