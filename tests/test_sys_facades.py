@@ -8,7 +8,15 @@ import sys
 
 import pytest
 
-FACADES = ["proxy", "vpn", "resolver", "tun_route", "tun_dns", "single_instance"]
+FACADES = [
+    "proxy",
+    "vpn",
+    "resolver",
+    "tun_route",
+    "tun_dns",
+    "tun_access",
+    "single_instance",
+]
 
 
 # Linux-модули тянут fcntl и прочее POSIX-only: на Windows не импортируются.
