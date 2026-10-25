@@ -85,7 +85,13 @@ def test_routes_without_passwordless_sudo_are_reported():
     (problem,) = check(xattr=lambda *_: caps(CAP_NET_ADMIN))
 
     assert "маршрут" in problem.lower()
-    assert "python cli.py install" in problem
+    # Правило ставит пакет: на помощника без пароля пускается группа sudo.
+    assert "группе sudo" in problem
+    assert "apt install --reinstall tenga-proxy" in problem
+
+
+def test_helper_lives_where_the_deb_puts_it():
+    assert linux.HELPER_PATH == "/usr/libexec/tenga-proxy/tun-route-helper"
 
 
 def test_missing_xray_is_not_a_tun_problem():

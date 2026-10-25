@@ -282,15 +282,10 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
     """Обновить версию в проекте."""
     project_root = Path(__file__).parent
     init_file = project_root / "src" / "__init__.py"
-    build_script = project_root / "core" / "scripts" / "build_appimage.sh"
     pyproject_file = project_root / "pyproject.toml"
 
     if not init_file.exists():
         print(f"[ERROR] Файл {init_file} не найден")
-        return 1
-
-    if not build_script.exists():
-        print(f"[ERROR] Файл {build_script} не найден")
         return 1
 
     current_version = __version__
@@ -327,12 +322,6 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
     init_file.write_text(content, encoding="utf-8")
     print(f"[OK] Версия обновлена в {init_file}")
 
-    # Update build_appimage.sh
-    content = build_script.read_text(encoding="utf-8")
-    content = re.sub(r'APP_VERSION=".*"', f'APP_VERSION="{new_version}"', content)
-    build_script.write_text(content, encoding="utf-8")
-    print(f"[OK] Версия обновлена в {build_script}")
-
     # Update pyproject.toml
     if pyproject_file.exists():
         content = pyproject_file.read_text(encoding="utf-8")
@@ -351,7 +340,7 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
     print()
 
     if args.build:
-        print("[INFO] Запуск сборки AppImage...")
+        print("[INFO] Запуск сборки...")
         print()
         build_args = argparse.Namespace()
         return cmd_build(build_args)
@@ -364,7 +353,7 @@ def build_script_path() -> Path:
     from src.core import platform_info
 
     scripts = Path(__file__).parent / "core" / "scripts"
-    return scripts / ("build_windows.sh" if platform_info.IS_WINDOWS else "build_appimage.sh")
+    return scripts / ("build_windows.sh" if platform_info.IS_WINDOWS else "build_deb.sh")
 
 
 def _windows_has_no_system_install() -> bool:
@@ -380,7 +369,7 @@ def _windows_has_no_system_install() -> bool:
 
 
 def cmd_build(_args: argparse.Namespace) -> int:
-    """Собрать дистрибутив: AppImage на Linux, установщик на Windows."""
+    """Собрать дистрибутив: deb-пакет на Linux, установщик на Windows."""
     from src.core.config import XRAY_BINARY_NAME
 
     project_root = Path(__file__).parent
@@ -411,11 +400,11 @@ def cmd_build(_args: argparse.Namespace) -> int:
 
 
 def cmd_install(args: argparse.Namespace) -> int:
-    """Установить AppImage в систему."""
+    """Установить собранный deb-пакет через apt."""
     if _windows_has_no_system_install():
         return 1
     project_root = Path(__file__).parent
-    install_script = project_root / "core" / "scripts" / "install_appimage.sh"
+    install_script = project_root / "core" / "scripts" / "install_deb.sh"
 
     if not install_script.exists():
         print(f"[ERROR] Скрипт установки не найден: {install_script}")
@@ -424,7 +413,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     action = "uninstall" if args.uninstall else "install"
 
     print("==========================================")
-    print("      Tenga Proxy - Install AppImage     ")
+    print("        Tenga Proxy - Install deb        ")
     print("==========================================")
     print()
 
@@ -439,7 +428,7 @@ def cmd_install(args: argparse.Namespace) -> int:
 
 
 def cmd_setup(_args: argparse.Namespace) -> int:
-    """Собрать и установить AppImage (аналог core/scripts/setup.sh)."""
+    """Собрать и установить deb-пакет (аналог core/scripts/setup.sh)."""
     if _windows_has_no_system_install():
         return 1
     project_root = Path(__file__).parent
@@ -457,10 +446,10 @@ def cmd_setup(_args: argparse.Namespace) -> int:
     print()
 
     # Step 1: Build
-    print("[INFO] Шаг 1/2: Сборка AppImage...")
+    print("[INFO] Шаг 1/2: Сборка deb-пакета...")
     build_args = argparse.Namespace()
     if cmd_build(build_args) != 0:
-        print("[ERROR] Ошибка при сборке AppImage")
+        print("[ERROR] Ошибка при сборке deb-пакета")
         return 1
 
     print()
@@ -876,14 +865,12 @@ def main() -> int:
     )
 
     # Build and installation commands
-    subparsers.add_parser("setup", help="Собрать и установить AppImage в систему")
+    subparsers.add_parser("setup", help="Собрать и установить deb-пакет в систему")
 
-    subparsers.add_parser("build", help="Собрать AppImage")
+    subparsers.add_parser("build", help="Собрать deb-пакет (на Windows — установщик)")
 
-    install_parser = subparsers.add_parser("install", help="Установить AppImage в систему")
-    install_parser.add_argument(
-        "--uninstall", action="store_true", help="Удалить AppImage из системы"
-    )
+    install_parser = subparsers.add_parser("install", help="Установить deb-пакет в систему")
+    install_parser.add_argument("--uninstall", action="store_true", help="Удалить пакет из системы")
 
     bump_version_parser = subparsers.add_parser("bump-version", help="Обновить версию проекта")
     bump_version_parser.add_argument("version", nargs="?", help="Новая версия (например, 1.3.0)")
@@ -891,7 +878,7 @@ def main() -> int:
         "--force", action="store_true", help="Принудительно обновить, даже если версия совпадает"
     )
     bump_version_parser.add_argument(
-        "--build", action="store_true", help="Запустить сборку AppImage после обновления версии"
+        "--build", action="store_true", help="Запустить сборку после обновления версии"
     )
 
     subparsers.add_parser("setup-dev", help="Установить окружение для разработки")

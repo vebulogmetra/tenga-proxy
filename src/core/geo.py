@@ -27,7 +27,7 @@ GEOIP_FILE = "geoip.dat"
 ASSET_ENV = "XRAY_LOCATION_ASSET"
 # Базы, скачанные пользователем по кнопке «Обновить» (src/core/geo_update.py).
 USER_GEO_DIR = CORE_DIR / "geo"
-# Базы из комплекта приложения: в AppImage и в дереве исходников они лежат здесь.
+# Базы из комплекта приложения: в deb-пакете и в дереве исходников они лежат здесь.
 BUNDLED_GEO_DIR = BUNDLE_DIR / "core" / "bin"
 # Куда ядро заглядывает, если рядом с бинарником файла нет.
 SYSTEM_ASSET_DIRS = (Path("/usr/local/share/xray"), Path("/usr/share/xray"))

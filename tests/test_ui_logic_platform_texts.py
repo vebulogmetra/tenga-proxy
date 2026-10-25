@@ -27,6 +27,12 @@ def test_missing_release_asset(monkeypatch):
     assert "установщик" in platform_texts.missing_release_asset()
 
 
+def test_missing_release_asset_on_linux_names_the_deb(monkeypatch):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+
+    assert "deb" in platform_texts.missing_release_asset()
+
+
 @pytest.mark.parametrize(
     ("windows", "expected"),
     [

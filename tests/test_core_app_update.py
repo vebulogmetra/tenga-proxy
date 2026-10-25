@@ -6,14 +6,14 @@ from src.db.data_store import DataStore
 RELEASE = {
     "tag_name": "v0.17.0",
     "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.17.0",
-    "assets": [{"name": "TengaProxy-x86_64.AppImage"}],
+    "assets": [{"name": "tenga-proxy_0.17.0_amd64.deb"}],
 }
 
 
 def test_release_selection_handles_drafts_prereleases_and_architecture(monkeypatch):
     from src.core import platform_info
 
-    # Ассеты здесь — AppImage: на Windows ищется установщик.
+    # Ассеты здесь — deb-пакеты: на Windows ищется установщик.
     monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     assert select_release([dict(RELEASE, draft=True)], "0.16.2") is None
     assert select_release([dict(RELEASE, prerelease=True)], "0.16.2") is None
@@ -66,10 +66,26 @@ def test_windows_release_needs_setup_exe(monkeypatch):
     assert release.has_asset is True
 
 
-def test_windows_ignores_appimage(monkeypatch):
+def test_windows_ignores_deb(monkeypatch):
     from src.core import app_update, platform_info
 
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    payload = [
+        {
+            "tag_name": "v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.18.0",
+            "assets": [{"name": "tenga-proxy_0.18.0_amd64.deb"}],
+        }
+    ]
+
+    assert app_update.select_release(payload, "0.17.0", architecture="AMD64").has_asset is False
+
+
+def test_linux_ignores_appimage(monkeypatch):
+    """AppImage больше не выпускается: старый ассет не считается сборкой для Linux."""
+    from src.core import app_update, platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     payload = [
         {
             "tag_name": "v0.18.0",
@@ -78,4 +94,19 @@ def test_windows_ignores_appimage(monkeypatch):
         }
     ]
 
-    assert app_update.select_release(payload, "0.17.0", architecture="AMD64").has_asset is False
+    assert app_update.select_release(payload, "0.17.0", architecture="x86_64").has_asset is False
+
+
+def test_linux_deb_matches_arm64(monkeypatch):
+    from src.core import app_update, platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+    payload = [
+        {
+            "tag_name": "v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.18.0",
+            "assets": [{"name": "tenga-proxy_0.18.0_arm64.deb"}],
+        }
+    ]
+
+    assert app_update.select_release(payload, "0.17.0", architecture="aarch64").has_asset is True

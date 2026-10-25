@@ -18,7 +18,7 @@ def test_build_script_on_linux(monkeypatch):
 
     monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
 
-    assert cli.build_script_path().name == "build_appimage.sh"
+    assert cli.build_script_path().name == "build_deb.sh"
 
 
 def test_install_is_refused_on_windows(monkeypatch, capsys):

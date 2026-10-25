@@ -56,7 +56,7 @@ def _version(value):
 
 
 def _asset_matches(name: str, aliases: tuple[str, ...]) -> bool:
-    """Сборка для этой системы: установщик на Windows, AppImage на Linux."""
+    """Сборка для этой системы: установщик на Windows, deb-пакет на Linux."""
     name = name.lower()
     if platform_info.IS_WINDOWS:
         return (
@@ -64,7 +64,7 @@ def _asset_matches(name: str, aliases: tuple[str, ...]) -> bool:
             and "windows" in name
             and ("x64" in name or any(alias in name for alias in aliases))
         )
-    return name.endswith(".appimage") and any(alias in name for alias in aliases)
+    return name.endswith(".deb") and any(alias in name for alias in aliases)
 
 
 def select_release(payload, current, *, include_prerelease=False, architecture=None):

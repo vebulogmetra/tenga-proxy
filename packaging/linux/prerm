@@ -1,0 +1,7 @@
+#!/bin/sh
+set -e
+
+# Байт-код собирал postinst, dpkg о нём не знает и каталоги без него не удалит.
+find /usr/lib/tenga-proxy -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
+
+exit 0

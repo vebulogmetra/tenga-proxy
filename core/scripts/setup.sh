@@ -31,15 +31,15 @@ main() {
         exit 1
     fi
 
-    info "Шаг 1/2: Сборка AppImage..."
-    if ! "$PROJECT_ROOT/core/scripts/build_appimage.sh"; then
-        error "Ошибка при сборке AppImage"
+    info "Шаг 1/2: Сборка deb-пакета..."
+    if ! "$PROJECT_ROOT/core/scripts/build_deb.sh"; then
+        error "Ошибка при сборке deb-пакета"
         exit 1
     fi
     
     echo
     info "Шаг 2/2: Установка в систему..."
-    if ! "$PROJECT_ROOT/core/scripts/install_appimage.sh"; then
+    if ! "$PROJECT_ROOT/core/scripts/install_deb.sh"; then
         error "Ошибка при установке"
         exit 1
     fi

@@ -8,15 +8,24 @@ from pathlib import Path
 from src.core import platform_info
 from src.core.platform_info import no_window
 
+# Куда исходники кладёт deb-пакет (core/scripts/build_deb.sh).
+PACKAGE_DIR = Path("/usr/lib/tenga-proxy")
+
 
 def _is_frozen() -> bool:
     """Check if running as a frozen executable (PyInstaller)."""
     return getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS")
 
 
-def _is_appimage() -> bool:
-    """Check if running from AppImage."""
-    return "TENGA_CONFIG_DIR" in os.environ or os.environ.get("APPIMAGE") is not None
+def _uses_user_dirs() -> bool:
+    """Конфигурация и логи — в каталоге пользователя, а не рядом с исходниками.
+
+    Так при запуске из deb-пакета (в /usr/lib писать нельзя) и когда каталог
+    задан переменной `TENGA_CONFIG_DIR`.
+    """
+    return "TENGA_CONFIG_DIR" in os.environ or (
+        not _is_frozen() and _get_bundle_dir() == PACKAGE_DIR
+    )
 
 
 def _get_bundle_dir() -> Path:
@@ -35,7 +44,7 @@ def _get_config_dir() -> Path:
     """Get configuration directory.
 
     When running frozen on Windows: %APPDATA%\\tenga-proxy
-    When running from AppImage/frozen: ~/.config/tenga-proxy
+    When running frozen or from the deb package: ~/.config/tenga-proxy
     When running from source: ./core
     Environment variable TENGA_CONFIG_DIR takes priority.
     """
@@ -46,8 +55,8 @@ def _get_config_dir() -> Path:
     if _is_frozen() and platform_info.IS_WINDOWS:
         return _windows_dir("APPDATA", "~/AppData/Roaming") / "tenga-proxy"
 
-    # Frozen or AppImage: use XDG config dir
-    if _is_frozen() or _is_appimage():
+    # Frozen or deb package: use XDG config dir
+    if _is_frozen() or _uses_user_dirs():
         xdg_config = os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config"))
         return Path(xdg_config) / "tenga-proxy"
 
@@ -60,7 +69,7 @@ def _get_log_dir() -> Path:
     if _is_frozen() and platform_info.IS_WINDOWS and "TENGA_CONFIG_DIR" not in os.environ:
         # Логи не роуминговые: им место в Local, а не в Roaming.
         return _windows_dir("LOCALAPPDATA", "~/AppData/Local") / "tenga-proxy" / "logs"
-    if _is_frozen() or _is_appimage():
+    if _is_frozen() or _uses_user_dirs():
         return _get_config_dir() / "logs"
     return Path(__file__).resolve().parent.parent.parent / "logs"
 
@@ -114,27 +123,24 @@ def find_xray_binary() -> str | None:
     Find xray-core binary.
 
     Search priority:
-    1. Bundled xray (in PyInstaller bundle)
-    2. xray in core/bin/ directory
-    3. xray in user config dir
-    4. xray in system PATH
+    1. Bundled xray (PyInstaller bundle, deb package or source tree core/bin/)
+    2. xray in the config dir bin/
+    3. xray in system PATH
+
+    Ядро из комплекта идёт первым: в deb-пакете только ему postinst выдал
+    cap_net_admin, а копия в ~/.config/tenga-proxy/bin — наследие AppImage.
 
     Returns:
         Path to xray or None if not found
     """
-    search_paths = []
-
+    search_paths = [
+        BUNDLE_DIR / "core" / "bin" / XRAY_BINARY_NAME,
+        CORE_BIN_DIR / XRAY_BINARY_NAME,
+    ]
     if _is_frozen():
-        bundled = BUNDLE_DIR / "core" / "bin" / XRAY_BINARY_NAME
-        search_paths.append(bundled)
+        search_paths.append(CORE_DIR / "bin" / XRAY_BINARY_NAME)
 
-    search_paths.append(CORE_BIN_DIR / XRAY_BINARY_NAME)
-
-    if _is_frozen():
-        user_bin = CORE_DIR / "bin" / XRAY_BINARY_NAME
-        search_paths.append(user_bin)
-
-    for xray_path in search_paths:
+    for xray_path in dict.fromkeys(search_paths):
         if xray_path.exists() and xray_path.is_file():
             try:
                 result = subprocess.run(
@@ -165,6 +171,11 @@ def find_xray_binary() -> str | None:
         pass
 
     return None
+
+
+def is_packaged() -> bool:
+    """Запуск из установленного deb-пакета, а не из дерева исходников."""
+    return not _is_frozen() and BUNDLE_DIR == PACKAGE_DIR
 
 
 def init_config_files() -> None:

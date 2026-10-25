@@ -1,0 +1,14 @@
+#!/bin/sh
+# Запуск Tenga Proxy из deb-пакета: исходники в /usr/lib/tenga-proxy,
+# системный Python с GTK и libadwaita из зависимостей пакета.
+
+# Конфигурация — в ~/.config/tenga-proxy: это src/core/config.py решает сам по
+# каталогу пакета; TENGA_CONFIG_DIR снаружи по-прежнему имеет приоритет.
+
+# GTK4 работает на Wayland нативно. Программный рендеринг — по требованию: на
+# некоторых виртуальных машинах GL-рендерер GTK4 не инициализируется.
+if [ -n "${TENGA_SOFTWARE_RENDER:-}" ]; then
+    export GSK_RENDERER=cairo
+fi
+
+exec /usr/bin/python3 /usr/lib/tenga-proxy/gui.py "$@"

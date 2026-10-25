@@ -1,0 +1,22 @@
+#!/bin/sh
+set -e
+
+XRAY=/usr/lib/tenga-proxy/core/bin/xray
+
+if [ "$1" = "configure" ]; then
+    # TUN-интерфейс ядро создаёт само. dpkg расширенные атрибуты не переносит,
+    # поэтому право выдаётся здесь, при каждой установке и обновлении.
+    if ! setcap cap_net_admin,cap_net_raw+ep "$XRAY"; then
+        echo "tenga-proxy: не удалось выдать xray cap_net_admin, режим TUN недоступен" >&2
+    fi
+
+    # Остатки установки AppImage: помощник в /usr/local и правила sudoers на
+    # отдельных пользователей. Их заменили файлы пакета.
+    rm -rf /usr/local/libexec/tenga-proxy
+    rm -f /etc/sudoers.d/tenga-proxy-tun-helper-*
+
+    python3 -m compileall -q /usr/lib/tenga-proxy/src /usr/lib/tenga-proxy/gui.py \
+        >/dev/null 2>&1 || true
+fi
+
+exit 0

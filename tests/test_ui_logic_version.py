@@ -9,8 +9,8 @@ from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_ve
 def test_app_version_comes_from_the_package_itself(monkeypatch):
     """Версия читается из исходников, а не у установленного пакета.
 
-    В AppImage пакет через pip не ставится, метаданных нет — а версию
-    показывать надо, и она там как раз самая нужная.
+    deb-пакет кладёт исходники без метаданных pip — а версию показывать
+    надо, и она там как раз самая нужная.
     """
     monkeypatch.setattr(src, "__version__", "1.2.3")
 

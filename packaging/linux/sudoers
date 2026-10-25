@@ -1,0 +1,4 @@
+# Tenga Proxy: администраторы переключают маршрут по умолчанию в режиме TUN
+# без пароля. Помощник принимает только apply, restore и dns и сам проверяет
+# аргументы: имена интерфейсов, адреса IPv4 и метрику.
+%sudo ALL=(root) NOPASSWD: /usr/libexec/tenga-proxy/tun-route-helper

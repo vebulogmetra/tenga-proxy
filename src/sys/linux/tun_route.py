@@ -15,7 +15,7 @@ from src.core.net_journal import Journal
 from src.sys.addresses import resolve_ipv4
 
 logger = logging.getLogger("tenga.sys.tun_route")
-HELPER_PATH = "/usr/local/libexec/tenga-proxy/tun-route-helper"
+HELPER_PATH = "/usr/libexec/tenga-proxy/tun-route-helper"
 
 # Маршрут по умолчанию, который нужно вернуть. Переживает падение приложения:
 # ядро умирает вместе с TUN, маршрут через него исчезает, и система остаётся

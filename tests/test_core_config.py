@@ -6,7 +6,7 @@ import pytest
 
 @pytest.fixture
 def clean_env(monkeypatch, tmp_path):
-    for key in ["TENGA_CONFIG_DIR", "XDG_CONFIG_HOME", "APPIMAGE"]:
+    for key in ["TENGA_CONFIG_DIR", "XDG_CONFIG_HOME"]:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path))
     return tmp_path
@@ -28,25 +28,11 @@ def test_get_config_dir_uses_env_var(clean_env, monkeypatch, tmp_path):
     assert config.CORE_DIR.exists()
 
 
-def test_get_config_dir_appimage_xdg(clean_env, monkeypatch, tmp_path):
-    xdg_config_home = tmp_path / "xdg"
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(xdg_config_home))
-    monkeypatch.setenv("APPIMAGE", "/tmp/fake_appimage")
-
-    config = _reload_config_module()
-
-    expected = xdg_config_home / "tenga-proxy"
-    assert expected == config.CORE_DIR
-    assert expected.exists()
-
-
 def test_get_config_dir_development_mode(clean_env, monkeypatch):
     if hasattr(sys, "frozen"):
         monkeypatch.delattr(sys, "frozen", raising=False)
     if hasattr(sys, "_MEIPASS"):
         monkeypatch.delattr(sys, "_MEIPASS", raising=False)
-
-    monkeypatch.delenv("APPIMAGE", raising=False)
 
     import src.core.config as config
 
@@ -58,8 +44,8 @@ def test_get_config_dir_development_mode(clean_env, monkeypatch):
 
 
 def test_log_dir_created(clean_env, tmp_path, monkeypatch):
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
-    monkeypatch.setenv("APPIMAGE", "/tmp/fake_appimage")
+    # Каталог, заданный снаружи, забирает и логи.
+    monkeypatch.setenv("TENGA_CONFIG_DIR", str(tmp_path / "xdg" / "tenga-proxy"))
 
     config = _reload_config_module()
 
@@ -67,6 +53,7 @@ def test_log_dir_created(clean_env, tmp_path, monkeypatch):
     assert str(config.GUI_LOG_FILE).startswith(str(config.LOG_DIR))
     assert str(config.CLI_LOG_FILE).startswith(str(config.LOG_DIR))
     assert str(config.XRAY_LOG_FILE).startswith(str(config.LOG_DIR))
+    assert tmp_path / "xdg" / "tenga-proxy" / "logs" == config.LOG_DIR
 
 
 def test_get_lock_file_default_and_custom(tmp_path):
@@ -119,3 +106,58 @@ def test_windows_env_var_still_wins(as_windows, monkeypatch):
     config = _reload_config_module()
 
     assert custom == config.CORE_DIR
+
+
+def _fake_xray(directory):
+    directory.mkdir(parents=True)
+    binary = directory / "xray"
+    binary.write_text("#!/bin/sh\nexit 0\n")
+    binary.chmod(0o755)
+    return binary
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="сценарий оболочки вместо xray")
+def test_xray_from_the_package_wins_over_the_user_copy(monkeypatch, tmp_path):
+    """Ядро из пакета получило cap_net_admin в postinst; копия, которую
+    ставила AppImage в ~/.config/tenga-proxy/bin, устарела и не должна его
+    перекрывать."""
+    import src.core.config as config
+
+    bundled = _fake_xray(tmp_path / "pkg" / "core" / "bin")
+    _fake_xray(tmp_path / "user" / "bin")
+    monkeypatch.setattr(config, "BUNDLE_DIR", tmp_path / "pkg")
+    monkeypatch.setattr(config, "CORE_BIN_DIR", tmp_path / "user" / "bin")
+
+    assert config.find_xray_binary() == str(bundled)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="сценарий оболочки вместо xray")
+def test_user_xray_is_used_without_a_bundled_one(monkeypatch, tmp_path):
+    import src.core.config as config
+
+    user = _fake_xray(tmp_path / "user" / "bin")
+    monkeypatch.setattr(config, "BUNDLE_DIR", tmp_path / "pkg")
+    monkeypatch.setattr(config, "CORE_BIN_DIR", tmp_path / "user" / "bin")
+
+    assert config.find_xray_binary() == str(user)
+
+
+def test_package_install_uses_xdg_dirs(clean_env, monkeypatch, tmp_path):
+    """Из /usr/lib/tenga-proxy писать нельзя: конфигурация и логи — в ~/.config."""
+    import src.core.config as config
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.setattr(config, "_get_bundle_dir", lambda: config.PACKAGE_DIR)
+
+    assert config._get_config_dir() == tmp_path / "xdg" / "tenga-proxy"
+    assert config._get_log_dir() == tmp_path / "xdg" / "tenga-proxy" / "logs"
+
+
+def test_is_packaged_only_under_the_package_dir(monkeypatch):
+    import src.core.config as config
+
+    monkeypatch.setattr(config, "BUNDLE_DIR", config.PACKAGE_DIR)
+    assert config.is_packaged() is True
+
+    monkeypatch.setattr(config, "BUNDLE_DIR", config.PACKAGE_DIR.parent / "src-checkout")
+    assert config.is_packaged() is False

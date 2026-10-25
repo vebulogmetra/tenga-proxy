@@ -18,7 +18,8 @@ warning() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 INIT_FILE="$PROJECT_ROOT/src/__init__.py"
-BUILD_SCRIPT="$PROJECT_ROOT/core/scripts/build_appimage.sh"
+# Сборка берёт версию из src/__init__.py, своей копии у неё нет.
+BUILD_SCRIPT="$PROJECT_ROOT/core/scripts/build_deb.sh"
 
 if [ ! -f "$INIT_FILE" ]; then
     error "Файл $INIT_FILE не найден"
@@ -46,18 +47,6 @@ update_init_version() {
         sed -i "s/__version__ = \".*\"/__version__ = \"$new_version\"/" "$INIT_FILE"
     fi
     success "Версия обновлена в $INIT_FILE"
-}
-
-update_build_script_version() {
-    local new_version="$1"
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        # macOS
-        sed -i '' "s/APP_VERSION=\".*\"/APP_VERSION=\"$new_version\"/" "$BUILD_SCRIPT"
-    else
-        # Linux
-        sed -i "s/APP_VERSION=\".*\"/APP_VERSION=\"$new_version\"/" "$BUILD_SCRIPT"
-    fi
-    success "Версия обновлена в $BUILD_SCRIPT"
 }
 
 validate_version() {
@@ -100,18 +89,17 @@ main() {
     info "Обновление версии с $CURRENT_VERSION на $NEW_VERSION..."
     
     update_init_version "$NEW_VERSION"
-    update_build_script_version "$NEW_VERSION"
     
     echo
     success "Версия успешно обновлена!"
     echo
     
-    read -p "Запустить сборку AppImage? (Y/n): " BUILD_RESPONSE
+    read -p "Собрать deb-пакет? (Y/n): " BUILD_RESPONSE
     BUILD_RESPONSE=${BUILD_RESPONSE:-Y}
     
     if [[ "$BUILD_RESPONSE" =~ ^[Yy]$ ]] || [ -z "$BUILD_RESPONSE" ]; then
         echo
-        info "Запуск сборки AppImage..."
+        info "Запуск сборки deb-пакета..."
         echo
         bash "$BUILD_SCRIPT"
     else

@@ -21,7 +21,7 @@ def vpn_group_description() -> str:
 def missing_release_asset() -> str:
     if platform_info.IS_WINDOWS:
         return "установщик для этой системы отсутствует"
-    return "AppImage для этой архитектуры отсутствует"
+    return "deb-пакет для этой архитектуры отсутствует"
 
 
 # Короткие подписи — для нижней навигации узкого Windows-диалога.
