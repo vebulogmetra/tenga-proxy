@@ -208,8 +208,18 @@ The build folder holds two executables: `tenga-proxy.exe` (GUI) and
 ### Layout
 
 - `src/sys/*.py` are facades: `IS_WINDOWS` from `src/core/platform_info.py`
-  picks the implementation, Linux code lives in `src/sys/linux/`, Windows code
-  in `src/sys/windows/`.
+  picks the implementation when the facade is imported, Linux code lives in
+  `src/sys/linux/`, Windows code in `src/sys/windows/`. Both implementations
+  must export the same names and signatures; `tests/test_sys_facades.py`
+  checks it.
+- UI differences: texts in `src/ui/logic/platform_texts.py`, layout in
+  `src/ui/logic/platform_layout.py`. Widgets do not check the OS themselves.
+- The network rollback journal (`src/core/net_journal.py`) is shared: the
+  Windows service and the Linux TUN routes both write it. If the app crashes
+  on Linux, the default route is restored on the next start.
+- `src/sys/tun_access.py` reports what TUN mode is missing: `cap_net_admin`
+  on xray and a sudo rule for the route helper on Linux, the installed
+  service on Windows.
 - `src/winsvc/` is the service: pipe protocol, configuration policy, rollback
   journal, `netsh`/PowerShell commands, state and the pipe server.
 - On Windows `AppContext.xray_manager` is a `WindowsXrayManager`: a config with
@@ -229,6 +239,10 @@ enabled with `TENGA_SERVICE_TESTS=1`. Run it in CI or on a test machine, not
 on your workstation: the routes capture the network during the test.
 
 ### CI
+
+`.github/workflows/linux.yml` on `ubuntu-24.04`: lint, the test suite,
+`make test-gtk`, `make test-tray` and the AppImage build; on a `v*` tag the
+AppImage is attached to the release.
 
 `.github/workflows/windows.yml` on `windows-latest`: Windows-code tests, the
 full suite (informational), the installer build, installing the service from

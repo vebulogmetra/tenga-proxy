@@ -166,8 +166,21 @@ core/              # Директория конфигурации (в dev ре�
 
 **Фасады `src/sys/`** - `proxy.py`, `vpn.py`, `tun_route.py` и другие
 выбирают реализацию по `IS_WINDOWS` из `src/core/platform_info.py`:
-`src/sys/linux/` или `src/sys/windows/`. Windows-модули импортируются и на
-Linux (pywin32, winreg и ctypes — лениво), поэтому тестируются обычным pytest.
+`src/sys/linux/` или `src/sys/windows/`. Выбор делается при импорте фасада;
+совпадение имён и сигнатур двух реализаций проверяет
+`tests/test_sys_facades.py`. Windows-модули импортируются и на Linux
+(pywin32, winreg и ctypes — лениво), поэтому тестируются обычным pytest.
+
+**Отличия UI по ОС** - тексты в `src/ui/logic/platform_texts.py`, компоновка
+в `src/ui/logic/platform_layout.py`. Виджеты `IS_WINDOWS` не читают; где это
+допустимо, перечисляет `tests/test_ui_platform_branches.py`.
+
+**TUN на Linux** - xray получает `cap_net_admin` через `setcap`, маршрут по
+умолчанию переключает помощник `tun-route-helper` через `sudo -n`. Исходный
+маршрут пишется в журнал (`src/core/net_journal.py`, общий со службой
+Windows) и возвращается при следующем старте, если приложение упало
+(`recover_tun_routes`). `src/sys/tun_access.py` называет, чего не хватает
+для TUN: это видно в настройках и в ошибке подключения.
 
 **Windows и TUN** - TUN-интерфейс без прав администратора не создать, поэтому
 на Windows `AppContext.xray_manager` — `WindowsXrayManager`
@@ -279,6 +292,8 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   тесты окна пропускаются с объяснением, а не падают
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
+- CI: `.github/workflows/linux.yml` (lint, pytest, GTK, трей, AppImage) и
+  `.github/workflows/windows.yml`
 - Тесты, которым нужна настоящая Windows, помечены маркером `windows` и вне
   win32 пропускаются. `tests/integration/` — служба на живой Windows (нужны
   установленная служба, права администратора и `TENGA_SERVICE_TESTS=1`);

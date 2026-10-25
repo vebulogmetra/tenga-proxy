@@ -168,6 +168,19 @@ Python: четыре пробела, длина строки 100, двойные
 - Модули верхнего уровня `src/sys/` — фасады. Реализации находятся
   в `src/sys/linux/` и `src/sys/windows/`. Общий код должен вызывать фасады;
   не разбрасывай проверки ОС и Windows-only импорты по общим модулям.
+  Фасад выбирает реализацию при импорте, подмена `IS_WINDOWS` на него не
+  действует. Новую функцию фасада добавляй в обе реализации: совпадение имён
+  и сигнатур проверяет `tests/test_sys_facades.py`.
+- В `src/ui/` ОС напрямую не проверяют: тексты — `src/ui/logic/platform_texts.py`,
+  компоновка — `src/ui/logic/platform_layout.py`, функция на каждое отличие
+  с причиной. Допустимые места для `IS_WINDOWS` перечислены
+  в `tests/test_ui_platform_branches.py`.
+- TUN на Linux: права даёт `setcap` на xray и помощник `tun-route-helper`
+  через `sudo -n`. Исходный маршрут по умолчанию пишется в журнал
+  (`src/core/net_journal.py`, тот же, что у службы) и возвращается при
+  старте после падения (`recover_tun_routes`, вызов в `gui.py`). Чего не
+  хватает для TUN, называет `src/sys/tun_access.py`: его показывают
+  настройки и ошибка подключения.
 - `src/winsvc/` — привилегированная Windows-служба, протокол named pipe,
   проверка запросов, управление ядром, сетью и восстановлением состояния.
   GUI работает без повышения прав; служба устанавливается установщиком.
@@ -176,7 +189,9 @@ Python: четыре пробела, длина строки 100, двойные
   в Windows-ветку исполнения. Единственный экземпляр и активация окна
   на Windows используют платформенную реализацию.
 - `packaging/windows/` — PyInstaller spec, Inno Setup и сведения о версии.
-  `.github/workflows/windows.yml` — фактическая последовательность CI.
+  `.github/workflows/windows.yml` — фактическая последовательность CI
+  Windows, `.github/workflows/linux.yml` — Linux: lint, pytest, `make test-gtk`,
+  `make test-tray`, сборка AppImage.
 
 На Windows Python, GTK, libadwaita, PyGObject, requests и pywin32 берутся
 из пакетов MSYS2 UCRT64. Не заменяй их обычным pip/uv-окружением без проверки
@@ -191,7 +206,9 @@ CLI build выбирает скрипт по ОС; таблица команд u
 python -m pytest -q --no-cov -p no:cacheprovider \
   tests/test_core_platform_info.py tests/test_sys_facades.py \
   tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
-  tests/test_packaging_version_info.py tests/test_cli_build.py
+  tests/test_packaging_version_info.py tests/test_cli_build.py \
+  tests/test_sys_tun_access.py tests/test_core_net_journal.py \
+  tests/test_ui_logic_platform_*.py tests/test_ui_platform_branches.py
 ```
 
 Тесты `tests/integration/` с маркером windows требуют настоящей Windows

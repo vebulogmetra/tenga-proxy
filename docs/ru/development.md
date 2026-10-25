@@ -206,8 +206,17 @@ bash core/scripts/build_windows.sh
 ### Устройство
 
 - `src/sys/*.py` — фасады: реализацию выбирает `IS_WINDOWS` из
-  `src/core/platform_info.py`, код для Linux лежит в `src/sys/linux/`, для
-  Windows — в `src/sys/windows/`.
+  `src/core/platform_info.py` при импорте фасада, код для Linux лежит в
+  `src/sys/linux/`, для Windows — в `src/sys/windows/`. Имена и сигнатуры
+  двух реализаций обязаны совпадать — это проверяет `tests/test_sys_facades.py`.
+- Отличия интерфейса: тексты — `src/ui/logic/platform_texts.py`, компоновка —
+  `src/ui/logic/platform_layout.py`. Виджеты ОС напрямую не проверяют.
+- Журнал отката сети (`src/core/net_journal.py`) общий: его пишут служба
+  Windows и маршруты TUN на Linux. После падения приложения на Linux
+  маршрут по умолчанию возвращается при следующем запуске.
+- `src/sys/tun_access.py` проверяет, чего не хватает для TUN: на Linux —
+  `cap_net_admin` у xray и правило sudo для помощника маршрутов, на
+  Windows — установленная служба.
 - `src/winsvc/` — служба: протокол канала, политика конфигурации, журнал
   отката, команды `netsh`/PowerShell, состояние и pipe-сервер.
 - На Windows `AppContext.xray_manager` — `WindowsXrayManager`: конфиг с
@@ -228,6 +237,10 @@ NRPT, откат). Нужны установленная служба и пра�
 не на рабочей: маршруты на время теста перехватывают сеть.
 
 ### CI
+
+`.github/workflows/linux.yml` на `ubuntu-24.04`: линтер, тесты,
+`make test-gtk`, `make test-tray` и сборка AppImage; по тегу `v*` AppImage
+прикрепляется к релизу.
 
 `.github/workflows/windows.yml` на `windows-latest`: тесты Windows-кода,
 полный прогон (информационный), сборка установщика, установка службы из
