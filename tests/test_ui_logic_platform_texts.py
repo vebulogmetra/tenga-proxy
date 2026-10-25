@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.core import platform_info
 from src.ui.logic import platform_texts
 
@@ -23,3 +25,20 @@ def test_missing_release_asset(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
 
     assert "установщик" in platform_texts.missing_release_asset()
+
+
+@pytest.mark.parametrize(
+    ("windows", "expected"),
+    [
+        (False, ["Обход блокировок", "Подписки", "О программе"]),
+        (True, ["Обход", "Ссылки", "Версия"]),
+    ],
+)
+def test_settings_page_titles(monkeypatch, windows, expected):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
+
+    titles = [
+        platform_texts.settings_page_title(page) for page in ("bypass", "subscriptions", "about")
+    ]
+
+    assert titles == expected

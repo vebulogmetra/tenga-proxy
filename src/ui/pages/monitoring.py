@@ -9,7 +9,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, GObject, Gtk, Pango
 
-from src.core import platform_info
+from src.ui.logic import platform_layout
 from src.ui.logic.monitoring_view import (
     CLASS_DIM,
     CLASS_ERROR,
@@ -66,7 +66,7 @@ class MonitoringPage(Adw.PreferencesPage):
         scroll = Gtk.ScrolledWindow(min_content_height=160, max_content_height=260)
         scroll.set_child(self.log_view)
         group.add(scroll)
-        if platform_info.IS_WINDOWS:
+        if platform_layout.wrapping_action_buttons():
             buttons = Gtk.FlowBox(
                 selection_mode=Gtk.SelectionMode.NONE,
                 min_children_per_line=1,

@@ -9,10 +9,11 @@ pytestmark = pytest.mark.gtk
 
 @pytest.mark.parametrize("windows", [False, True])
 def test_platform_stylesheets(monkeypatch, windows):
+    from src.core import platform_info
     from src.ui import window
 
     loaded = []
-    monkeypatch.setattr(window.platform_info, "IS_WINDOWS", windows)
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
     monkeypatch.setattr(window.Gdk.Display, "get_default", lambda: object())
     monkeypatch.setattr(
         window.Gtk.StyleContext,
@@ -79,11 +80,12 @@ def test_toasts_leave_windows_navigation_outside_overlay(gtk_ready, monkeypatch,
 
     from gi.repository import Adw
 
+    from src.core import platform_info
     from src.core.context import ProxyState
     from src.ui import window
 
     Adw.init()
-    monkeypatch.setattr(window.platform_info, "IS_WINDOWS", windows)
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
     monkeypatch.setattr(window.MainWindow, "refresh_status", lambda _self: None)
     monkeypatch.setattr(window.MainWindow, "refresh_pages", lambda _self: None)
     context = SimpleNamespace(config=SimpleNamespace(window_size=""), proxy_state=ProxyState())

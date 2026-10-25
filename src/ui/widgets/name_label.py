@@ -8,8 +8,8 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import Gtk, Pango
 
-from src.core import platform_info
 from src.core.config import get_asset_path
+from src.ui.logic import platform_layout
 from src.ui.logic.country_flags import split_flag_prefix
 
 
@@ -46,6 +46,6 @@ class FlagNameLabel(Gtk.Box):
 
 
 def name_label(*, xalign: float = 0.0) -> Gtk.Label | FlagNameLabel:
-    if platform_info.IS_WINDOWS:
+    if platform_layout.bundled_flag_images():
         return FlagNameLabel(xalign=xalign)
     return Gtk.Label(xalign=xalign)

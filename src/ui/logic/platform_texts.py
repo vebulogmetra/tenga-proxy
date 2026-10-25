@@ -22,3 +22,16 @@ def missing_release_asset() -> str:
     if platform_info.IS_WINDOWS:
         return "установщик для этой системы отсутствует"
     return "AppImage для этой архитектуры отсутствует"
+
+
+# Короткие подписи — для нижней навигации узкого Windows-диалога.
+_SETTINGS_PAGE_TITLES = {
+    "bypass": ("Обход блокировок", "Обход"),
+    "subscriptions": ("Подписки", "Ссылки"),
+    "about": ("О программе", "Версия"),
+}
+
+
+def settings_page_title(page: str) -> str:
+    linux, windows = _SETTINGS_PAGE_TITLES[page]
+    return windows if platform_info.IS_WINDOWS else linux

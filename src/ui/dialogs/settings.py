@@ -12,7 +12,6 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
-from src.core import platform_info
 from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
 from src.core.geo_update import update_geo_bases
@@ -20,7 +19,7 @@ from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
 from src.sys import tun_access
-from src.ui.logic import platform_texts
+from src.ui.logic import platform_layout, platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
@@ -188,9 +187,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         logs.add(self.log_level_row)
 
     def _build_monitoring_page(self) -> None:
-        if platform_info.IS_WINDOWS:
-            # Параметры проверки относятся к общим настройкам. Пять разделов
-            # помещаются в нижней навигации узкого Windows-диалога.
+        if platform_layout.monitoring_on_general_settings_page():
             page = self._general_page
         else:
             page = Adw.PreferencesPage(
@@ -271,7 +268,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _build_bypass_page(self) -> None:
         page = Adw.PreferencesPage(
-            title="Обход" if platform_info.IS_WINDOWS else "Обход блокировок",
+            title=platform_texts.settings_page_title("bypass"),
             icon_name="security-high-symbolic",
         )
         self.add(page)
@@ -308,7 +305,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _build_subscriptions_page(self) -> None:
         page = Adw.PreferencesPage(
-            title="Ссылки" if platform_info.IS_WINDOWS else "Подписки",
+            title=platform_texts.settings_page_title("subscriptions"),
             icon_name="folder-download-symbolic",
         )
         self.add(page)
@@ -339,7 +336,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
     def _build_about_page(self) -> None:
         page = Adw.PreferencesPage(
-            title="Версия" if platform_info.IS_WINDOWS else "О программе",
+            title=platform_texts.settings_page_title("about"),
             icon_name="help-about-symbolic",
         )
         self.add(page)

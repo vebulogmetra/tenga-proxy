@@ -13,8 +13,8 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
-from src.core import platform_info
 from src.core.config import get_asset_path
+from src.ui.logic import platform_layout
 from src.ui.logic.appearance import normalize_theme
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
@@ -55,10 +55,7 @@ def load_css() -> None:
     if display is None:
         return
 
-    names = ["style.css"]
-    if platform_info.IS_WINDOWS:
-        names.append("style-windows.css")
-    for name in names:
+    for name in platform_layout.stylesheets():
         path = Path(__file__).with_name(name)
         if not path.exists():
             logger.warning("Stylesheet not found: %s", path)
@@ -129,7 +126,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_ui(self) -> None:
         self.toast_overlay = Adw.ToastOverlay()
         toolbar = Adw.ToolbarView()
-        if platform_info.IS_WINDOWS:
+        if platform_layout.toasts_above_navigation():
             # Панели вне overlay: уведомления не закрывают нижние вкладки.
             self.set_content(toolbar)
         else:
@@ -171,7 +168,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.view_stack.set_vexpand(True)
         content.append(self.view_stack)
-        if platform_info.IS_WINDOWS:
+        if platform_layout.toasts_above_navigation():
             self.toast_overlay.set_child(content)
             toolbar.set_content(self.toast_overlay)
         else:
