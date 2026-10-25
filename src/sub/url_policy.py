@@ -81,19 +81,23 @@ def resolve_destination(url: str, *, exceptions: Iterable[str] = (), resolver=No
 
 
 class _HostnameAdapter(HTTPAdapter):
+    """The pool connects (and CONNECTs through proxies) to an already checked
+    numeric address. TLS still uses the original hostname for SNI and trust.
+
+    Имя задаётся менеджерам пулов, а не через `build_connection_pool_key_attributes`:
+    того нет до requests 2.32, а deb-пакет работает на системном requests
+    (2.31 в Ubuntu 24.04), и там сертификат сверялся бы с IP-адресом.
+    """
+
     def __init__(self, hostname: str):
-        self._hostname = hostname
+        self._tls_names = {"server_hostname": hostname, "assert_hostname": hostname}
         super().__init__()
 
-    def build_connection_pool_key_attributes(self, request, verify, cert=None):
-        host_params, pool_kwargs = super().build_connection_pool_key_attributes(
-            request, verify, cert
-        )
-        # The pool connects (and CONNECTs through proxies) to an already checked
-        # numeric address. TLS still uses the original hostname for SNI and trust.
-        if request.url.startswith("https:"):
-            pool_kwargs.update(server_hostname=self._hostname, assert_hostname=self._hostname)
-        return host_params, pool_kwargs
+    def init_poolmanager(self, *args, **kwargs):
+        super().init_poolmanager(*args, **kwargs, **self._tls_names)
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):
+        return super().proxy_manager_for(proxy, **proxy_kwargs, **self._tls_names)
 
 
 def pinned_get(url: str, *, headers, timeout, verify, proxies=None, exceptions=()):

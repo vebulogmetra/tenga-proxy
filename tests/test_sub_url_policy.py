@@ -69,10 +69,9 @@ def test_pinned_transport_uses_numeric_connect_and_original_tls_name(monkeypatch
     assert session.get.call_args.kwargs["headers"]["Host"] == "example.com"
     assert session.trust_env is False
     adapter = session.mount.call_args.args[1]
-    request = __import__("requests").Request("GET", "https://93.184.216.34/sub").prepare()
-    _, kwargs = adapter.build_connection_pool_key_attributes(request, True)
-    assert kwargs["server_hostname"] == "example.com"
-    assert kwargs["assert_hostname"] == "example.com"
+    for manager in (adapter.poolmanager, adapter.proxy_manager_for("http://127.0.0.1:8080")):
+        assert manager.connection_pool_kw["server_hostname"] == "example.com"
+        assert manager.connection_pool_kw["assert_hostname"] == "example.com"
 
 
 def test_redirect_to_lan_is_final_and_never_falls_back(monkeypatch):
