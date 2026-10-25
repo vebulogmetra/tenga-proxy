@@ -33,6 +33,13 @@ def _no_system_dns_changes(monkeypatch) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def _no_tun_access_probing(monkeypatch) -> None:
+    """Права для TUN у машины тестов не спрашиваются: там sudo и xattr."""
+    monkeypatch.setattr("src.core.connection.tun_problems", lambda _xray: [])
+    monkeypatch.setattr("src.sys.tun_access.tun_problems", lambda _xray: [])
+
+
+@pytest.fixture(autouse=True)
 def _no_system_probing(monkeypatch) -> None:
     """Сборка конфига не должна зависеть от сети машины, на которой идут тесты.
 

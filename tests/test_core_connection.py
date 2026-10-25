@@ -98,6 +98,44 @@ def test_tun_route_failure_rolls_the_start_back(tmp_path, monkeypatch):
     context.proxy_state.set_stopped.assert_called_once()
 
 
+def test_tun_route_failure_explains_what_is_missing(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.config.proxy_mode = "tun"
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr(
+        "src.core.connection.apply_tun_routes",
+        lambda *_: (False, None, "sudo: a password is required"),
+    )
+    monkeypatch.setattr("src.core.connection.tun_problems", lambda _xray: ["нет правила sudoers"])
+
+    result = ConnectionService(context).connect(1)
+
+    assert result.error == "нет правила sudoers"
+
+
+def test_tun_core_failure_explains_what_is_missing(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.config.proxy_mode = "tun"
+    context.xray_manager.start.return_value = (False, "xray-core exited with error")
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr(
+        "src.core.connection.tun_problems", lambda _xray: ["нет cap_net_admin", "нет sudoers"]
+    )
+
+    result = ConnectionService(context).connect(1)
+
+    assert result.error == "нет cap_net_admin\nнет sudoers"
+
+
+def test_system_proxy_failure_is_not_blamed_on_tun(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.start.return_value = (False, "binary not found")
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.tun_problems", lambda _xray: ["нет cap_net_admin"])
+
+    assert ConnectionService(context).connect(1).error == "binary not found"
+
+
 def test_vpn_is_connected_before_the_proxy_when_asked(tmp_path, monkeypatch):
     profile = FakeProfile(vpn_settings=FakeVpn(enabled=True, auto_connect=True))
     context = make_context(tmp_path, profile)

@@ -24,6 +24,7 @@ from src.core.health_probe import (
 from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.tun_access import tun_problems
 from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import connect_vpn, disconnect_vpn, is_vpn_active
@@ -115,7 +116,10 @@ class ConnectionService:
 
         if not started:
             logger.error("Error starting xray-core: %s", error)
-            return ConnectionResult(False, error or "Не удалось запустить xray-core")
+            message = error or "Не удалось запустить xray-core"
+            if runtime_mode == ProxyMode.TUN:
+                message = self._explain_tun_failure(message)
+            return ConnectionResult(False, message)
 
         context.proxy_state.applied_settings = applied_settings
         context.proxy_state.health_endpoint = health_endpoint
@@ -132,6 +136,19 @@ class ConnectionService:
             context.monitor.start()
 
         return ConnectionResult(True)
+
+    def _explain_tun_failure(self, error: str) -> str:
+        """Заменить ошибку ядра или sudo тем, чего не хватает системе для TUN.
+
+        Исходная ошибка уже в журнале; пользователю нужнее причина и команда,
+        которая её исправит.
+        """
+        try:
+            problems = tun_problems(self._context.xray_manager.binary_path)
+        except Exception:
+            logger.debug("TUN access check failed", exc_info=True)
+            return error
+        return "\n".join(problems) if problems else error
 
     def _route_system_dns(self, tun_name=None) -> None:
         """Направить системный DNS в TUN; отказ не срывает подключение."""
@@ -211,7 +228,9 @@ class ConnectionService:
             except Exception:
                 logger.debug("Rollback stop failed", exc_info=True)
             context.proxy_state.set_stopped()
-            return ConnectionResult(False, error or "Не удалось настроить маршруты TUN")
+            return ConnectionResult(
+                False, self._explain_tun_failure(error or "Не удалось настроить маршруты TUN")
+            )
 
         self._tun_route_state = state
         return ConnectionResult(True)

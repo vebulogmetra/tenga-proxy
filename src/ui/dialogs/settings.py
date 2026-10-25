@@ -19,6 +19,7 @@ from src.core.geo_update import update_geo_bases
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
+from src.sys import tun_access
 from src.ui.logic import platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
@@ -78,6 +79,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._context = context
         self._fetch_releases = fetch_releases
         self._core_update_thread = None
+        # None — проверка прав для TUN ещё не запускалась.
+        self._tun_problems: list[str] | None = None
 
         self._build_general_page()
         self._build_monitoring_page()
@@ -156,6 +159,14 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_mtu_row = Adw.SpinRow.new_with_range(576, 9000, 1)
         self.tun_mtu_row.set_title("MTU")
         runtime.add(self.tun_mtu_row)
+
+        self.tun_access_row = Adw.ActionRow(title="TUN не заработает")
+        self.tun_access_row.add_prefix(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
+        self.tun_access_row.add_css_class("warning")
+        # В подписи — команда для исправления: её копируют в терминал.
+        self.tun_access_row.set_subtitle_selectable(True)
+        self.tun_access_row.set_visible(False)
+        runtime.add(self.tun_access_row)
 
         appearance = Adw.PreferencesGroup(title="Оформление")
         page.add(appearance)
@@ -410,6 +421,29 @@ class SettingsDialog(Adw.PreferencesDialog):
         tun = self._mode.selected() == ProxyMode.TUN
         self.tun_name_row.set_sensitive(tun)
         self.tun_mtu_row.set_sensitive(tun)
+        if tun and self._tun_problems is None:
+            self._check_tun_access()
+        self._sync_tun_access()
+
+    def _check_tun_access(self) -> None:
+        # sudo и SCM отвечают не мгновенно: открытие настроек ждать не должно.
+        from src.core.config import find_xray_binary
+
+        self._tun_problems = []
+        run_in_background(
+            lambda: tun_access.tun_problems(find_xray_binary()),
+            on_done=self._on_tun_access_checked,
+            name="tenga-tun-access",
+        )
+
+    def _on_tun_access_checked(self, problems: list[str]) -> None:
+        self._tun_problems = list(problems)
+        self._sync_tun_access()
+
+    def _sync_tun_access(self) -> None:
+        problems = self._tun_problems or []
+        self.tun_access_row.set_subtitle("\n".join(problems))
+        self.tun_access_row.set_visible(self._mode.selected() == ProxyMode.TUN and bool(problems))
 
     def _sync_monitoring(self) -> None:
         monitoring = self.monitoring_row.get_active()

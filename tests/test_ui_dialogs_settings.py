@@ -54,6 +54,61 @@ def test_switching_to_tun_enables_its_rows(gtk_ready):
     assert dialog.tun_mtu_row.get_sensitive()
 
 
+def _capture_background(monkeypatch):
+    from src.ui.dialogs import settings
+
+    calls = []
+    monkeypatch.setattr(
+        settings, "run_in_background", lambda fn, **kwargs: calls.append((fn, kwargs))
+    )
+    return calls
+
+
+def test_tun_access_is_not_checked_outside_tun(gtk_ready, monkeypatch):
+    calls = _capture_background(monkeypatch)
+
+    dialog = make_dialog()
+
+    assert calls == []
+    assert not dialog.tun_access_row.get_visible()
+
+
+def test_missing_tun_rights_are_shown_with_the_fix(gtk_ready, monkeypatch):
+    calls = _capture_background(monkeypatch)
+    dialog = make_dialog()
+    dialog.select_mode("tun")
+
+    (call,) = calls
+    call[1]["on_done"](["Выполните: sudo setcap cap_net_admin,cap_net_raw+ep /x/xray"])
+
+    assert dialog.tun_access_row.get_visible()
+    assert "sudo setcap" in dialog.tun_access_row.get_subtitle()
+
+
+def test_tun_rights_are_checked_once_and_hidden_outside_tun(gtk_ready, monkeypatch):
+    calls = _capture_background(monkeypatch)
+    dialog = make_dialog()
+    dialog.select_mode("tun")
+    calls[0][1]["on_done"](["нет прав"])
+
+    dialog.select_mode("system_proxy")
+    assert not dialog.tun_access_row.get_visible()
+    dialog.select_mode("tun")
+
+    assert len(calls) == 1
+    assert dialog.tun_access_row.get_visible()
+
+
+def test_ready_system_shows_no_tun_warning(gtk_ready, monkeypatch):
+    calls = _capture_background(monkeypatch)
+    dialog = make_dialog()
+    dialog.select_mode("tun")
+
+    calls[0][1]["on_done"]([])
+
+    assert not dialog.tun_access_row.get_visible()
+
+
 def test_saving_writes_the_config_back(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)
