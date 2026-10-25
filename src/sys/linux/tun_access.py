@@ -28,7 +28,7 @@ def _sudo_allows(cmd: list[str]) -> bool:
         return False
 
 
-def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] = os.getxattr) -> bool:
+def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] | None = None) -> bool:
     """Файловая capability `cap_net_admin+ep` у бинарника.
 
     Формат `security.capability` (vfs_cap_data): magic_etc, затем младшие
@@ -36,7 +36,7 @@ def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] = os.getxattr
     поднимает (xray так не делает), их не получит.
     """
     try:
-        data = getxattr(path, "security.capability")
+        data = (getxattr or os.getxattr)(path, "security.capability")
     except OSError:
         return False
     if len(data) < 8:
@@ -48,14 +48,16 @@ def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] = os.getxattr
 def tun_problems(
     xray_path: str | None,
     *,
-    geteuid: Callable[[], int] = os.geteuid,
-    getxattr: Callable[[str, str], bytes] = os.getxattr,
+    geteuid: Callable[[], int] | None = None,
+    getxattr: Callable[[str, str], bytes] | None = None,
     sudo_allows: Callable[[list[str]], bool] = _sudo_allows,
     exists: Callable[[str], bool] = os.path.exists,
     which: Callable[[str], str | None] = shutil.which,
 ) -> list[str]:
     """Причины, по которым TUN не заработает; пустой список — всё на месте."""
-    if geteuid() == 0:
+    # os.geteuid и os.getxattr есть только на POSIX: берутся при вызове, чтобы
+    # модуль импортировался и на Windows, где его проверяют тесты.
+    if (geteuid or os.geteuid)() == 0:
         return []
 
     problems = []
