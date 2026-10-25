@@ -1,16 +1,30 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
 import os
+import re
 import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
+from src.core.config import CORE_DIR
+from src.core.net_journal import Journal
 from src.sys.addresses import resolve_ipv4
 
 logger = logging.getLogger("tenga.sys.tun_route")
 HELPER_PATH = "/usr/local/libexec/tenga-proxy/tun-route-helper"
+
+# Маршрут по умолчанию, который нужно вернуть. Переживает падение приложения:
+# ядро умирает вместе с TUN, маршрут через него исчезает, и система остаётся
+# без маршрута по умолчанию, пока его не вернёт `recover_tun_routes()`.
+JOURNAL_FILE: Path = CORE_DIR / "tun-route-journal.json"
+
+# Те же правила, что у tun_route_helper.sh: записи уходят в команды `ip`.
+_IFNAME = re.compile(r"[a-zA-Z0-9_.:-]{1,32}")
+_METRIC = re.compile(r"[0-9]{1,10}")
 
 
 @dataclass
@@ -22,6 +36,52 @@ class TunRouteState:
     default_metric: str | None
     proxy_ip: str
     tun_name: str
+
+
+def _is_ipv4(value: object) -> bool:
+    try:
+        ipaddress.IPv4Address(str(value))
+    except ValueError:
+        return False
+    return True
+
+
+def _valid_entry(entry: object) -> bool:
+    if not isinstance(entry, dict) or entry.get("op") != "route.restore":
+        return False
+    gateway, metric = entry.get("gateway"), entry.get("metric")
+    return (
+        _IFNAME.fullmatch(str(entry.get("tun_name", ""))) is not None
+        and _IFNAME.fullmatch(str(entry.get("dev", ""))) is not None
+        and _is_ipv4(entry.get("proxy_ip"))
+        and (gateway is None or _is_ipv4(gateway))
+        and (metric is None or _METRIC.fullmatch(str(metric)) is not None)
+    )
+
+
+def _journal() -> Journal:
+    return Journal(JOURNAL_FILE, _valid_entry)
+
+
+def _journal_entry(state: TunRouteState) -> dict:
+    return {
+        "op": "route.restore",
+        "tun_name": state.tun_name,
+        "proxy_ip": state.proxy_ip,
+        "gateway": state.default_gateway,
+        "dev": state.default_dev,
+        "metric": state.default_metric,
+    }
+
+
+def _state_from_entry(entry: dict) -> TunRouteState:
+    return TunRouteState(
+        default_gateway=entry["gateway"],
+        default_dev=entry["dev"],
+        default_metric=entry["metric"],
+        proxy_ip=entry["proxy_ip"],
+        tun_name=entry["tun_name"],
+    )
 
 
 def _run_command(cmd: list[str], timeout: int = 10) -> tuple[bool, str, str]:
@@ -128,25 +188,36 @@ def _parse_default_route(line: str) -> tuple[str | None, str | None, str | None]
 _resolve_ipv4 = resolve_ipv4
 
 
+def _default_route_line() -> tuple[bool, str, str]:
+    """Первая строка `ip route show default`: (успех, строка или "", ошибка)."""
+    ok, out, err = _run_command(["ip", "route", "show", "default"])
+    if not ok:
+        return False, "", err
+    for line in out.splitlines():
+        if line.strip().startswith("default "):
+            return True, line.strip(), ""
+    return True, "", ""
+
+
 def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteState | None, str]:
     """
     Route default traffic into TUN while keeping proxy server reachable via physical interface.
     """
-    ok, out, err = _run_command(["ip", "route", "show", "default"])
+    ok, default_line, err = _default_route_line()
     if not ok:
         return False, None, f"Cannot read default route: {err}"
-
-    default_line = ""
-    for line in out.splitlines():
-        if line.strip().startswith("default "):
-            default_line = line.strip()
-            break
     if not default_line:
         return False, None, "Default route not found"
 
     gateway, dev, metric = _parse_default_route(default_line)
     if not dev:
         return False, None, f"Cannot parse default route device from: {default_line}"
+
+    journal = _journal()
+    pending = journal.entries()
+    if dev == tun_name and pending:
+        # Прошлый откат не удался, и маршрут всё ещё в TUN: исходный — в журнале.
+        gateway, dev, metric = pending[-1]["gateway"], pending[-1]["dev"], pending[-1]["metric"]
 
     proxy_ip = _resolve_ipv4(proxy_host)
     if not proxy_ip:
@@ -156,6 +227,16 @@ def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteStat
         route_proxy_args = ["route", "replace", f"{proxy_ip}/32", "via", gateway, "dev", dev]
     else:
         route_proxy_args = ["route", "replace", f"{proxy_ip}/32", "dev", dev]
+
+    state = TunRouteState(
+        default_gateway=gateway,
+        default_dev=dev,
+        default_metric=metric,
+        proxy_ip=proxy_ip,
+        tun_name=tun_name,
+    )
+    journal.clear()
+    journal.record(_journal_entry(state))
 
     helper_args = [
         tun_name,
@@ -173,15 +254,9 @@ def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteStat
             ]
         )
     if not ok:
+        journal.clear()
         return False, None, f"Cannot apply TUN routes: {err}"
 
-    state = TunRouteState(
-        default_gateway=gateway,
-        default_dev=dev,
-        default_metric=metric,
-        proxy_ip=proxy_ip,
-        tun_name=tun_name,
-    )
     logger.info("TUN routes applied: default->%s, proxy %s via %s", tun_name, proxy_ip, dev)
     return True, state, ""
 
@@ -225,5 +300,34 @@ def restore_tun_routes(state: TunRouteState | None) -> tuple[bool, str]:
     # Best effort cleanup when helper was not used.
     if not used_helper:
         _run_command(["ip", "route", "del", f"{state.proxy_ip}/32"])
+    _journal().clear()
     logger.info("TUN routes restored: default->%s", state.default_dev)
     return True, ""
+
+
+def recover_tun_routes() -> tuple[bool, str]:
+    """Вернуть маршрут по умолчанию, оставшийся от упавшего сеанса TUN.
+
+    Вызывается при старте приложения, до подключения. Маршрут возвращается,
+    только если система всё ещё без своего: маршрут по умолчанию идёт в TUN
+    или его нет вовсе. После перезагрузки или смены сети он уже другой —
+    тогда журнал просто забывается.
+    """
+    journal = _journal()
+    entries = journal.entries()
+    if not entries:
+        return True, ""
+    state = _state_from_entry(entries[-1])
+
+    ok, default_line, err = _default_route_line()
+    if not ok:
+        return False, f"Cannot read default route: {err}"
+    if default_line:
+        _gateway, dev, _metric = _parse_default_route(default_line)
+        if dev != state.tun_name:
+            logger.info("Default route via %s is intact, TUN journal dropped", dev)
+            journal.clear()
+            return True, ""
+
+    logger.warning("Restoring default route left by a crashed TUN session")
+    return restore_tun_routes(state)

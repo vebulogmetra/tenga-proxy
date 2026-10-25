@@ -61,3 +61,23 @@ def test_install_hint_mentions_installer_on_windows(entry, monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
 
     assert "apt" not in entry.gtk_install_hint()
+
+
+def test_recover_network_restores_routes_left_by_a_crash(entry, monkeypatch):
+    called = []
+    monkeypatch.setattr(
+        "src.sys.tun_route.recover_tun_routes", lambda: (called.append(1), (True, ""))[1]
+    )
+
+    entry.recover_network()
+
+    assert called == [1]
+
+
+def test_recover_network_never_blocks_the_start(entry, monkeypatch):
+    def boom():
+        raise OSError("ip not found")
+
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", boom)
+
+    entry.recover_network()

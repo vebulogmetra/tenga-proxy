@@ -60,6 +60,24 @@ def gtk_install_hint() -> str:
     return "Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1"
 
 
+def recover_network() -> None:
+    """Вернуть маршрут по умолчанию, если прошлый сеанс TUN упал.
+
+    Только у процесса, захватившего блокировку: второй экземпляр сейчас же
+    завершится, а маршруты первого трогать нельзя.
+    """
+    from src.sys.tun_route import recover_tun_routes
+
+    log = logging.getLogger("startup")
+    try:
+        ok, error = recover_tun_routes()
+    except Exception:
+        log.exception("TUN route recovery crashed")
+        return
+    if not ok:
+        log.warning("Failed to recover TUN routes: %s", error)
+
+
 # --- GTK bootstrap ---
 
 logger = setup_early_logging()
@@ -159,6 +177,9 @@ def main() -> int:
         # процессом, он получит `activate` и поднимет окно, а этот процесс
         # сразу завершится. Блокировку он не трогает — xray остаётся один.
         logger.info("Another instance holds the lock, activating its window")
+
+    if holds_lock:
+        recover_network()
 
     try:
         from src.ui.application import run_app

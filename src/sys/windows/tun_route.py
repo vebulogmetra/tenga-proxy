@@ -32,3 +32,8 @@ def restore_tun_routes(state: TunRouteState | None) -> tuple[bool, str]:
     except ServiceError as e:
         return False, str(e)
     return True, ""
+
+
+def recover_tun_routes() -> tuple[bool, str]:
+    """Откат после падения делает служба при своём старте: клиенту делать нечего."""
+    return True, ""
