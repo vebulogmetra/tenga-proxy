@@ -78,6 +78,28 @@ def recover_network() -> None:
         log.warning("Failed to recover TUN routes: %s", error)
 
 
+def cleanup_legacy_install() -> None:
+    """Убрать ярлык прежней AppImage-установки: он перекрывает ярлык пакета.
+
+    Только у запуска из deb-пакета: из исходников разработчик может держать
+    AppImage рядом намеренно.
+    """
+    from src.core import config, platform_info
+
+    if platform_info.IS_WINDOWS or not config.is_packaged():
+        return
+    from src.sys.linux import legacy_appimage
+
+    log = logging.getLogger("startup")
+    try:
+        removed = legacy_appimage.remove_appimage_launcher(legacy_appimage.data_home())
+    except Exception:
+        log.exception("Failed to remove AppImage leftovers")
+        return
+    for path in removed:
+        log.info("Removed AppImage leftover %s", path)
+
+
 # --- GTK bootstrap ---
 
 logger = setup_early_logging()
@@ -180,6 +202,7 @@ def main() -> int:
 
     if holds_lock:
         recover_network()
+        cleanup_legacy_install()
 
     try:
         from src.ui.application import run_app

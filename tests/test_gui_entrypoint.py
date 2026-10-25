@@ -81,3 +81,35 @@ def test_recover_network_never_blocks_the_start(entry, monkeypatch):
     monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", boom)
 
     entry.recover_network()
+
+
+def test_legacy_cleanup_runs_only_from_the_package(entry, monkeypatch):
+    from src.core import config, platform_info
+
+    calls = []
+    monkeypatch.setattr(
+        "src.sys.linux.legacy_appimage.remove_appimage_launcher",
+        lambda home: calls.append(home) or [],
+    )
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+
+    monkeypatch.setattr(config, "is_packaged", lambda: False)
+    entry.cleanup_legacy_install()
+    assert calls == []
+
+    monkeypatch.setattr(config, "is_packaged", lambda: True)
+    entry.cleanup_legacy_install()
+    assert len(calls) == 1
+
+
+def test_legacy_cleanup_never_blocks_the_start(entry, monkeypatch):
+    from src.core import config, platform_info
+
+    def boom(_home):
+        raise PermissionError("read-only home")
+
+    monkeypatch.setattr("src.sys.linux.legacy_appimage.remove_appimage_launcher", boom)
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+    monkeypatch.setattr(config, "is_packaged", lambda: True)
+
+    entry.cleanup_legacy_install()
