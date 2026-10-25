@@ -80,16 +80,16 @@ python cli.py ver
 ## Сборка и установка
 
 ```bash
-# Собрать и установить AppImage
+# Собрать и установить deb-пакет
 python cli.py setup
 
-# Только собрать AppImage
+# Только собрать deb-пакет (dist/tenga-proxy_<версия>_<arch>.deb)
 python cli.py build
 
-# Установить AppImage в систему
+# Установить собранный пакет (sudo apt install)
 python cli.py install
 
-# Удалить AppImage из системы
+# Удалить пакет из системы (sudo apt remove)
 python cli.py install --uninstall
 
 # Установить окружение для разработки

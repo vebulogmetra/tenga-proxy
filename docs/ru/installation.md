@@ -1,6 +1,57 @@
 # Установка
 
-## Требования
+## Linux: deb-пакет
+
+Скачайте `tenga-proxy_<версия>_amd64.deb` со страницы
+[Releases](https://github.com/vebulogmetra/tenga-proxy/releases) и установите:
+
+```bash
+sudo apt install ./tenga-proxy_<версия>_amd64.deb
+```
+
+apt сам поставит зависимости: Python 3.11+, PyGObject, GTK 4, libadwaita 1.5+
+и requests. Подходят Ubuntu 24.04, Debian 13 и новее; на более старых
+дистрибутивах libadwaita 1.5 нет, и apt откажется ставить пакет.
+
+### Где что лежит
+
+| Что | Где |
+|---|---|
+| Приложение | `/usr/lib/tenga-proxy` |
+| Команда запуска | `/usr/bin/tenga-proxy` |
+| xray-core и геобазы | `/usr/lib/tenga-proxy/core/bin` |
+| Помощник маршрутов TUN | `/usr/libexec/tenga-proxy/tun-route-helper` |
+| Правило sudoers | `/etc/sudoers.d/tenga-proxy` |
+| Настройки, профили, логи | `~/.config/tenga-proxy` |
+
+### Режим TUN
+
+При установке пакет выдаёт xray-core права `cap_net_admin,cap_net_raw`:
+TUN-интерфейс ядро создаёт само. Маршрут по умолчанию переключает помощник
+через `sudo` без пароля; правило пакета разрешает его группе `sudo`, то есть
+администраторам системы. Пользователю не из этой группы TUN недоступен, пока его
+не добавят (`sudo usermod -aG sudo <имя>` и повторный вход). Чего не хватает,
+показывают настройки и ошибка подключения.
+
+### Переход с AppImage
+
+AppImage больше не выпускается. При установке пакет удаляет помощник
+`/usr/local/libexec/tenga-proxy` и правила `/etc/sudoers.d/tenga-proxy-tun-helper-*`,
+а приложение при первом запуске — ярлык `~/.local/share/applications/tenga-proxy.desktop`,
+если он запускал AppImage, и его значки. Настройки в `~/.config/tenga-proxy`
+остаются. Сам файл `~/.local/bin/tenga-proxy.AppImage` и копию ядра
+`~/.config/tenga-proxy/bin` удалите вручную.
+
+### Удаление
+
+```bash
+sudo apt remove tenga-proxy   # purge удалит и правило sudoers
+```
+
+Настройки в `~/.config/tenga-proxy` остаются — удалите каталог вручную, если
+они не нужны.
+
+## Требования для запуска из исходников
 
 Для работы Tenga Proxy требуются:
 
@@ -22,13 +73,12 @@ uv sync
 pip3 install -e .
 ```
 
-## Установка xray-core
+## Установка xray-core для разработки
 
-CLI и GUI требуют наличия бинарника `xray`. Он может быть:
+При запуске из исходников бинарник `xray` ищется:
 
 1. **В директории проекта:** `core/bin/xray`
 2. **В системном PATH:** установлен системно
-3. **В AppImage:** встроен в образ
 
 ### Вариант 1: Скачать бинарник
 
@@ -45,20 +95,6 @@ chmod +x core/bin/xray
 # См. официальную документацию: https://xtls.github.io
 ```
 
-## Быстрая установка
-
-Для сборки и установки/обновления AppImage в систему:
-
-```bash
-python cli.py setup
-```
-
-- Соберёт AppImage
-- Установит его в систему
-- Создаст ярлык в меню приложений
-
-После этого приложение будет доступно в меню.
-
 ## Установка окружения для разработки
 
 Для разработки и запуска из исходников:
@@ -72,38 +108,24 @@ python cli.py setup-dev
 - Python зависимости из `pyproject.toml`
 - Бинарник xray-core
 
-## Сборка AppImage
-
-Для создания портативного AppImage файла:
+## Сборка deb-пакета
 
 ### Требования для сборки
 
 - Системные зависимости (устанавливаются через `python cli.py setup-dev`)
-- Бинарник `xray` в `core/bin/xray`
+- Бинарник `xray` и геобазы в `core/bin/`
+- `dpkg-deb` (есть в любой системе на Debian/Ubuntu)
 
-### Сборка
-
-```bash
-python cli.py build
-```
-
-Результат будет в `dist/tenga-proxy-x.AppImage`.
-
-### Установка AppImage в систему
+### Сборка и установка
 
 ```bash
-python cli.py install
+python cli.py build               # dist/tenga-proxy_<версия>_<arch>.deb
+python cli.py install             # sudo apt install этого файла
+python cli.py setup               # то же одной командой
+python cli.py install --uninstall # sudo apt remove tenga-proxy
 ```
 
-После установки "Tenga Proxy" будет доступен в меню приложений.
-
-### Удаление AppImage
-
-```bash
-python cli.py install --uninstall
-```
-
-## Системные зависимости (Ubuntu/Debian)
+## Системные зависимости для запуска из исходников (Ubuntu/Debian)
 
 Интерфейсу нужна libadwaita 1.5 или новее: Ubuntu 24.04, Fedora 40,
 Debian 13 и новее подходят без дополнительных репозиториев.
@@ -115,17 +137,16 @@ sudo apt install -y \
     python3-gi \
     python3-pip \
     gir1.2-gtk-4.0 \
-    gir1.2-adw-1 \
-    libfuse2t64
+    gir1.2-adw-1
 ```
 ### Ссылки импорта и обновления
 
-Desktop-файл регистрирует `veblock://` и `wingeon://`; установщик AppImage передаёт
+Desktop-файл регистрирует `veblock://` и `wingeon://` и передаёт
 URI аргументом `%U`, без shell-интерпретации. Повторный экземпляр передаёт открытие
 URI работающему приложению через GApplication.
 
 Приложение уведомляет о релизах desktop-репозитория и открывает проверенную
-HTTPS-страницу GitHub. Установка AppImage из интерфейса не включена: сначала нужны
+HTTPS-страницу GitHub. Установка обновлений из интерфейса не включена: сначала нужны
 подписанный манифест, доверенный публичный ключ и процесс ротации ключей. Скачивание,
 замена и автоматический запуск нового исполняемого файла при проверке версии
 не выполняются. Обновляйте приложение обычным способом установки.

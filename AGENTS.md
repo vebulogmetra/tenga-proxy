@@ -15,7 +15,7 @@ Shadowsocks, Hysteria2, SOCKS и HTTP. Режимы работы — TUN и си
 
 На Linux менеджер зависимостей — uv; на Windows используй MSYS2 UCRT64. PyGObject и Pycairo требуют системных библиотек.
 Наличие Windows-окружения не позволяет автоматически проверить
-Linux GUI, D-Bus, TUN и сборку AppImage. Сообщай, какие проверки выполнены,
+Linux GUI, D-Bus, TUN и сборку deb-пакета. Сообщай, какие проверки выполнены,
 какие недоступны; не выдавай пропущенные проверки за успешные.
 
 ## Карта исходников
@@ -69,10 +69,11 @@ Linux GUI, D-Bus, TUN и сборку AppImage. Сообщай, какие пр�
 | Форматирование | `make format` |
 | Проверка форматирования | `make format-check` |
 | Линтер и форматирование | `make lint-all` |
-| Сборка AppImage | `uv run python cli.py build` |
+| Сборка deb-пакета | `uv run python cli.py build` |
 
-Сборка вызывает `core/scripts/build_appimage.sh`, использует PyInstaller
-и appimagetool, требует `core/bin/xray`; результат находится в `dist/`.
+Сборка вызывает `core/scripts/build_deb.sh` (файлы пакета — в
+`packaging/linux/`), требует `core/bin/xray`, геобазы и `dpkg-deb`; результат
+находится в `dist/`. Установка — `cli.py install` через `sudo apt`.
 Для зависимостей сборки есть extra `build`. Установку приложения и изменение
 версии выполняй в рамках задачи. Для версии используй `cli.py bump-version`,
 изучив его поведение, чтобы согласованно обновить связанные файлы.
@@ -100,7 +101,7 @@ Linux GUI, D-Bus, TUN и сборку AppImage. Сообщай, какие пр�
 XrayManager, доступность геобаз и применение системного режима.
 
 Для установленной сборки учитывай версию и фактический бинарник xray,
-состав AppImage, пути ресурсов, права TUN и stderr ядра. Не объявляй причину
+состав deb-пакета, пути ресурсов, права TUN и stderr ядра. Не объявляй причину
 установленной без текста ошибки, логов или воспроизводящего теста.
 
 ## Настройки, логи и секреты
@@ -108,8 +109,8 @@ XrayManager, доступность геобаз и применение сис�
 Пути определяются в `src/core/config.py`:
 
 - Из исходников: конфигурация в `core/`, журналы в `logs/` корня проекта.
-- Linux AppImage/frozen: `${XDG_CONFIG_HOME:-~/.config}/tenga-proxy/`, журналы
-  в подкаталоге `logs/`.
+- Linux deb-пакет (`/usr/lib/tenga-proxy`): `${XDG_CONFIG_HOME:-~/.config}/tenga-proxy/`,
+  журналы в подкаталоге `logs/`.
 - Windows frozen: настройки в `%APPDATA%/tenga-proxy/`, журналы в `%LOCALAPPDATA%/tenga-proxy/logs/` без переопределения TENGA_CONFIG_DIR.
 - `TENGA_CONFIG_DIR` переопределяет каталог конфигурации и учитывается
   при выборе режима путей. Не зашивай пользовательские пути в код.
@@ -175,8 +176,9 @@ Python: четыре пробела, длина строки 100, двойные
   компоновка — `src/ui/logic/platform_layout.py`, функция на каждое отличие
   с причиной. Допустимые места для `IS_WINDOWS` перечислены
   в `tests/test_ui_platform_branches.py`.
-- TUN на Linux: права даёт `setcap` на xray и помощник `tun-route-helper`
-  через `sudo -n`. Исходный маршрут по умолчанию пишется в журнал
+- TUN на Linux: права даёт `setcap` на xray в postinst пакета и помощник
+  `/usr/libexec/tenga-proxy/tun-route-helper` через `sudo -n` (правило
+  sudoers пакета — для группы `sudo`). Исходный маршрут по умолчанию пишется в журнал
   (`src/core/net_journal.py`, тот же, что у службы) и возвращается при
   старте после падения (`recover_tun_routes`, вызов в `gui.py`). Чего не
   хватает для TUN, называет `src/sys/tun_access.py`: его показывают
@@ -191,7 +193,7 @@ Python: четыре пробела, длина строки 100, двойные
 - `packaging/windows/` — PyInstaller spec, Inno Setup и сведения о версии.
   `.github/workflows/windows.yml` — фактическая последовательность CI
   Windows, `.github/workflows/linux.yml` — Linux: lint, pytest, `make test-gtk`,
-  `make test-tray`, сборка AppImage.
+  `make test-tray`, тесты на requests из Ubuntu, сборка и установка deb.
 
 На Windows Python, GTK, libadwaita, PyGObject, requests и pywin32 берутся
 из пакетов MSYS2 UCRT64. Не заменяй их обычным pip/uv-окружением без проверки

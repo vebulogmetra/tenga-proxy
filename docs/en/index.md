@@ -19,7 +19,7 @@
 For quick installation and launch:
 
 ```bash
-# Install and build AppImage
+# Build and install the deb package
 python cli.py setup
 
 # Run GUI

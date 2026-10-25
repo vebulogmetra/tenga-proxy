@@ -68,16 +68,16 @@ make lint-all
 
 ### Building & Installation
 ```bash
-# Собрать и установить AppImage в систему
+# Собрать и установить deb-пакет в систему
 python cli.py setup
 
-# Только собрать AppImage
+# Только собрать deb-пакет (dist/tenga-proxy_<версия>_<arch>.deb)
 python cli.py build
 
-# Установить AppImage в систему
+# Установить собранный пакет (sudo apt install)
 python cli.py install
 
-# Удалить AppImage из системы
+# Удалить пакет из системы (sudo apt remove)
 python cli.py install --uninstall
 
 # Обновить версию проекта
@@ -175,8 +175,10 @@ core/              # Директория конфигурации (в dev ре�
 в `src/ui/logic/platform_layout.py`. Виджеты `IS_WINDOWS` не читают; где это
 допустимо, перечисляет `tests/test_ui_platform_branches.py`.
 
-**TUN на Linux** - xray получает `cap_net_admin` через `setcap`, маршрут по
-умолчанию переключает помощник `tun-route-helper` через `sudo -n`. Исходный
+**TUN на Linux** - xray получает `cap_net_admin` через `setcap` в postinst
+deb-пакета, маршрут по умолчанию переключает помощник
+`/usr/libexec/tenga-proxy/tun-route-helper` через `sudo -n` (правило пакета —
+для группы `sudo`). Исходный
 маршрут пишется в журнал (`src/core/net_journal.py`, общий со службой
 Windows) и возвращается при следующем старте, если приложение упало
 (`recover_tun_routes`). `src/sys/tun_access.py` называет, чего не хватает
@@ -199,7 +201,7 @@ Windows) и возвращается при следующем старте, е�
 
 **Пути и окружение**:
 - В dev режиме: конфигурация в `./core/`, логи в `./logs/`
-- В AppImage/frozen: конфигурация в `~/.config/tenga-proxy/`
+- Из deb-пакета (`/usr/lib/tenga-proxy`) и frozen: конфигурация в `~/.config/tenga-proxy/`
 - Переменная окружения `TENGA_CONFIG_DIR` переопределяет путь к конфигурации
 
 **Файлы конфигурации** (в `core/`):
@@ -292,7 +294,7 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   тесты окна пропускаются с объяснением, а не падают
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
-- CI: `.github/workflows/linux.yml` (lint, pytest, GTK, трей, AppImage) и
+- CI: `.github/workflows/linux.yml` (lint, pytest, GTK, трей, deb) и
   `.github/workflows/windows.yml`
 - Тесты, которым нужна настоящая Windows, помечены маркером `windows` и вне
   win32 пропускаются. `tests/integration/` — служба на живой Windows (нужны
@@ -327,8 +329,13 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
 - CI `.github/workflows/windows.yml`: тесты, сборка установщика, установка
   службы и интеграционные тесты; по тегу `v*` установщик уходит в релиз
 
-### AppImage Building
-- PyInstaller для сборки в исполняемый файл
-- Используется `appimagetool` для создания AppImage
-- Встроенный xray binary в bundle
-- Десктоп файл и иконки включены в AppImage
+### deb Building
+- `core/scripts/build_deb.sh` (`python cli.py build`): исходники и xray-core в
+  `/usr/lib/tenga-proxy`, лаунчер `/usr/bin/tenga-proxy`, запуск системным
+  Python; GTK, libadwaita и requests — зависимости пакета
+- `packaging/linux/`: лаунчер, правило sudoers, postinst (setcap, очистка
+  следов AppImage, байт-код) и prerm
+- Пакет работает на системных requests/urllib3 (2.31/2.0 в Ubuntu 24.04): CI
+  гоняет тесты и на этих версиях
+- AppImage больше не собирается; ярлык старой установки приложение удаляет
+  при старте (`src/sys/linux/legacy_appimage.py`)

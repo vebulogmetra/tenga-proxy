@@ -38,30 +38,19 @@
 
 ### Linux
 
-Скачайте AppImage со страницы
-[Releases](https://github.com/vebulogmetra/tenga-proxy/releases),
-сделайте файл исполняемым и запустите:
+Скачайте `tenga-proxy_<версия>_amd64.deb` со страницы
+[Releases](https://github.com/vebulogmetra/tenga-proxy/releases) и установите:
 
 ```bash
-chmod +x tenga-proxy-*.AppImage
-./tenga-proxy-*.AppImage
+sudo apt install ./tenga-proxy_<версия>_amd64.deb
 ```
 
-Чтобы приложение появилось в меню, скопируйте AppImage в `~/.local/bin`
-и создайте ярлык — или соберите и установите его командами из
+Зависимости (Python, GTK 4, libadwaita 1.5+) apt поставит сам. Подходят
+Ubuntu 24.04, Debian 13 и новее. Пакет сам выдаёт и права для режима TUN:
+`cap_net_admin` ядру и sudo без пароля на помощник маршрутов для группы `sudo`.
+
+AppImage больше не выпускается. Как перейти с неё и что где лежит — в
 [документации](docs/ru/installation.md).
-
-### Что нужно в системе
-
-Ubuntu 24.04, Fedora 40, Debian 13 и новее подходят без настройки. На более
-старых дистрибутивах нужна libadwaita 1.5 или новее.
-
-```bash
-sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1 libfuse2t64
-```
-
-Для режима TUN нужны права на создание сетевого интерфейса — приложение
-запросит их при первом включении.
 
 ### Windows
 
@@ -183,5 +172,5 @@ curl -x socks5://127.0.0.1:2080 https://ifconfig.me
 дополнительный DNS, очищенный журнал/экспорт, проверку версий геобаз и уведомления
 об обновлениях приложения. Подробности и ограничения — в [документации GUI](docs/ru/gui.md)
 и [плане переноса](docs/plans/2026-10-20-desktop-android-parity.md).
-VK-туннель остаётся отдельной задачей; установка AppImage из приложения ожидает
+VK-туннель остаётся отдельной задачей; установка обновлений из приложения ожидает
 инфраструктуру подписи релизов.

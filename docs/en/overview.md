@@ -94,7 +94,7 @@ Tenga Proxy uses an architecture with separation into:
 - **uv** - package manager
 - **ruff** - linter and formatter
 - **pytest** - testing framework
-- **pyinstaller** - AppImage building
+- **pyinstaller** - Windows installer building
 
 ## Community
 

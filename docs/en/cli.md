@@ -80,16 +80,16 @@ python cli.py ver
 ## Build and Installation
 
 ```bash
-# Build and install AppImage
+# Build and install the deb package
 python cli.py setup
 
-# Build AppImage only
+# Build the deb package only (dist/tenga-proxy_<version>_<arch>.deb)
 python cli.py build
 
-# Install AppImage in system
+# Install the built package (sudo apt install)
 python cli.py install
 
-# Uninstall AppImage from system
+# Remove the package from the system (sudo apt remove)
 python cli.py install --uninstall
 
 # Install development environment

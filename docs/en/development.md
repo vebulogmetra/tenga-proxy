@@ -58,7 +58,7 @@ The project uses the following development tools:
 - **uv** - package manager
 - **ruff** - linter and formatter
 - **pytest** - testing framework
-- **pyinstaller** - AppImage building
+- **pyinstaller** - Windows installer building
 
 ## Code Style
 
@@ -146,15 +146,21 @@ The `src.fmt` module handles link parsing and formatting:
 
 ## Building Project
 
-### Building AppImage
+### Building the deb package
 
 ```bash
-# Build AppImage
+# Build dist/tenga-proxy_<version>_<arch>.deb
 python cli.py build
 
-# Install AppImage
+# Install it through apt
 python cli.py install
 ```
+
+The build is `core/scripts/build_deb.sh`: sources and xray-core go to
+`/usr/lib/tenga-proxy` and run on the system Python. The launcher, sudoers
+rule and postinst/prerm scripts live in `packaging/linux/`. The package uses
+the system requests and urllib3 (2.31 and 2.0 on Ubuntu 24.04), so CI also
+runs the tests against those versions.
 
 ### Version Update
 
@@ -241,8 +247,9 @@ on your workstation: the routes capture the network during the test.
 ### CI
 
 `.github/workflows/linux.yml` on `ubuntu-24.04`: lint, the test suite,
-`make test-gtk`, `make test-tray` and the AppImage build; on a `v*` tag the
-AppImage is attached to the release.
+`make test-gtk`, `make test-tray`, tests on Ubuntu's requests, the deb build
+and its installation on the runner; on a `v*` tag the package is attached to
+the release.
 
 `.github/workflows/windows.yml` on `windows-latest`: Windows-code tests, the
 full suite (informational), the installer build, installing the service from
@@ -254,7 +261,7 @@ to the release; the tag must match the version in `src/__init__.py`.
 ### Logging
 
 Logs live in `logs/` (development mode), in `~/.config/tenga-proxy/logs/`
-(AppImage) or in `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
+(deb package) or in `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
 
 - `tenga_gui.log` - GUI logs
 - `tenga_cli.log` - CLI logs

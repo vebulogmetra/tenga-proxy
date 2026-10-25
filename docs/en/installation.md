@@ -1,6 +1,58 @@
 # Installation
 
-## Requirements
+## Linux: deb package
+
+Download `tenga-proxy_<version>_amd64.deb` from the
+[Releases](https://github.com/vebulogmetra/tenga-proxy/releases) page and install it:
+
+```bash
+sudo apt install ./tenga-proxy_<version>_amd64.deb
+```
+
+apt pulls in the dependencies: Python 3.11+, PyGObject, GTK 4, libadwaita 1.5+
+and requests. Ubuntu 24.04, Debian 13 and later work; older distributions lack
+libadwaita 1.5 and apt refuses the package.
+
+### Where things live
+
+| What | Where |
+|---|---|
+| Application | `/usr/lib/tenga-proxy` |
+| Launcher | `/usr/bin/tenga-proxy` |
+| xray-core and geo databases | `/usr/lib/tenga-proxy/core/bin` |
+| TUN route helper | `/usr/libexec/tenga-proxy/tun-route-helper` |
+| sudoers rule | `/etc/sudoers.d/tenga-proxy` |
+| Settings, profiles, logs | `~/.config/tenga-proxy` |
+
+### TUN mode
+
+On install the package grants xray-core `cap_net_admin,cap_net_raw`: the core
+creates the TUN interface itself. The default route is switched by a helper
+run through passwordless `sudo`; the package rule allows it for the `sudo`
+group, i.e. system administrators. Users outside that group get no TUN until
+they are added (`sudo usermod -aG sudo <name>` and sign in again). Settings
+and the connection error say what is missing.
+
+### Moving from AppImage
+
+AppImage builds are no longer published. On install the package removes the
+`/usr/local/libexec/tenga-proxy` helper and the
+`/etc/sudoers.d/tenga-proxy-tun-helper-*` rules; on first start the app removes
+`~/.local/share/applications/tenga-proxy.desktop` if it launched an AppImage,
+together with its icons. Settings in `~/.config/tenga-proxy` stay. Delete
+`~/.local/bin/tenga-proxy.AppImage` and the core copy in
+`~/.config/tenga-proxy/bin` yourself.
+
+### Uninstall
+
+```bash
+sudo apt remove tenga-proxy   # purge also removes the sudoers rule
+```
+
+Settings in `~/.config/tenga-proxy` stay; delete the directory if you no
+longer need them.
+
+## Requirements for running from sources
 
 Tenga Proxy requires:
 
@@ -22,13 +74,12 @@ uv sync
 pip3 install -e .
 ```
 
-## Installing xray-core
+## Installing xray-core for development
 
-CLI and GUI require the `xray` binary. It can be:
+When running from sources the `xray` binary is looked up:
 
 1. **In project directory:** `core/bin/xray`
 2. **In system PATH:** installed system-wide
-3. **In AppImage:** built into the image
 
 ### Option 1: Download binary
 
@@ -45,20 +96,6 @@ chmod +x core/bin/xray
 # See official documentation: https://xtls.github.io
 ```
 
-## Quick Installation
-
-To build and install/update AppImage in the system:
-
-```bash
-python cli.py setup
-```
-
-- Builds AppImage
-- Installs it in the system
-- Creates a shortcut in the applications menu
-
-After this, the application will be available in the menu.
-
 ## Development Environment Setup
 
 For development and running from sources:
@@ -72,38 +109,24 @@ python cli.py setup-dev
 - Python dependencies from `pyproject.toml`
 - xray-core binary
 
-## Building AppImage
-
-To create a portable AppImage file:
+## Building the deb package
 
 ### Build Requirements
 
 - System dependencies (installed via `python cli.py setup-dev`)
-- `xray` binary in `core/bin/xray`
+- `xray` binary and geo databases in `core/bin/`
+- `dpkg-deb` (present on any Debian/Ubuntu system)
 
-### Build
-
-```bash
-python cli.py build
-```
-
-Result will be in `dist/tenga-proxy-x.AppImage`.
-
-### Install AppImage in system
+### Build and install
 
 ```bash
-python cli.py install
+python cli.py build               # dist/tenga-proxy_<version>_<arch>.deb
+python cli.py install             # sudo apt install of that file
+python cli.py setup               # both in one command
+python cli.py install --uninstall # sudo apt remove tenga-proxy
 ```
 
-After installation "Tenga Proxy" will be available in the applications menu.
-
-### Uninstall AppImage
-
-```bash
-python cli.py install --uninstall
-```
-
-## System Dependencies (Ubuntu/Debian)
+## System Dependencies for running from sources (Ubuntu/Debian)
 
 The interface needs libadwaita 1.5 or newer: Ubuntu 24.04, Fedora 40,
 Debian 13 and later ship it out of the box.
@@ -115,8 +138,7 @@ sudo apt install -y \
     python3-gi \
     python3-pip \
     gir1.2-gtk-4.0 \
-    gir1.2-adw-1 \
-    libfuse2t64
+    gir1.2-adw-1
 ```
 ## Windows
 

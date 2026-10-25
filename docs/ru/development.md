@@ -58,7 +58,7 @@ uv sync --all-extras
 - **uv** - менеджер пакетов
 - **ruff** - линтер и форматтер
 - **pytest** - фреймворк для тестирования
-- **pyinstaller** - сборка AppImage
+- **pyinstaller** - сборка установщика Windows
 
 ## Стиль кода
 
@@ -145,15 +145,21 @@ uv run pytest tests/test_specific.py
 
 ## Сборка проекта
 
-### Сборка AppImage
+### Сборка deb-пакета
 
 ```bash
-# Собрать AppImage
+# Собрать dist/tenga-proxy_<версия>_<arch>.deb
 python cli.py build
 
-# Установить AppImage
+# Установить его через apt
 python cli.py install
 ```
+
+Сборка — `core/scripts/build_deb.sh`: исходники и xray-core в
+`/usr/lib/tenga-proxy`, запуск системным Python. Лаунчер, правило sudoers и
+сценарии postinst/prerm лежат в `packaging/linux/`. Пакет работает на
+системных requests и urllib3 (2.31 и 2.0 в Ubuntu 24.04), поэтому CI гоняет
+тесты и на этих версиях.
 
 ### Обновление версии
 
@@ -239,8 +245,9 @@ NRPT, откат). Нужны установленная служба и пра�
 ### CI
 
 `.github/workflows/linux.yml` на `ubuntu-24.04`: линтер, тесты,
-`make test-gtk`, `make test-tray` и сборка AppImage; по тегу `v*` AppImage
-прикрепляется к релизу.
+`make test-gtk`, `make test-tray`, тесты на requests из Ubuntu, сборка
+deb-пакета и его установка на раннере; по тегу `v*` пакет прикрепляется к
+релизу.
 
 `.github/workflows/windows.yml` на `windows-latest`: тесты Windows-кода,
 полный прогон (информационный), сборка установщика, установка службы из
@@ -252,7 +259,7 @@ NRPT, откат). Нужны установленная служба и пра�
 ### Логирование
 
 Логи лежат в `logs/` (в режиме разработки), в `~/.config/tenga-proxy/logs/`
-(AppImage) или в `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
+(deb-пакет) или в `%LOCALAPPDATA%\tenga-proxy\logs` (Windows):
 
 - `tenga_gui.log` - логи GUI
 - `tenga_cli.log` - логи CLI
