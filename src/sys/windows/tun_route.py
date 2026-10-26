@@ -1,4 +1,4 @@
-"""Маршруты TUN на Windows: их ставит и снимает служба Tenga Proxy."""
+"""Маршруты TUN на Windows: их ставит и снимает служба Veblock."""
 
 from __future__ import annotations
 

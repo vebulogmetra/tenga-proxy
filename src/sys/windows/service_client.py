@@ -1,4 +1,4 @@
-"""Клиент службы Tenga Proxy для GUI.
+"""Клиент службы Veblock для GUI.
 
 Подключение ленивое и одно на процесс: при первом вызове служба запускается
 через SCM (если остановлена), затем `hello` сверяет версии. Обрыв канала
@@ -19,7 +19,7 @@ from src.winsvc.state import ServiceError
 
 logger = logging.getLogger("tenga.sys.service_client")
 
-UNAVAILABLE = "Служба Tenga Proxy недоступна: переустановите приложение"
+UNAVAILABLE = "Служба Veblock недоступна: переустановите приложение"
 
 
 class ServiceUnavailable(ServiceError):

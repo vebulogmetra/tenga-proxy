@@ -8,8 +8,8 @@ import threading
 from pathlib import Path
 
 SERVICE_NAME = "TengaProxySvc"
-DISPLAY_NAME = "Tenga Proxy"
-DESCRIPTION = "Запускает TUN-режим Tenga Proxy: xray-core, маршруты и DNS."
+DISPLAY_NAME = "Veblock"
+DESCRIPTION = "Запускает TUN-режим Veblock: xray-core, маршруты и DNS."
 # Каталог службы: журнал, логи. Пользователям — только чтение.
 DATA_SDDL = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FRFX;;;BU)"
 

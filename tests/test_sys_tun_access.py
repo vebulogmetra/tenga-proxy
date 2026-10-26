@@ -112,7 +112,7 @@ def test_unreadable_capabilities_count_as_missing():
         (True, []),
         (
             False,
-            ["Служба Tenga Proxy не установлена: TUN-режим недоступен. Переустановите приложение"],
+            ["Служба Veblock не установлена: TUN-режим недоступен. Переустановите приложение"],
         ),
     ],
 )

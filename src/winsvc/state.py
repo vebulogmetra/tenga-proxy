@@ -62,7 +62,7 @@ class ServiceState:
         if version != __version__:
             raise ServiceError(
                 f"Версия службы {__version__} не совпадает с приложением {version}: "
-                "переустановите Tenga Proxy"
+                "переустановите Veblock"
             )
         return {"version": __version__}
 

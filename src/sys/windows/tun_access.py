@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-NO_SERVICE = "Служба Tenga Proxy не установлена: TUN-режим недоступен. Переустановите приложение"
+NO_SERVICE = "Служба Veblock не установлена: TUN-режим недоступен. Переустановите приложение"
 
 
 def _query(name: str) -> None:
