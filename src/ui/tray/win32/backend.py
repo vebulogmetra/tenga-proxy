@@ -336,7 +336,7 @@ class NotifyIconWindow:
             self._user32.RegisterClassExW(ctypes.byref(wc))
             self._taskbar_created = self._user32.RegisterWindowMessageW("TaskbarCreated")
             self._hwnd = self._user32.CreateWindowExW(
-                0, self._class_name, "Tenga Proxy", 0, 0, 0, 0, 0, None, None, hinstance, None
+                0, self._class_name, "Veblock", 0, 0, 0, 0, 0, None, None, hinstance, None
             )
         finally:
             self._ready.set()

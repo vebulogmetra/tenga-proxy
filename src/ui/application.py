@@ -298,7 +298,7 @@ class TengaApplication(Adw.Application):
         self.last_notification_for_test = text
         self.toast(text)
 
-        notification = Gio.Notification.new("Tenga Proxy")
+        notification = Gio.Notification.new("Veblock")
         notification.set_body(text)
         self.send_notification(FAILOVER_NOTIFICATION_ID, notification)
 
@@ -694,7 +694,7 @@ class TengaApplication(Adw.Application):
     def _open_about(self) -> None:
         core = core_version(getattr(self.context, "xray_manager", None))
         dialog = Adw.AboutDialog(
-            application_name="Tenga Proxy",
+            application_name="Veblock",
             application_icon=APP_ICON,
             developer_name="Artem G.",
             version=app_version(),
@@ -703,7 +703,7 @@ class TengaApplication(Adw.Application):
             license_type=Gtk.License.MIT_X11,
         )
         # Строку целиком копируют в отчёт об ошибке, поэтому обе версии рядом.
-        dialog.set_debug_info(f"Tenga Proxy {app_version()}\nxray-core {core}")
+        dialog.set_debug_info(f"Veblock {app_version()}\nxray-core {core}")
         self.present_dialog(dialog)
 
     def _open_shortcuts(self) -> None:

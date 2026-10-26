@@ -103,7 +103,7 @@ class MainWindow(Adw.ApplicationWindow):
     __gtype_name__ = "TengaMainWindow"
 
     def __init__(self, application: Adw.Application, context: AppContext) -> None:
-        super().__init__(application=application, title="Tenga Proxy")
+        super().__init__(application=application, title="Veblock")
         self.set_icon_name(APP_ICON)
         self._context = context
 

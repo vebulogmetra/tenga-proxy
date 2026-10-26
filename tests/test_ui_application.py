@@ -645,7 +645,7 @@ def test_a_failed_connection_moves_the_tray_into_the_error_state(adw_app):
         adw_app.connect_profile(entry.id)
         adw_app.wait_for_connection_for_test()
 
-        assert item.tooltips[-1] == "Tenga Proxy: ошибка"
+        assert item.tooltips[-1] == "Veblock: ошибка"
     finally:
         adw_app.stop_tray()
 

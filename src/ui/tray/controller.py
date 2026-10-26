@@ -107,12 +107,12 @@ class TrayController:
 
     def _tooltip(self) -> str:
         if self._state is ConnectionState.CONNECTED:
-            return f"Tenga Proxy: {self._profile_name or 'подключено'}"
+            return f"Veblock: {self._profile_name or 'подключено'}"
         if self._state is ConnectionState.CONNECTING:
-            return "Tenga Proxy: подключение…"
+            return "Veblock: подключение…"
         if self._state is ConnectionState.ERROR:
-            return "Tenga Proxy: ошибка"
-        return "Tenga Proxy: отключено"
+            return "Veblock: ошибка"
+        return "Veblock: отключено"
 
     def _profiles(self) -> list:
         return list(self._context.profiles.profiles.values())

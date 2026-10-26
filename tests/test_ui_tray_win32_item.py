@@ -122,5 +122,5 @@ def test_real_window_starts_and_stops(tmp_path):
 
     window = NotifyIconWindow()
     window.start(lambda _kind: None)
-    window.update("", "Tenga Proxy test")
+    window.update("", "Veblock test")
     window.stop()

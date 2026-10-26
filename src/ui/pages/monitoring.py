@@ -136,7 +136,7 @@ class MonitoringPage(Adw.PreferencesPage):
             accept_label="Сохранить",
             cancel_label="Отмена",
         )
-        chooser.set_current_name("tenga-diagnostics.txt")
+        chooser.set_current_name("veblock-diagnostics.txt")
 
         def response(dialog, response_id):
             selected = dialog.get_file()

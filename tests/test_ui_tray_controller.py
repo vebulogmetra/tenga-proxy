@@ -60,7 +60,7 @@ def test_the_icon_carries_the_theme_directory(context):
 def test_the_tooltip_starts_as_disconnected(controller):
     _tray, item, _app = controller
 
-    assert item.tooltips[-1] == "Tenga Proxy: отключено"
+    assert item.tooltips[-1] == "Veblock: отключено"
 
 
 def test_setting_the_connected_state_changes_the_icon(controller):
@@ -84,7 +84,7 @@ def test_the_connected_tooltip_names_the_profile(controller):
 
     tray.set_state(ConnectionState.CONNECTED, profile_name="Работа")
 
-    assert item.tooltips[-1] == "Tenga Proxy: Работа"
+    assert item.tooltips[-1] == "Veblock: Работа"
 
 
 def test_the_connected_menu_offers_to_disconnect(controller):
@@ -167,7 +167,7 @@ def test_the_tooltip_names_the_profile_that_actually_started(controller, context
 
     context.proxy_state.set_running(profile_id=entry.id)
 
-    assert item.tooltips[-1] == "Tenga Proxy: Рабочий"
+    assert item.tooltips[-1] == "Veblock: Рабочий"
 
 
 def test_the_running_profile_is_checked_in_the_menu(controller, context):

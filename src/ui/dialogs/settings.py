@@ -341,7 +341,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         self.add(page)
 
-        group = Adw.PreferencesGroup(title="Tenga Proxy")
+        group = Adw.PreferencesGroup(title="Veblock")
         page.add(group)
 
         group.add(self._value_row("Версия", app_version()))

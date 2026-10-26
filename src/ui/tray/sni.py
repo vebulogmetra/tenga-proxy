@@ -120,7 +120,7 @@ class StatusNotifierItem:
         connection: Gio.DBusConnection | None = None,
         *,
         item_id: str = "tenga-proxy",
-        title: str = "Tenga Proxy",
+        title: str = "Veblock",
     ) -> None:
         global _instance_counter
         _instance_counter += 1
