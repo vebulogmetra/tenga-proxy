@@ -13,7 +13,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gio, GObject, Gtk, Pango
 
 from src.ui.logic import platform_layout
-from src.ui.logic.subscriptions_view import SubscriptionRow, build_subscription_rows
+from src.ui.logic.subscriptions_view import (
+    EMPTY_RESPONSE_HINT,
+    EMPTY_RESPONSE_TEXT,
+    SubscriptionRow,
+    build_subscription_rows,
+)
 
 
 class SubscriptionsPage(Gtk.Box):
@@ -38,6 +43,7 @@ class SubscriptionsPage(Gtk.Box):
         self._menu_buttons: dict[int, Gtk.MenuButton] = {}
         self._details_labels: dict[int, Gtk.Label] = {}
         self._announce_labels: dict[int, Gtk.Label] = {}
+        self._empty_labels: dict[int, Gtk.Label] = {}
 
         self._build_search_bar()
         self._build_stack()
@@ -85,6 +91,7 @@ class SubscriptionsPage(Gtk.Box):
         self._menu_buttons.clear()
         self._details_labels.clear()
         self._announce_labels.clear()
+        self._empty_labels.clear()
 
         self._rows = build_subscription_rows(self._groups, self._counts, query=self._query)
 
@@ -130,6 +137,17 @@ class SubscriptionsPage(Gtk.Box):
             details.add_css_class("error" if row.expired else "dim-label")
             meta_box.append(details)
             self._details_labels[row.group_id] = details
+        if row.empty:
+            # Без пометки сохранённые серверы выглядели бы рабочими.
+            empty = Gtk.Label(label=EMPTY_RESPONSE_TEXT, xalign=1.0)
+            empty.add_css_class("caption")
+            empty.add_css_class("error")
+            empty.set_tooltip_text(EMPTY_RESPONSE_HINT)
+            if platform_layout.compact_subscription_rows():
+                empty.set_max_width_chars(18)
+                empty.set_ellipsize(Pango.EllipsizeMode.END)
+            meta_box.append(empty)
+            self._empty_labels[row.group_id] = empty
         action_row.add_suffix(meta_box)
 
         button = Gtk.Button(icon_name="view-refresh-symbolic")
@@ -235,6 +253,9 @@ class SubscriptionsPage(Gtk.Box):
     def is_expired_for_test(self, *, group_id: int) -> bool:
         label = self._details_labels.get(group_id)
         return label is not None and label.has_css_class("error")
+
+    def is_empty_notice_shown_for_test(self, *, group_id: int) -> bool:
+        return group_id in self._empty_labels
 
     def get_announce_for_test(self, *, group_id: int) -> str:
         label = self._announce_labels.get(group_id)

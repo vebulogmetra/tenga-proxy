@@ -11,6 +11,10 @@ from typing import Any
 from src.ui.logic.formatting import format_bytes
 
 NEVER_UPDATED = "Никогда"
+EMPTY_RESPONSE_TEXT = "Пустой список серверов"
+EMPTY_RESPONSE_HINT = (
+    "Подписка вернула пустой список. Сохранённые серверы оставлены; проверьте статус подписки."
+)
 _TIME_FORMAT = "%d.%m.%Y %H:%M"
 _DATE_FORMAT = "%d.%m.%Y"
 
@@ -31,6 +35,8 @@ class SubscriptionRow:
     announce: str = ""
     support_url: str = ""
     web_page_url: str = ""
+    # Последнее обновление не дало серверов: показаны сохранённые.
+    empty: bool = False
 
     @property
     def details_text(self) -> str:
@@ -121,6 +127,7 @@ def build_subscription_rows(
                 announce=group.sub_announce,
                 support_url=support_url if is_safe_support_url(support_url) else "",
                 web_page_url=web_page_url if is_safe_web_page_url(web_page_url) else "",
+                empty=group.sub_empty,
             )
         )
 

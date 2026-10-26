@@ -20,6 +20,7 @@ class FakeGroup:
     sub_announce: str = ""
     sub_support_url: str = ""
     sub_web_page_url: str = ""
+    sub_empty: bool = False
 
 
 @pytest.fixture
@@ -174,6 +175,15 @@ def test_an_expired_subscription_is_highlighted(page, data):
 
     assert "истекла" in page.get_details_for_test(group_id=1)
     assert page.is_expired_for_test(group_id=1)
+
+
+def test_an_empty_subscription_is_marked_in_its_row(page, data):
+    groups, counts = data
+    groups[1].sub_empty = True
+    page.set_data(groups, counts)
+
+    assert page.is_empty_notice_shown_for_test(group_id=1)
+    assert not page.is_empty_notice_shown_for_test(group_id=2)
 
 
 def test_the_announce_is_available_from_the_row(page, data):

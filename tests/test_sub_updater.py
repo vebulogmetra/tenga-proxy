@@ -366,6 +366,56 @@ def test_metadata_is_saved_even_when_the_response_has_no_servers(tmp_path):
     )
 
 
+def test_empty_response_keeps_the_servers_and_flags_the_group(tmp_path):
+    """Панель отдаёт просроченному пользователю 200 с пустым телом и ссылкой на продление."""
+    profiles, group = _subscription(tmp_path)
+    updater = SubscriptionUpdater(profiles=profiles)
+    renew = "https://provider.example/renew"
+
+    with patch("src.sub.updater.pinned_get") as mock_get:
+        mock_get.return_value = _text_response(LINK_NL)
+        updater.update("https://example.com/sub", group_id=group.id)
+        assert group.sub_empty is False
+        mock_get.return_value = _response_with_headers("", {"Profile-Web-Page-Url": renew})
+        updater.update("https://example.com/sub", group_id=group.id)
+
+    assert group.sub_empty is True
+    assert group.sub_web_page_url == renew
+    assert [p.name for p in profiles.get_profiles_in_group(group.id)] == ["NL-1"]
+
+
+def test_servers_in_the_next_response_clear_the_empty_flag(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    group.sub_empty = True
+
+    with patch("src.sub.updater.pinned_get", return_value=_text_response(LINK_NL)):
+        SubscriptionUpdater(profiles=profiles).update("https://example.com/sub", group_id=group.id)
+
+    assert group.sub_empty is False
+
+
+def test_failed_update_keeps_the_decoration_and_the_flag(tmp_path):
+    profiles, group = _subscription(tmp_path)
+    group.sub_announce = "Продлите до пятницы"
+    group.sub_web_page_url = "https://provider.example/renew"
+    group.sub_empty = True
+    response = _text_response("unavailable")
+    response.status_code = 503
+    response.raise_for_status = Mock(side_effect=requests.HTTPError("503"))
+
+    with patch("src.sub.updater.pinned_get", return_value=response):
+        try:
+            SubscriptionUpdater(profiles=profiles).update(
+                "https://example.com/sub", group_id=group.id
+            )
+        except requests.RequestException:
+            pass
+
+    assert group.sub_announce == "Продлите до пятницы"
+    assert group.sub_web_page_url == "https://provider.example/renew"
+    assert group.sub_empty is True
+
+
 def test_fetch_response_returns_the_headers_next_to_the_text():
     response = _response_with_headers(LINK_NL, {"profile-update-interval": "6"})
 

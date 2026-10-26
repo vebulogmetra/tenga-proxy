@@ -25,6 +25,7 @@ class FakeGroup:
     sub_announce: str = ""
     sub_support_url: str = ""
     sub_web_page_url: str = ""
+    sub_empty: bool = False
 
 
 @pytest.fixture
@@ -213,6 +214,11 @@ def test_announce_and_links_reach_the_row():
     assert row.announce == "Техработы до 12:00"
     assert row.support_url == "https://t.me/provider"
     assert row.web_page_url == "https://provider.example/account"
+
+
+def test_empty_subscription_is_flagged_on_the_row():
+    assert _row(sub_empty=True).empty is True
+    assert _row().empty is False
 
 
 def test_unsafe_links_are_not_offered():

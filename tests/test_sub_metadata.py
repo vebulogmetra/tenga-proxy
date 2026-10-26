@@ -264,6 +264,48 @@ def test_title_does_not_overwrite_a_name_chosen_by_the_user():
     assert group.name == "Рабочая"
 
 
+def test_title_follows_the_panel_while_the_user_keeps_it():
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="provider.example")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN"))
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN 2"))
+
+    assert group.name == "Быстрый VPN 2"
+    assert group.sub_applied_title == "Быстрый VPN 2"
+
+
+def test_title_stops_following_the_panel_after_a_manual_rename():
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="provider.example")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN"))
+    group.name = "Рабочая"
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN 2"))
+
+    assert group.name == "Рабочая"
+
+
+def test_missing_title_keeps_the_applied_name():
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="provider.example")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN"))
+    apply_metadata(group, SubscriptionMetadata())
+
+    assert group.name == "Быстрый VPN"
+
+
+def test_name_of_unknown_origin_is_kept():
+    """Группа из старой версии: имя не хост и маркера нет — не знаем, кто его выбрал."""
+    from src.sub.metadata import apply_metadata
+
+    group = _group(name="Быстрый VPN")
+    apply_metadata(group, SubscriptionMetadata(title="Быстрый VPN 2"))
+
+    assert group.name == "Быстрый VPN"
+
+
 def test_missing_values_keep_the_last_known_ones():
     """Заголовки режет CDN: один ответ без них не должен стирать остаток трафика."""
     from src.sub.metadata import apply_metadata
@@ -271,15 +313,36 @@ def test_missing_values_keep_the_last_known_ones():
     group = _group()
     group.sub_user_info = "upload=1; download=2; total=3; expire=4"
     group.sub_update_interval = 12
-    group.sub_support_url = "https://t.me/x"
-    group.sub_web_page_url = "https://provider.example/account"
 
     apply_metadata(group, SubscriptionMetadata())
 
     assert group.sub_user_info == "upload=1; download=2; total=3; expire=4"
     assert group.sub_update_interval == 12
-    assert group.sub_support_url == "https://t.me/x"
-    assert group.sub_web_page_url == "https://provider.example/account"
+
+
+def test_links_disappear_when_the_provider_removes_them():
+    """Оформление панели — полное состояние: удалённая ссылка не должна жить в клиенте."""
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    group.sub_support_url = "https://t.me/x"
+    group.sub_web_page_url = "https://provider.example/account"
+
+    apply_metadata(group, SubscriptionMetadata())
+
+    assert group.sub_support_url == ""
+    assert group.sub_web_page_url == ""
+
+
+def test_unsafe_link_replaces_the_stored_one_with_nothing():
+    from src.sub.metadata import apply_metadata
+
+    group = _group()
+    group.sub_web_page_url = "https://provider.example/account"
+
+    apply_metadata(group, SubscriptionMetadata(web_page_url="http://provider.example/account"))
+
+    assert group.sub_web_page_url == ""
 
 
 def test_announce_disappears_when_the_provider_removes_it():

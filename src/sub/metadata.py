@@ -221,8 +221,9 @@ def read_metadata(headers: Mapping[str, str] | None, content: str) -> Subscripti
 def default_subscription_name(url: str) -> str:
     """Имя подписки по умолчанию — хост адреса.
 
-    По нему же отличаем «имя никто не задавал» от имени, выбранного
-    пользователем: ``profile-title`` переименовывает только первое.
+    По нему (и по последнему применённому ``profile-title``) отличаем имя,
+    которое никто не задавал, от выбранного пользователем: ``profile-title``
+    переименовывает только первое.
     """
     try:
         host = urlsplit(url.strip()).hostname
@@ -254,9 +255,11 @@ def is_safe_support_url(url: str) -> bool:
 def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
     """Store provider metadata on the subscription group.
 
-    Пустое значение не стирает сохранённое: нестандартные заголовки режет CDN,
-    и один ответ без них не должен обнулять остаток трафика. Исключение —
-    объявление: это сообщение «на сейчас», вчерашнее показывать незачем.
+    Вызывается только для успешного ответа. Трафик и интервал без значения не
+    стираются: нестандартные заголовки режет CDN, и один ответ без них не
+    должен обнулять остаток трафика. Оформление панели (объявление, поддержка,
+    продление) — наоборот, полное состояние: удалённое в панели поле очищается,
+    иначе «Продлите до пятницы» висело бы вечно.
     """
     if metadata.user_info is not None:
         group.sub_user_info = metadata.user_info.to_header()
@@ -265,15 +268,21 @@ def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
     group.sub_announce = metadata.announce
     # Ссылки фильтруются и здесь, и при показе: в файле профилей не должно
     # лежать то, что приложение не откроет.
-    if is_safe_support_url(metadata.support_url):
-        group.sub_support_url = metadata.support_url.strip()
-    if is_safe_web_page_url(metadata.web_page_url):
-        group.sub_web_page_url = metadata.web_page_url.strip()
+    support_url = metadata.support_url.strip()
+    group.sub_support_url = support_url if is_safe_support_url(support_url) else ""
+    web_page_url = metadata.web_page_url.strip()
+    group.sub_web_page_url = web_page_url if is_safe_web_page_url(web_page_url) else ""
     # new_url не сохраняется: это одноразовое предложение по итогам обновления.
     # Запасной адрес нужен позже — когда обновление не удастся.
     if is_acceptable_subscription_url(metadata.fallback_url.strip()):
         group.sub_fallback_url = metadata.fallback_url.strip()
 
+    # Название следует за панелью, пока пользователь не выбрал своё. Пропавший
+    # заголовок имя не трогает: возвращать хост незачем.
     title = metadata.title
-    if title and group.name == default_subscription_name(group.subscription_url):
+    named_by_panel = bool(group.sub_applied_title) and group.name == group.sub_applied_title
+    if title and (
+        named_by_panel or group.name == default_subscription_name(group.subscription_url)
+    ):
         group.name = title
+        group.sub_applied_title = title

@@ -46,8 +46,8 @@ Profiles can be automatically created from subscriptions:
   already go through the tunnel. Requests through the local proxy follow
   the application's routing rules.
 - The subscription name is optional: the host of the address is used, and the
-  provider may replace it with its own (`profile-title`). A name typed by the
-  user is never replaced.
+  provider may replace it with its own (`profile-title`) and keep updating it.
+  A name typed or changed by the user is never replaced.
 
 #### Provider information
 
@@ -64,6 +64,13 @@ Read from response headers and from `#key: value` lines in the body:
 
 A value may be encoded with the `base64:` prefix. Keys that would let the
 provider control client settings are not recognised.
+
+A successful response sets the announcement and links as a whole: if the
+provider removes them, they disappear from the app as well. A failed update
+changes nothing. If the subscription answers with no servers at all (as the
+panel does for an expired user), the saved servers are kept and the
+subscription row shows "Пустой список серверов" (empty server list); the
+announcement and renewal link from that response are still available.
 
 #### Settings → Subscriptions
 

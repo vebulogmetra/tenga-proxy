@@ -75,6 +75,11 @@ class ProfileGroup(ConfigBase):
     sub_support_url: str = ""
     sub_web_page_url: str = ""
     sub_fallback_url: str = ""  # предлагается, если обновление не удалось
+    # Последний применённый profile-title: пока имя группы равно ему, это имя
+    # от панели, а не от пользователя, и его можно менять вслед за панелью.
+    sub_applied_title: str = ""
+    # Последний успешный ответ не дал ни одного сервера; сохранённые оставлены.
+    sub_empty: bool = False
 
 
 @dataclass

@@ -281,10 +281,13 @@ class SubscriptionUpdater:
             group_id = self._profiles.current_group_id
         group = self._profiles.get_group(group_id)
 
-        # До проверки списка: истёкшая подписка отдаёт ноль серверов, но срок и
-        # объявление провайдера в ответе есть — их и нужно показать.
+        # До проверки списка: истёкшая подписка отдаёт ноль серверов, но срок,
+        # объявление и ссылка на продление в ответе есть — их и нужно показать.
+        # Серверы при этом остаются, а пустой ответ отмечается на группе, чтобы
+        # пользователь видел причину, а не «рабочие» профили без объяснения.
         if group is not None:
             apply_metadata(group, metadata)
+            group.sub_empty = not beans
 
         if beans:
             if clear_existing:
