@@ -1,5 +1,5 @@
 #!/bin/bash
-# Сборка установщика Tenga Proxy для Windows. Выполнять в оболочке MSYS2 UCRT64.
+# Сборка установщика Veblock для Windows. Выполнять в оболочке MSYS2 UCRT64.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,4 +31,4 @@ ISCC="${ISCC:-/c/Program Files (x86)/Inno Setup 6/ISCC.exe}"
 # MSYS2 принял бы «/DAppVersion=…» за путь и переписал бы его.
 MSYS2_ARG_CONV_EXCL="*" "$ISCC" "/DAppVersion=$VERSION" 'packaging\windows\tenga-proxy.iss'
 
-echo "[OK] dist/windows/tenga-proxy-$VERSION-windows-x64-setup.exe"
+echo "[OK] dist/windows/veblock-$VERSION-windows-x64-setup.exe"

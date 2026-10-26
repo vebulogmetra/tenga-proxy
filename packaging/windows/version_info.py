@@ -29,11 +29,11 @@ TEMPLATE = """VSVersionInfo(
     StringFileInfo([
       StringTable('040904B0', [
         StringStruct('CompanyName', 'Artem G.'),
-        StringStruct('FileDescription', 'Tenga Proxy'),
+        StringStruct('FileDescription', 'Veblock'),
         StringStruct('FileVersion', '{version}'),
         StringStruct('InternalName', 'tenga-proxy'),
         StringStruct('OriginalFilename', 'tenga-proxy.exe'),
-        StringStruct('ProductName', 'Tenga Proxy'),
+        StringStruct('ProductName', 'Veblock'),
         StringStruct('ProductVersion', '{version}'),
       ])
     ]),

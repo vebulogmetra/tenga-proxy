@@ -364,7 +364,7 @@ def _windows_has_no_system_install() -> bool:
         return False
     print("[INFO] На Windows приложение устанавливает установщик.")
     print("  Соберите его: python cli.py build")
-    print("  и запустите tenga-proxy-<версия>-windows-x64-setup.exe из dist/windows/")
+    print("  и запустите veblock-<версия>-windows-x64-setup.exe из dist/windows/")
     return True
 
 

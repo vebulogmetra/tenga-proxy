@@ -1,4 +1,4 @@
-; Установщик Tenga Proxy для Windows. Версию передаёт build_windows.sh:
+; Установщик Veblock для Windows. Версию передаёт build_windows.sh:
 ;   iscc /DAppVersion=0.17.0 packaging\windows\tenga-proxy.iss
 
 #ifndef AppVersion
@@ -8,18 +8,22 @@
 [Setup]
 ; Не менять: по AppId установщик находит прежнюю версию.
 AppId={{23089B2F-C5D8-45CE-A943-89C573F63388}
-AppName=Tenga Proxy
+AppName=Veblock
 AppVersion={#AppVersion}
 AppPublisher=Artem G.
 AppPublisherURL=https://github.com/vebulogmetra/tenga-proxy
-DefaultDirName={autopf}\Tenga Proxy
-DefaultGroupName=Tenga Proxy
+; Обновление поверх прежней версии оставляет её каталог (UsePreviousAppDir),
+; новая установка идёт в «Veblock».
+DefaultDirName={autopf}\Veblock
+DefaultGroupName=Veblock
+; Иначе обновление положит ярлык «Veblock» в прежнюю папку меню «Пуск».
+UsePreviousGroup=no
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\..\dist\windows
-OutputBaseFilename=tenga-proxy-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=veblock-{#AppVersion}-windows-x64-setup
 SetupIconFile=..\..\assets\tenga-proxy.ico
 UninstallDisplayIcon={app}\tenga-proxy.exe
 Compression=lzma2/max
@@ -33,10 +37,10 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [CustomMessages]
-ru.AutoStart=Запускать Tenga Proxy при входе в систему
-en.AutoStart=Start Tenga Proxy when I sign in
-ru.RegisterService=Регистрация службы Tenga Proxy...
-en.RegisterService=Registering the Tenga Proxy service...
+ru.AutoStart=Запускать Veblock при входе в систему
+en.AutoStart=Start Veblock when I sign in
+ru.RegisterService=Регистрация службы Veblock...
+en.RegisterService=Registering the Veblock service...
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; Flags: unchecked
@@ -45,12 +49,19 @@ Name: "autostart"; Description: "{cm:AutoStart}"; Flags: unchecked
 [Files]
 Source: "..\..\dist\windows\tenga-proxy\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
+[InstallDelete]
+; Ярлыки версий до переименования в Veblock.
+Type: filesandordirs; Name: "{autoprograms}\Tenga Proxy"
+Type: files; Name: "{autodesktop}\Tenga Proxy.lnk"
+
 [Icons]
-Name: "{group}\Tenga Proxy"; Filename: "{app}\tenga-proxy.exe"
-Name: "{autodesktop}\Tenga Proxy"; Filename: "{app}\tenga-proxy.exe"; Tasks: desktopicon
+Name: "{group}\Veblock"; Filename: "{app}\tenga-proxy.exe"
+Name: "{autodesktop}\Veblock"; Filename: "{app}\tenga-proxy.exe"; Tasks: desktopicon
 
 [Registry]
 ; Автозапуск — для того пользователя, который ставит, без прав администратора при входе.
+; Имя значения прежнее: с новым у обновлённых установок осталось бы и старое,
+; и приложение запускалось бы дважды.
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Tenga Proxy"; ValueData: """{app}\tenga-proxy.exe"""; Tasks: autostart; Flags: uninsdeletevalue
 ; Ссылки импорта: аналог MimeType в tenga-proxy.desktop.
 Root: HKCU; Subkey: "Software\Classes\veblock"; ValueType: string; ValueData: "URL:veblock"; Flags: uninsdeletekey
@@ -62,7 +73,7 @@ Root: HKCU; Subkey: "Software\Classes\wingeon\shell\open\command"; ValueType: st
 
 [Run]
 Filename: "{app}\tenga-proxy-svc.exe"; Parameters: "install"; StatusMsg: "{cm:RegisterService}"; Flags: runhidden waituntilterminated
-Filename: "{app}\tenga-proxy.exe"; Description: "{cm:LaunchProgram,Tenga Proxy}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\tenga-proxy.exe"; Description: "{cm:LaunchProgram,Veblock}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [UninstallRun]
 ; remove останавливает службу, и она сама откатывает сеть; cleanup — страховка,

@@ -23,7 +23,7 @@ def test_render_names_product_and_version():
     text = version_info.render("0.17.0")
 
     assert "filevers=(0, 17, 0, 0)" in text
-    assert "StringStruct('ProductName', 'Tenga Proxy')" in text
+    assert "StringStruct('ProductName', 'Veblock')" in text
     assert "StringStruct('ProductVersion', '0.17.0')" in text
 
 

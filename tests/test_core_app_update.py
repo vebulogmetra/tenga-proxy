@@ -66,6 +66,23 @@ def test_windows_release_needs_setup_exe(monkeypatch):
     assert release.has_asset is True
 
 
+def test_windows_release_finds_the_renamed_setup_exe(monkeypatch):
+    from src.core import app_update, platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    payload = [
+        {
+            "tag_name": "v0.19.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.19.0",
+            "assets": [{"name": "veblock-0.19.0-windows-x64-setup.exe"}],
+        }
+    ]
+
+    release = app_update.select_release(payload, "0.18.0", architecture="AMD64")
+
+    assert release.has_asset is True
+
+
 def test_windows_ignores_deb(monkeypatch):
     from src.core import app_update, platform_info
 
