@@ -19,7 +19,7 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
 main() {
     echo "=========================================="
-    echo "          Tenga Proxy - Setup             "
+    echo "             Veblock - Setup              "
     echo "=========================================="
     echo
 

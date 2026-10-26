@@ -400,7 +400,7 @@ install_xray() {
 
 main() {
     echo "=========================================="
-    echo "   Tenga Proxy - Dev Environment Setup   "
+    echo "     Veblock - Dev Environment Setup     "
     echo "=========================================="
     echo
     

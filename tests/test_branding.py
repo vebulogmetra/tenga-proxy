@@ -29,7 +29,8 @@ def _files():
             yield path
             continue
         for item in sorted(path.rglob("*")):
-            if item.is_file() and "__pycache__" not in item.parts and item.suffix not in BINARY:
+            generated = any(p == "__pycache__" or p.endswith(".egg-info") for p in item.parts)
+            if item.is_file() and not generated and item.suffix not in BINARY:
                 yield item
 
 

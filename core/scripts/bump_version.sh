@@ -58,7 +58,7 @@ validate_version() {
 
 main() {
     echo "=========================================="
-    echo "      Tenga Proxy - Bump Version          "
+    echo "          Veblock - Bump Version          "
     echo "=========================================="
     echo
     

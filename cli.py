@@ -290,7 +290,7 @@ def cmd_bump_version(args: argparse.Namespace) -> int:
 
     current_version = __version__
     print("==========================================")
-    print("      Tenga Proxy - Bump Version          ")
+    print("          Veblock - Bump Version          ")
     print("==========================================")
     print()
     print(f"Текущая версия: {current_version}")
@@ -387,7 +387,7 @@ def cmd_build(_args: argparse.Namespace) -> int:
         return 1
 
     print("==========================================")
-    print("          Tenga Proxy - Build             ")
+    print("             Veblock - Build              ")
     print("==========================================")
     print()
 
@@ -413,7 +413,7 @@ def cmd_install(args: argparse.Namespace) -> int:
     action = "uninstall" if args.uninstall else "install"
 
     print("==========================================")
-    print("        Tenga Proxy - Install deb        ")
+    print("          Veblock - Install deb          ")
     print("==========================================")
     print()
 
@@ -441,7 +441,7 @@ def cmd_setup(_args: argparse.Namespace) -> int:
         return 1
 
     print("==========================================")
-    print("          Tenga Proxy - Setup             ")
+    print("             Veblock - Setup              ")
     print("==========================================")
     print()
 
@@ -479,7 +479,7 @@ def cmd_setup_dev(_args: argparse.Namespace) -> int:
         return 1
 
     print("==========================================")
-    print("   Tenga Proxy - Dev Environment Setup   ")
+    print("     Veblock - Dev Environment Setup     ")
     print("==========================================")
     print()
 
@@ -542,7 +542,7 @@ def cmd_format(args: argparse.Namespace) -> int:
 def cmd_lint_all(_args: argparse.Namespace) -> int:
     """Запустить все проверки: линтинг и форматирование."""
     print("==========================================")
-    print("      Tenga Proxy - Code Quality         ")
+    print("          Veblock - Code Quality         ")
     print("==========================================")
     print()
 

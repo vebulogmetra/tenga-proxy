@@ -99,7 +99,7 @@ test-gtk:
 	@if command -v dbus-run-session >/dev/null 2>&1; then \
 		BUS="dbus-run-session --"; \
 	else \
-		echo "dbus-run-session not found: закройте Tenga Proxy перед прогоном"; \
+		echo "dbus-run-session not found: закройте Veblock перед прогоном"; \
 		BUS=""; \
 	fi; \
 	if command -v xvfb-run >/dev/null 2>&1; then \

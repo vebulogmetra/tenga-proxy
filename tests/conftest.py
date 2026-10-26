@@ -86,7 +86,7 @@ def _app_session(gtk_ready: None):
     # весь процесс (`make test-gtk` поднимает его через dbus-run-session).
     if app.get_is_remote():
         pytest.skip(
-            "Шина сессии занята другим экземпляром Tenga Proxy. "
+            "Шина сессии занята другим экземпляром Veblock. "
             "Запускайте GTK-тесты через `make test-gtk`."
         )
 
