@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Сборка deb-пакета Tenga Proxy. Проверено на Ubuntu 24.04.
+# Сборка deb-пакета Veblock. Проверено на Ubuntu 24.04.
 #
 # Пакет — исходники и xray-core в /usr/lib/tenga-proxy, запуск системным
 # Python: GTK 4, libadwaita и requests приходят зависимостями пакета.
@@ -123,8 +123,8 @@ Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), p
 Recommends: systemd-resolved
 Maintainer: Artem G. <vebulogmetra@yandex.ru>
 Homepage: https://github.com/vebulogmetra/tenga-proxy
-Description: Proxy client with xray-core backend
- Tenga Proxy connects through VLESS, Trojan, VMess, Shadowsocks, SOCKS
+Description: Veblock - proxy client with xray-core backend
+ Veblock connects through VLESS, Trojan, VMess, Shadowsocks, SOCKS
  and HTTP servers in system proxy or TUN mode. GTK 4 and libadwaita
  interface with a tray icon.
 EOF
@@ -148,7 +148,7 @@ build_deb() {
 
 main() {
     echo "=========================================="
-    echo "         Tenga Proxy - deb Build          "
+    echo "           Veblock - deb Build            "
     echo "=========================================="
     echo
 

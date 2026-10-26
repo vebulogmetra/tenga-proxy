@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Установка собранного deb-пакета Tenga Proxy через apt: зависимости, права
+# Установка собранного deb-пакета Veblock через apt: зависимости, права
 # xray для TUN, помощник маршрутов и правило sudoers ставит сам пакет.
 #
 
@@ -34,13 +34,13 @@ install_deb() {
     info "Установка $deb..."
     # Путь с каталогом: так apt понимает, что это файл, а не имя пакета.
     sudo apt-get install -y --reinstall "$deb"
-    success "Tenga Proxy установлен. Запуск: tenga-proxy или из меню приложений"
+    success "Veblock установлен. Запуск: tenga-proxy или из меню приложений"
 }
 
 uninstall_deb() {
-    info "Удаление Tenga Proxy..."
+    info "Удаление Veblock..."
     sudo apt-get remove -y "$APP_NAME"
-    success "Tenga Proxy удалён"
+    success "Veblock удалён"
     echo
     echo "Конфигурация сохранена в ~/.config/tenga-proxy"
     echo "Для полного удаления: rm -rf ~/.config/tenga-proxy"

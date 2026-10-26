@@ -1,5 +1,5 @@
 #!/bin/sh
-# Запуск Tenga Proxy из deb-пакета: исходники в /usr/lib/tenga-proxy,
+# Запуск Veblock из deb-пакета: исходники в /usr/lib/tenga-proxy,
 # системный Python с GTK и libadwaita из зависимостей пакета.
 
 # Конфигурация — в ~/.config/tenga-proxy: это src/core/config.py решает сам по
