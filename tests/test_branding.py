@@ -67,8 +67,8 @@ def test_windows_installer_upgrades_the_previous_install():
     assert "AppName=Veblock\n" in text
     assert "OutputBaseFilename=veblock-{#AppVersion}-windows-x64-setup" in text
     # Прежние ярлыки «Tenga Proxy» не должны остаться рядом с новыми.
-    assert '{autoprograms}\\Tenga Proxy' in text
-    assert '{autodesktop}\\Tenga Proxy.lnk' in text
+    assert "{autoprograms}\\Tenga Proxy" in text
+    assert "{autodesktop}\\Tenga Proxy.lnk" in text
     assert 'ValueName: "Tenga Proxy"' in text  # автозапуск: имя значения прежнее
 
 
