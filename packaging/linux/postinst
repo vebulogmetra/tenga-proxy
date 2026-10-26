@@ -15,6 +15,22 @@ if [ "$1" = "configure" ]; then
     rm -rf /usr/local/libexec/tenga-proxy
     rm -f /etc/sudoers.d/tenga-proxy-tun-helper-*
 
+    # Ярлык AppImage в домашнем каталоге перекрывает ярлык пакета: меню
+    # запускало бы AppImage, и пакет не стартовал бы ни разу. Удаляется от
+    # имени владельца каталога, чтобы root не ходил по чужим ссылкам.
+    getent passwd | while IFS=: read -r user _ uid _ _ home _; do
+        [ "$uid" -ge 1000 ] 2>/dev/null && [ "$uid" -lt 65534 ] || continue
+        [ -f "$home/.local/share/applications/tenga-proxy.desktop" ] || continue
+        runuser -u "$user" -- sh -c '
+            apps="$1/.local/share/applications"
+            grep -qi "^Exec=.*\.appimage" "$apps/tenga-proxy.desktop" || exit 0
+            rm -f "$apps/tenga-proxy.desktop"
+            for size in 64 128 256; do
+                rm -f "$1/.local/share/icons/hicolor/${size}x${size}/apps/tenga-proxy.png"
+            done
+        ' sh "$home" </dev/null || true
+    done
+
     python3 -m compileall -q /usr/lib/tenga-proxy/src /usr/lib/tenga-proxy/gui.py \
         >/dev/null 2>&1 || true
 fi
