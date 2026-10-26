@@ -26,7 +26,7 @@ def setup_early_logging():
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Tenga Proxy",
+        description="Veblock",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -56,7 +56,7 @@ def gtk_install_hint() -> str:
     from src.core import platform_info
 
     if platform_info.IS_WINDOWS:
-        return "Среда GTK входит в установщик: переустановите Tenga Proxy."
+        return "Среда GTK входит в установщик: переустановите Veblock."
     return "Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1"
 
 
@@ -103,7 +103,7 @@ def cleanup_legacy_install() -> None:
 # --- GTK bootstrap ---
 
 logger = setup_early_logging()
-logger.info("=== Tenga Proxy starting ===")
+logger.info("=== Veblock starting ===")
 logger.info(f"Python: {sys.version}")
 logger.info(f"DISPLAY: {os.environ.get('DISPLAY')}")
 logger.info(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY')}")

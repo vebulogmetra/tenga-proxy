@@ -85,7 +85,7 @@ def fetch_releases(get: Callable[..., Any] = requests.get) -> KnownReleases:
     """Спросить GitHub о релизах. В запросе нет ничего о пользователе и установке."""
     response = get(
         RELEASES_URL,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "tenga-proxy"},
+        headers={"Accept": "application/vnd.github+json", "User-Agent": "Veblock"},
         timeout=REQUEST_TIMEOUT_SECONDS,
     )
     response.raise_for_status()

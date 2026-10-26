@@ -114,7 +114,7 @@ def test_fetch_asks_github_without_any_user_data():
     assert seen["url"] == RELEASES_URL
     assert seen["headers"] == {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "tenga-proxy",
+        "User-Agent": "Veblock",
     }
     assert seen["timeout"] > 0
     assert set(seen) == {"url", "headers", "timeout"}

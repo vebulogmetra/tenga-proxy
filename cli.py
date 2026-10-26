@@ -799,10 +799,10 @@ def cmd_run(args: argparse.Namespace) -> int:
 def main() -> int:
     """Main entry point."""
     setup_core_logging(CLI_LOG_FILE, level=logging.INFO)
-    logger.info("Starting Tenga CLI, log file: %s", CLI_LOG_FILE)
+    logger.info("Starting Veblock CLI, log file: %s", CLI_LOG_FILE)
 
     parser = argparse.ArgumentParser(
-        description="Tenga CLI - консольный клиент прокси",
+        description="Veblock CLI - консольный клиент прокси",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Примеры:\n"
         '  %(prog)s parse "vless://..."\n'

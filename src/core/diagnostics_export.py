@@ -15,7 +15,7 @@ _OPEN_FLAGS = (
 
 def read_diagnostics(log_dir: Path, *, max_bytes: int = 256 * 1024) -> str:
     max_bytes = min(max(0, max_bytes), 1024 * 1024)
-    blocks = [f"Tenga Proxy {__version__}\nЖурналы хранятся 3 дня. Секреты замаскированы.\n"]
+    blocks = [f"Veblock {__version__}\nЖурналы хранятся 3 дня. Секреты замаскированы.\n"]
     remaining = max_bytes
     for path in sorted(log_dir.glob("*.log*"), key=lambda p: p.name, reverse=True)[:12]:
         if remaining <= 0:

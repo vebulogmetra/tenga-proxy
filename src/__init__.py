@@ -1,5 +1,5 @@
 __version__ = "0.18.0"
-__app_name__ = "Tenga Proxy"
+__app_name__ = "Veblock"
 __app_description__ = (
     "Клиент прокси с бекэндом <a href='https://github.com/XTLS/Xray-core'>xray-core</a>"
 )
