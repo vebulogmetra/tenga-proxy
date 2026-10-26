@@ -1,6 +1,6 @@
 # CLI
 
-Tenga Proxy's command-line interface provides extensive capabilities for managing proxy connections.
+Veblock's command-line interface provides extensive capabilities for managing proxy connections.
 
 ## Link Parsing
 

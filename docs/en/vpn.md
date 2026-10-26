@@ -1,6 +1,6 @@
 # VPN
 
-Tenga Proxy provides integration with VPN connections for comprehensive network traffic management.
+Veblock provides integration with VPN connections for comprehensive network traffic management.
 
 ## Key Features
 
@@ -32,7 +32,7 @@ VPN integration works together with routing system:
 
 ### Linux
 
-Tenga Proxy supports VPN connections managed through NetworkManager:
+Veblock supports VPN connections managed through NetworkManager:
 
 - **OpenVPN** - via .ovpn files
 - **WireGuard** - via configuration files
@@ -48,7 +48,7 @@ The "Connection name" field accepts one of:
   "Settings → Network & Internet → VPN". Credentials must be saved in the
   connection: the app brings it up with `rasdial` without asking for a password.
 - **WireGuard tunnel** — the tunnel name as shown in WireGuard for Windows.
-  The "Tenga Proxy" service brings the tunnel up and down, because WireGuard
+  The "Veblock" service brings the tunnel up and down, because WireGuard
   configurations are readable by the system only.
 - **OpenVPN and other clients** — the app does not control them, but if an
   adapter with that name is up, the profile uses its interface and DNS.

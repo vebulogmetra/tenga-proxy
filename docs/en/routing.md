@@ -1,6 +1,6 @@
 # Routing
 
-Routing in Tenga Proxy allows flexible management of network traffic direction through various connection channels.
+Routing in Veblock allows flexible management of network traffic direction through various connection channels.
 
 ## Routing Modes
 

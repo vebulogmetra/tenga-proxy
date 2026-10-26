@@ -2,7 +2,7 @@
 
 ## API Overview
 
-Tenga Proxy provides a modular architecture with well-defined interfaces between components. This section describes the main classes and modules that may be useful for extending functionality or integrating with the application.
+Veblock provides a modular architecture with well-defined interfaces between components. This section describes the main classes and modules that may be useful for extending functionality or integrating with the application.
 
 ## Main Modules
 

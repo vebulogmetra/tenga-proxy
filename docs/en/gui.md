@@ -1,6 +1,6 @@
 # GUI
 
-Tenga Proxy's graphical interface provides convenient management of proxy connections through the system tray and main application window.
+Veblock's graphical interface provides convenient management of proxy connections through the system tray and main application window.
 
 ## Running GUI
 

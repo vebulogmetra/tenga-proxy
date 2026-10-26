@@ -1,6 +1,6 @@
 # Protocols
 
-Tenga Proxy supports a wide range of proxy protocols to ensure compatibility with various servers and services.
+Veblock supports a wide range of proxy protocols to ensure compatibility with various servers and services.
 
 ## Supported Protocols
 

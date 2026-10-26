@@ -1,5 +1,14 @@
 # Installation
 
+## Moving from Tenga Proxy
+
+The app has been renamed to Veblock. The update installs over the previous
+version: profiles, subscriptions and settings are kept. The launch command
+(`tenga-proxy`), the deb package name and the settings directory
+(`~/.config/tenga-proxy`) are unchanged. On Windows the installer replaces the
+"Tenga Proxy" shortcuts with "Veblock"; the service name (`TengaProxySvc`) and
+the install directory stay the same.
+
 ## Linux: deb package
 
 Download `tenga-proxy_<version>_amd64.deb` from the
@@ -54,7 +63,7 @@ longer need them.
 
 ## Requirements for running from sources
 
-Tenga Proxy requires:
+Veblock requires:
 
 - Python 3.11+
 - Dependencies from `pyproject.toml`
@@ -144,7 +153,7 @@ sudo apt install -y \
 
 ### Installation
 
-Download `tenga-proxy-<version>-windows-x64-setup.exe` from the
+Download `veblock-<version>-windows-x64-setup.exe` from the
 [Releases](https://github.com/vebulogmetra/tenga-proxy/releases) page and run
 it. Windows 10 or 11 (x64) is required; the installer asks for administrator
 rights (UAC). The wizard can add a desktop shortcut and start the app at sign-in.
@@ -159,16 +168,16 @@ Autostart and the `veblock://`, `wingeon://` links are registered under
 
 | What | Where |
 |---|---|
-| Application | `C:\Program Files\Tenga Proxy` |
+| Application | `C:\Program Files\Veblock` (after upgrading from Tenga Proxy, the previous `C:\Program Files\Tenga Proxy`) |
 | Settings and profiles | `%APPDATA%\tenga-proxy` |
 | Application logs | `%LOCALAPPDATA%\tenga-proxy\logs` |
 | Service logs and journal | `%ProgramData%\tenga-proxy` (read-only for users) |
 
-### TUN mode and the "Tenga Proxy" service
+### TUN mode and the "Veblock" service
 
 Creating a network interface and changing routes requires administrator
 rights, so the installer registers the `TengaProxySvc` service (display name
-"Tenga Proxy", delayed automatic start). The app hands the TUN configuration
+"Veblock", delayed automatic start). The app hands the TUN configuration
 to it over a local pipe, so connecting does not show a UAC prompt. System
 proxy mode does not use the service.
 
@@ -191,6 +200,6 @@ user can control TUN mode through the service.
 
 ### Uninstalling
 
-"Settings → Apps → Tenga Proxy → Uninstall". The service stops, rolls the
+"Settings → Apps → Veblock → Uninstall". The service stops, rolls the
 network back and is removed. Settings in `%APPDATA%\tenga-proxy` are kept;
 delete the folder manually if you do not need them.

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Tenga Proxy - это клиент прокси для Linux и Windows с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GTK GUI интерфейс с системным треем.
+Veblock (ранее Tenga Proxy) - это клиент прокси для Linux и Windows с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GTK GUI интерфейс с системным треем.
 
 ## Common Commands
 
@@ -339,3 +339,11 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   гоняет тесты и на этих версиях
 - AppImage больше не собирается; ярлык старой установки приложение удаляет
   при старте (`src/sys/linux/legacy_appimage.py`)
+
+### Имя приложения
+- Пользователь видит «Veblock» (`src.__app_name__`), как в Android-версии
+- Технические имена остались `tenga-proxy`/`ru.tenga.Proxy`/`TengaProxySvc`:
+  пакет, каталоги настроек, app id, служба, pipe, exe, AppId установщика,
+  значение автозапуска, репозиторий. Их смена требует миграции —
+  см. `docs/plans/2026-10-26-veblock-rebrand.md`
+- `tests/test_branding.py` не пускает «Tenga Proxy» обратно в интерфейс

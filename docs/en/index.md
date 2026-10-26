@@ -1,6 +1,6 @@
-# Tenga Proxy
+# Veblock
 
-**Tenga Proxy** is a Linux proxy client with [xray-core](https://github.com/XTLS/Xray-core) backend that provides a convenient interface for working with various proxy protocols.
+**Veblock** is a Linux proxy client with [xray-core](https://github.com/XTLS/Xray-core) backend that provides a convenient interface for working with various proxy protocols.
 
 ## Key Features
 

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/theme/hicolor/256x256/apps/tenga-proxy.png" width="120" alt="Tenga Proxy">
+<img src="assets/theme/hicolor/256x256/apps/tenga-proxy.png" width="120" alt="Veblock">
 
-# Tenga Proxy
+# Veblock
 
-Прокси-клиент для Linux и Windows с движком [xray-core](https://github.com/XTLS/Xray-core)
+Veblock (раньше Tenga Proxy) — прокси-клиент для Linux и Windows с движком [xray-core](https://github.com/XTLS/Xray-core)
 
 </div>
 
@@ -54,12 +54,12 @@ AppImage больше не выпускается. Как перейти с не
 
 ### Windows
 
-Скачайте `tenga-proxy-<версия>-windows-x64-setup.exe` со страницы
+Скачайте `veblock-<версия>-windows-x64-setup.exe` со страницы
 [Releases](https://github.com/vebulogmetra/tenga-proxy/releases) и запустите.
 Нужны Windows 10 или 11 (x64) и права администратора на время установки.
 GTK и xray-core входят в установщик.
 
-Установщик регистрирует службу «Tenga Proxy»: через неё работает режим TUN,
+Установщик регистрирует службу «Veblock»: через неё работает режим TUN,
 поэтому при подключении запрос UAC не появляется. Подробнее — в
 [документации по установке](docs/ru/installation.md#windows).
 

@@ -1,4 +1,4 @@
-# Инструкции для работы с Tenga Proxy
+# Инструкции для работы с Veblock
 
 ## Язык и область действия
 
@@ -8,8 +8,8 @@
 
 ## Проект и окружение
 
-Tenga Proxy — прокси-клиент для Linux и Windows на Python 3.11+ с xray-core, CLI
-и GUI на GTK 4 и libadwaita 1.5+. Протоколы: VLESS, Trojan, VMess,
+Veblock (ранее Tenga Proxy) — прокси-клиент для Linux и Windows на Python
+3.11+ с xray-core, CLI и GUI на GTK 4 и libadwaita 1.5+. Протоколы: VLESS, Trojan, VMess,
 Shadowsocks, Hysteria2, SOCKS и HTTP. Режимы работы — TUN и системный
 прокси; VPN-интеграция зависит от ОС: NetworkManager на Linux, RAS и WireGuard на Windows.
 
@@ -199,7 +199,7 @@ Python: четыре пробела, длина строки 100, двойные
 из пакетов MSYS2 UCRT64. Не заменяй их обычным pip/uv-окружением без проверки
 совместимости. Подготовка: `bash core/scripts/install_dev.sh` в UCRT64.
 Сборка: `bash core/scripts/build_windows.sh` с PyInstaller и Inno Setup;
-результат — `dist/windows/tenga-proxy-<версия>-windows-x64-setup.exe`.
+результат — `dist/windows/veblock-<версия>-windows-x64-setup.exe`.
 CLI build выбирает скрипт по ОС; таблица команд uv выше относится к Linux.
 
 В подготовленном MSYS2-окружении запускай Windows-набор как в CI:

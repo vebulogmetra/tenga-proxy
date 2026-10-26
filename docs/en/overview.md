@@ -1,6 +1,6 @@
 # Project Overview
 
-Tenga Proxy is a modern Linux proxy client with [xray-core](https://github.com/XTLS/Xray-core) backend that provides a convenient interface for working with various proxy protocols.
+Veblock is a modern Linux proxy client with [xray-core](https://github.com/XTLS/Xray-core) backend that provides a convenient interface for working with various proxy protocols.
 
 ## Project Purpose
 
@@ -16,7 +16,7 @@ The project is created for:
 
 ### General Architecture
 
-Tenga Proxy uses an architecture with separation into:
+Veblock uses an architecture with separation into:
 
 - **Interface** - CLI and GUI for user interaction
 - **Application core** - management logic and coordination

@@ -204,7 +204,7 @@ python -m venv --system-site-packages .venv-win
 . .venv-win/bin/activate
 pip install pyinstaller pyinstaller-hooks-contrib
 bash core/scripts/build_windows.sh
-# → dist/windows/tenga-proxy-<version>-windows-x64-setup.exe
+# → dist/windows/veblock-<version>-windows-x64-setup.exe
 ```
 
 The build folder holds two executables: `tenga-proxy.exe` (GUI) and

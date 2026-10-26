@@ -1,6 +1,6 @@
 # Profiles
 
-Profile management in Tenga Proxy allows you to efficiently organize and use various proxy connection settings.
+Profile management in Veblock allows you to efficiently organize and use various proxy connection settings.
 
 ## Basic Concepts
 
