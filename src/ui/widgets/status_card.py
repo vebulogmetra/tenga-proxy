@@ -13,6 +13,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, GObject, Gtk, Pango
 
 from src.core.config import get_asset_path
+from src.ui.logic import platform_layout
 from src.ui.logic.status import StatusView
 from src.ui.widgets.name_label import name_label
 
@@ -28,6 +29,10 @@ _STATE_CLASSES = (
     "status-error",
 )
 _BUTTON_CLASSES = ("suggested-action", "destructive-action")
+MONOLITH_ASSETS = {
+    css_class: f"icons/win/monolith-{css_class.removeprefix('status-')}.png"
+    for css_class in _STATE_CLASSES
+}
 
 
 def _load_logo_textures() -> tuple[Gdk.Texture, Gdk.Texture] | None:
@@ -53,6 +58,24 @@ def _load_logo_textures() -> tuple[Gdk.Texture, Gdk.Texture] | None:
     return Gdk.Texture.new_for_pixbuf(colour), Gdk.Texture.new_for_pixbuf(grey)
 
 
+def _load_monolith_textures() -> dict[str, Gdk.Texture] | None:
+    """Load the Windows logo, one picture per state class.
+
+    Возвращает None, если хоть одного файла нет: тогда карточка ведёт себя как
+    на Linux, а не показывает монолит в одних состояниях и иконку в других.
+    """
+    textures = {}
+    for css_class, asset in MONOLITH_ASSETS.items():
+        path = get_asset_path(asset)
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_size(str(path), LOGO_SIZE, LOGO_SIZE)
+        except GLib.Error as exc:
+            logger.warning("Monolith logo %s not loaded, using the common one: %s", path, exc)
+            return None
+        textures[css_class] = Gdk.Texture.new_for_pixbuf(pixbuf)
+    return textures
+
+
 class StatusCard(Gtk.Box):
     """Card showing the connection state and the primary action button."""
 
@@ -72,6 +95,9 @@ class StatusCard(Gtk.Box):
         self.set_margin_end(12)
 
         self._logo = _load_logo_textures()
+        self._monolith = (
+            _load_monolith_textures() if platform_layout.monolith_status_logo() else None
+        )
 
         self._icon = Gtk.Image(icon_name="network-offline-symbolic", pixel_size=32)
         self._icon.add_css_class("status-icon")
@@ -117,10 +143,12 @@ class StatusCard(Gtk.Box):
         self._metrics.set_visible(bool(view.metrics))
 
         self._set_icon(view)
-        self._icon.set_visible(not view.show_spinner)
+        # Монолит показывает подключение янтарным ядром, спиннер рядом лишний.
+        spinning = view.show_spinner and self._monolith is None
+        self._icon.set_visible(not spinning)
 
-        self._spinner.set_visible(view.show_spinner)
-        if view.show_spinner:
+        self._spinner.set_visible(spinning)
+        if spinning:
             self._spinner.start()
         else:
             self._spinner.stop()
@@ -136,6 +164,13 @@ class StatusCard(Gtk.Box):
 
     def _set_icon(self, view: StatusView) -> None:
         """Show the logo where the view asks for it, else a themed icon."""
+        if self._monolith is not None:
+            self._icon.set_pixel_size(LOGO_SIZE)
+            self._icon.add_css_class("status-logo")
+            self._icon.add_css_class("status-monolith")
+            self._icon.set_from_paintable(self._monolith[view.css_class])
+            return
+
         if not view.use_logo or self._logo is None:
             self._icon.set_pixel_size(32)
             self._icon.remove_css_class("status-logo")

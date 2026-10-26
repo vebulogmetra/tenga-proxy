@@ -14,6 +14,7 @@ FLAGS = [
     platform_layout.toasts_above_navigation,
     platform_layout.bundled_flag_images,
     platform_layout.monitoring_on_general_settings_page,
+    platform_layout.monolith_status_logo,
 ]
 
 

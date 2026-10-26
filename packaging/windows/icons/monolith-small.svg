@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <rect x="1.5" y="4.5" width="13" height="7" rx="2.5" fill="{glow}" fill-opacity="{halo}"/>
+  <rect x="4.5" y="4" width="7.5" height="8" fill="{light}"/>
+  <g fill="#30353a" stroke="#848c95" stroke-width="1" stroke-linejoin="round">
+    <path d="M4 .5H11.5L12.5 1.2V5.5L10.5 4.5L8.5 6L6.5 4L4 5.5Z"/>
+    <path d="M4 15.5H11.5L12.5 14.8V10.5L10 11.5L8 10L6 12L4 10.5Z"/>
+  </g>
+</svg>

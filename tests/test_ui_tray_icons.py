@@ -56,3 +56,9 @@ def test_the_icons_differ_from_each_other():
     contents = {(icons_directory() / f"{name}.svg").read_text() for name in ICON_NAMES}
 
     assert len(contents) == 3
+
+
+@pytest.mark.parametrize("state", list(ConnectionState))
+def test_windows_status_card_has_a_monolith_per_state(state):
+    # Имена совпадают с MONOLITH_ASSETS карточки: виджет без дисплея не импортировать.
+    assert (icons_directory() / "win" / f"monolith-{state.value}.png").is_file()

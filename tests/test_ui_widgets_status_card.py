@@ -113,3 +113,28 @@ def test_button_click_emits_signal(card):
     card.action_button.emit("clicked")
 
     assert seen == [True]
+
+
+@pytest.fixture
+def windows_card(gtk_ready, monkeypatch):
+    from src.core import platform_info
+    from src.ui.widgets.status_card import StatusCard
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    return StatusCard()
+
+
+def test_windows_card_shows_the_monolith_in_every_state(windows_card):
+    from src.ui.logic.status import ConnectionState
+
+    for state in ConnectionState:
+        windows_card.update(_view(state, error="boom"))
+        assert windows_card.shows_logo() is True
+
+
+def test_windows_card_colours_the_core_instead_of_spinning(windows_card):
+    from src.ui.logic.status import ConnectionState
+
+    windows_card.update(_view(ConnectionState.CONNECTING, profile_name="X"))
+
+    assert windows_card.is_spinning() is False

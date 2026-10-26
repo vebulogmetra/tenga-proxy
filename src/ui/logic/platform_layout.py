@@ -59,3 +59,12 @@ def monitoring_on_general_settings_page() -> bool:
     помещается.
     """
     return platform_info.IS_WINDOWS
+
+
+def monolith_status_logo() -> bool:
+    """В карточке статуса — «Монолит», у которого ядро окрашено по состоянию.
+
+    Это логотип Windows-клиента, тот же, что в трее и у приложения. Картинка
+    сама показывает состояние, в том числе подключение, вместо спиннера.
+    """
+    return platform_info.IS_WINDOWS
