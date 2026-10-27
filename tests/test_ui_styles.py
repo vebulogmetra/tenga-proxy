@@ -80,6 +80,33 @@ def test_windows_name_label_keeps_text_when_bitmap_is_invalid(gtk_ready, monkeyp
     assert label._flag.get_paintable() is None
 
 
+def test_windows_name_label_renders_inline_flags_and_resets_children(gtk_ready):
+    from gi.repository import Gtk
+
+    from src.ui.widgets.name_label import FlagNameLabel
+
+    label = FlagNameLabel()
+    label.set_text("3-🇷🇺Авто 🇵🇱Польша ☄")
+    children = []
+    child = label.get_first_child()
+    while child is not None:
+        children.append(child)
+        child = child.get_next_sibling()
+    assert [w.get_text() if isinstance(w, Gtk.Label) else "flag" for w in children] == [
+        "3-",
+        "flag",
+        "Авто ",
+        "flag",
+        "Польша ☄",
+    ]
+    assert "Segoe UI Emoji" in label._label.get_attributes().to_string()
+    label.set_text("Обычное имя")
+    assert label.get_first_child() is label._flag
+    assert label._flag.get_next_sibling() is label._label
+    assert label._label.get_next_sibling() is None
+    assert label._label.get_attributes().to_string() == ""
+
+
 @pytest.mark.parametrize("windows", [False, True])
 def test_name_label_is_platform_specific(gtk_ready, monkeypatch, windows):
     from gi.repository import Gtk

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from src.winsvc.protocol import Request, Response
 from src.winsvc.state import ServiceError
@@ -33,6 +34,7 @@ def dispatch(state, request: Request) -> Response:
     missing = [name for name in required if name not in request.args]
     if missing:
         return Response(request.id, False, error=f"Нет аргументов: {', '.join(missing)}")
+    started = time.monotonic()
     try:
         result = getattr(state, method)(**{name: request.args[name] for name in required})
     except ServiceError as e:
@@ -40,4 +42,7 @@ def dispatch(state, request: Request) -> Response:
     except Exception:
         logger.exception("Command %s failed", request.cmd)
         return Response(request.id, False, error="Внутренняя ошибка службы, подробности в её логе")
+    finally:
+        if request.cmd not in ("core.status", "core.stats"):
+            logger.info("Command %s took %.0fms", request.cmd, (time.monotonic() - started) * 1000)
     return Response(request.id, True, result=result or {})

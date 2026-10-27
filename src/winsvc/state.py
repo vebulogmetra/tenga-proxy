@@ -57,6 +57,7 @@ class ServiceState:
         self._expect_running = False
         self._exited = False
         self._gone_since: float | None = None
+        self._tun_adapter = None
 
     # --- команды ---
 
@@ -100,8 +101,8 @@ class ServiceState:
 
     def routes_apply(self, tun_name: str, proxy_host: str) -> dict:
         with self._lock:
-            tun = self._wait_adapter(tun_name)
-            route = netinfo.default_route(self._net.snapshot(), exclude=(tun_name,))
+            tun, snapshot = self._wait_adapter(tun_name)
+            route = netinfo.default_route(snapshot, exclude=(tun_name,))
             if route is None:
                 raise ServiceError("Не найден маршрут по умолчанию через физический интерфейс")
             proxy_ip = self._resolve(proxy_host)
@@ -112,6 +113,7 @@ class ServiceState:
                 self._add_route(f"{proxy_ip}/32", route.index, route.nexthop or None)
             for prefix in SPLIT_DEFAULT:
                 self._add_route(prefix, tun.index, None)
+            self._tun_adapter = tun
             return {"proxy_ip": proxy_ip}
 
     def routes_restore(self) -> dict:
@@ -121,7 +123,9 @@ class ServiceState:
 
     def dns_apply(self, tun_name: str) -> dict:
         with self._lock:
-            tun = self._wait_adapter(tun_name)
+            tun = self._tun_adapter
+            if tun is None or tun.alias != tun_name:
+                tun, _snapshot = self._wait_adapter(tun_name)
             self._net.run(netops.set_dns(tun.index, TUN_DNS_ADDRESS))
             self._net.run(netops.set_metric(tun.index, 1))
             name = self._net.nrpt_add(TUN_DNS_ADDRESS)
@@ -202,6 +206,7 @@ class ServiceState:
             self._rollback()
 
     def _rollback(self) -> None:
+        self._tun_adapter = None
         self._journal.rollback(self._net.undo)
         netinfo.invalidate()
 
@@ -213,9 +218,10 @@ class ServiceState:
     def _wait_adapter(self, alias: str):
         deadline = self._clock() + self._adapter_wait
         while True:
-            adapter = self._net.snapshot().adapter(alias)
+            snapshot = self._net.snapshot()
+            adapter = snapshot.adapter(alias)
             if adapter is not None:
-                return adapter
+                return adapter, snapshot
             if self._clock() >= deadline:
                 raise ServiceError(f"Адаптер {alias} не появился: ядро не создало TUN")
             netinfo.invalidate()

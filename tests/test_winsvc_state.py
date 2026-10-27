@@ -135,6 +135,19 @@ def test_dns_apply_records_nrpt_rule(state):
     assert service._journal.entries()[-1]["op"] == "nrpt.remove"
 
 
+def test_routes_and_dns_share_adapter_snapshot_until_rollback(state, monkeypatch):
+    service, _runner, net, _clock = state
+    snapshots = []
+    snapshot = net.snapshot()
+    monkeypatch.setattr(net, "snapshot", lambda: snapshots.append(True) or snapshot)
+    service.routes_apply("xray0", "vpn.example.com")
+    service.dns_apply("xray0")
+    assert len(snapshots) == 1
+    service.routes_restore()
+    service.dns_apply("xray0")
+    assert len(snapshots) == 2
+
+
 def test_core_stop_rolls_everything_back(state):
     service, runner, net, _clock = state
     service.core_start(BASE)
