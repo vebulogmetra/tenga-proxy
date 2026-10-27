@@ -52,7 +52,11 @@ def test_windows_name_label_resets_flag_on_reuse(gtk_ready):
     assert label.get_text() == "🇷🇺Москва"
     assert label._label.get_text() == "Москва"
     assert label._flag.get_visible()
-    assert label._flag.get_storage_type().value_nick != "empty"
+    from gi.repository import Gdk
+
+    texture = label._flag.get_paintable()
+    assert isinstance(texture, Gdk.Texture)
+    assert (texture.get_width(), texture.get_height()) == (32, 24)
 
     label.set_text("Без флага")
     assert label._label.get_text() == "Без флага"
@@ -61,6 +65,19 @@ def test_windows_name_label_resets_flag_on_reuse(gtk_ready):
     label.set_text("🇿🇿Неизвестно")
     assert label._label.get_text() == "🇿🇿Неизвестно"
     assert not label._flag.get_visible()
+
+
+def test_windows_name_label_keeps_text_when_bitmap_is_invalid(gtk_ready, monkeypatch, tmp_path):
+    from src.ui.widgets import name_label
+
+    broken = tmp_path / "ru.bmp"
+    broken.write_bytes(b"invalid image")
+    monkeypatch.setattr(name_label, "get_asset_path", lambda _name: broken)
+    label = name_label.FlagNameLabel()
+    label.set_text("🇷🇺Москва")
+    assert label._label.get_text() == "🇷🇺Москва"
+    assert not label._flag.get_visible()
+    assert label._flag.get_paintable() is None
 
 
 @pytest.mark.parametrize("windows", [False, True])

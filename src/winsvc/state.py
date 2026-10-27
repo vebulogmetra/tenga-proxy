@@ -51,6 +51,8 @@ class ServiceState:
         self._resolve = resolve
         self._adapter_wait = adapter_wait
         self._lock = threading.RLock()
+        # The core's output thread must drain while start/stop holds _lock.
+        self._log_lock = threading.Lock()
         self._log: deque[str] = deque(maxlen=LOG_BUFFER)
         self._expect_running = False
         self._exited = False
@@ -87,8 +89,9 @@ class ServiceState:
 
     def core_status(self) -> dict:
         with self._lock:
-            log = list(self._log)
-            self._log.clear()
+            with self._log_lock:
+                log = list(self._log)
+                self._log.clear()
             return {"running": self._runner.is_running, "exited": self._exited, "log": log}
 
     def core_stats(self) -> dict:
@@ -155,7 +158,7 @@ class ServiceState:
     # --- жизненный цикл ---
 
     def core_output(self, line: str) -> None:
-        with self._lock:
+        with self._log_lock:
             self._log.append(line)
 
     def client_connected(self) -> None:

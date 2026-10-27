@@ -5,8 +5,9 @@ from __future__ import annotations
 import gi
 
 gi.require_version("Gtk", "4.0")
+gi.require_version("GdkPixbuf", "2.0")
 
-from gi.repository import Gtk, Pango
+from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
 
 from src.core.config import get_asset_path
 from src.ui.logic import platform_layout
@@ -27,11 +28,20 @@ class FlagNameLabel(Gtk.Box):
     def set_text(self, text: str) -> None:
         self._text = text
         code, title = split_flag_prefix(text)
-        path = get_asset_path(f"flags/{code}.svg") if code else None
-        has_flag = path is not None and path.is_file()
+        # Use the same raster assets as the native tray. Gtk.Image's SVG
+        # renderer and its loaders vary between installed GTK runtimes.
+        path = get_asset_path(f"flags/win/{code}.bmp") if code else None
+        texture = None
+        if path is not None and path.is_file():
+            try:
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file(str(path))
+                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+            except GLib.Error:
+                pass
+        has_flag = texture is not None
         self._flag.set_visible(has_flag)
         if has_flag:
-            self._flag.set_from_file(str(path))
+            self._flag.set_from_paintable(texture)
         else:
             self._flag.clear()
         self._label.set_text(title if has_flag else text)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 import pytest
 
@@ -204,6 +205,30 @@ def test_log_lines_are_buffered_and_drained(state):
 
     assert service.core_status()["log"] == ["line 1", "line 2"]
     assert service.core_status()["log"] == []
+
+
+def test_stop_can_drain_core_output_without_waiting_for_state_lock(state):
+    service, runner, *_ = state
+    drained = threading.Event()
+
+    def pump():
+        service.core_output("last core line")
+        drained.set()
+
+    thread = threading.Thread(target=pump, daemon=True)
+    completed = []
+
+    def stop():
+        thread.start()
+        # XrayManager joins the output thread while core_stop holds _lock.
+        completed.append(drained.wait(1))
+        return True, ""
+
+    runner.stop = stop
+    service.core_stop()
+    thread.join(2)
+    assert completed == [True]
+    assert service.core_status()["log"] == ["last core line"]
 
 
 def test_stats(state):

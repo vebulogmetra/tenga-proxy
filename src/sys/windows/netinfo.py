@@ -172,5 +172,8 @@ def snapshot() -> NetSnapshot:
         if _cached is not None and now - _cached[0] < CACHE_SECONDS:
             return _cached[1]
         result = parse_snapshot(run_json(SCRIPT, timeout=SNAPSHOT_TIMEOUT))
-        _cached = (now, result)
+        # A cold PowerShell query can take longer than CACHE_SECONDS itself.
+        # Start the reuse window after it finishes, otherwise the next caller
+        # immediately launches the same expensive query again.
+        _cached = (time.monotonic(), result)
         return result

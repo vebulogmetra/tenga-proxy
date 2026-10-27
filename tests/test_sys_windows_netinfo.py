@@ -88,6 +88,29 @@ def test_snapshot_is_cached(monkeypatch):
     assert len(calls) == 1
 
 
+def test_slow_snapshot_is_cached_after_powershell_finishes(monkeypatch):
+    now = [0.0]
+    calls = []
+
+    def slow_query(script, **_kwargs):
+        calls.append(script)
+        now[0] += netinfo.CACHE_SECONDS + 1
+        return json.dumps(SNAPSHOT)
+
+    monkeypatch.setattr(netinfo.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(netinfo, "run_json", slow_query)
+    netinfo.invalidate()
+    try:
+        first = netinfo.snapshot()
+        assert netinfo.snapshot() is first
+        assert len(calls) == 1
+        now[0] += netinfo.CACHE_SECONDS + 1
+        netinfo.snapshot()
+        assert len(calls) == 2
+    finally:
+        netinfo.invalidate()
+
+
 def test_non_object_items_are_skipped():
     data = dict(SNAPSHOT, adapters=["junk", *SNAPSHOT["adapters"]])
 
