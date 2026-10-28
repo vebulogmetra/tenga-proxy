@@ -101,6 +101,8 @@ class DataStore(ConfigBase):
     extra_cores: ExtraCores = field(default_factory=ExtraCores)
     # Traffic routing
     routing: RoutingSettings = field(default_factory=RoutingSettings)
+    # Общая маршрутизация до последнего импорта ссылкой: один уровень отката.
+    routing_backup: RoutingSettings | None = None
     # DNS settings
     dns: DnsSettings = field(default_factory=DnsSettings)
     # VPN settings

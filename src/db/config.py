@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import types
 from abc import ABC
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -29,7 +30,8 @@ def _is_optional(field_type: Any) -> bool:
     try:
         from typing import Union
 
-        if origin is Union:
+        # `X | None` даёт types.UnionType, `Optional[X]` — typing.Union.
+        if origin is Union or origin is types.UnionType:
             args = get_args(field_type)
             return type(None) in args
     except:
@@ -44,7 +46,7 @@ def _get_inner_type(field_type: Any) -> Any:
         args = get_args(field_type)
         return args[0] if args else Any
     try:
-        if origin is Union:
+        if origin is Union or origin is types.UnionType:
             args = get_args(field_type)
             for arg in args:
                 if arg is not type(None):
