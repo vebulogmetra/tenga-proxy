@@ -13,7 +13,7 @@ from src.core.context import AppContext
 from src.fmt import parse_link
 from src.ui.controller import CONFIRM_DELETE, CONFIRM_URL_CHANGE
 from src.ui.logic.profiles_view import SortKey
-from src.ui.qt.application import NOT_YET_TEXT, QtApplication
+from src.ui.qt.application import QtApplication
 from src.ui.qt.models import PING_COLUMN
 from tests.support.qt import process_events, wait_until
 
@@ -163,15 +163,6 @@ def test_unknown_action_is_ignored(made):
     app, _service = made
 
     app.activate_action("no-such-action")
-
-
-def test_dialog_actions_say_they_are_not_there_yet(made):
-    app, _service = made
-    app.activate()
-
-    app.actions["settings"].trigger()
-
-    assert app.last_toast_for_test == NOT_YET_TEXT
 
 
 def test_restore_routing_follows_the_backup(made):

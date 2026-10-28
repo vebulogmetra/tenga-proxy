@@ -15,11 +15,14 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtNetwork import QNetworkInformation
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QWidget
 
 from src.core.config import get_asset_path
-from src.ui.controller import CONFIRM_URL_CHANGE, AppController, resume_monitoring
-from src.ui.logic.version import app_version
+from src.ui.controller import CONFIRM_DELETE, AppController, resume_monitoring
+from src.ui.logic.version import app_version, core_version
+from src.ui.qt.dialogs.base import clipboard_text, open_url
+from src.ui.qt.dialogs.confirm import build_confirmation
+from src.ui.qt.dialogs.shortcuts import SHORTCUTS
 from src.ui.qt.dispatch import QtLoop
 from src.ui.qt.theme import apply_theme
 from src.ui.qt.window import MainWindow
@@ -29,32 +32,23 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("tenga.ui.qt.application")
 
-# Сочетания клавиш — те же, что в GTK (`_ACCELS` в src/ui/application.py).
-SHORTCUTS: dict[str, str] = {
-    "add-profile": "Ctrl+N",
-    "add-subscription": "Ctrl+Shift+N",
-    "settings": "Ctrl+,",
-    "refresh-subscriptions": "F5",
-    "quit": "Ctrl+Q",
-    "hide-window": "Ctrl+W",
-    "toggle-connection": "Ctrl+Return",
-    "test-latency": "Ctrl+T",
-    "search": "Ctrl+F",
-}
-
-# Действия, у которых в Qt-интерфейсе ещё нет окна: диалоги приходят в
-# фазе 3 (docs/plans/2026-10-28-windows-qt-frontend-design.md). Имена
-# зарегистрированы, чтобы трей и сочетания не попадали в «неизвестное действие».
-NOT_YET = (
-    "add-profile",
-    "add-profile-from-clipboard",
-    "add-subscription",
-    "add-group",
-    "settings",
-    "about",
-    "shortcuts",
+# Действия над строкой дерева: адресат — id профиля или группы, как у
+# `win.*`-действий GTK-окна (src/ui/window.py).
+ROW_ACTIONS = (
+    "connect-profile",
+    "edit-profile",
+    "delete-profile",
+    "profile-routing",
+    "test-profile",
+    "toggle-group",
+    "test-group",
+    "keep-working",
+    "edit-group",
+    "delete-group",
+    "update-subscription",
+    "open-subscription-page",
+    "open-subscription-support",
 )
-NOT_YET_TEXT = "Раздел появится в следующей сборке"
 
 
 def network_available() -> bool:
@@ -99,6 +93,7 @@ class _QtShell:
     def refresh_pages(self) -> None:
         if (window := self._window()) is not None:
             window.refresh_pages()
+        self._app.refresh_dialog()
 
     def show_connecting(self, profile_name: str) -> None:
         if (window := self._window()) is not None:
@@ -134,33 +129,24 @@ class _QtShell:
         action = self._app.actions.get(name)
         if action is not None:
             action.setEnabled(enabled)
+        self._app.refresh_dialog()
 
     def confirm(self, kind, heading, body, on_confirm, *, confirm_label=None) -> None:
-        if kind == CONFIRM_URL_CHANGE:
-            accept, reject = "Сменить", "Оставить"
-        else:
-            accept, reject = confirm_label or "Удалить", "Отмена"
-        box = QMessageBox(QMessageBox.Icon.Question, heading, body, parent=self._window())
-        # Текст не разметка: адрес подписки приходит от провайдера.
-        box.setTextFormat(Qt.TextFormat.PlainText)
-        accept_button = box.addButton(accept, QMessageBox.ButtonRole.AcceptRole)
-        cancel_button = box.addButton(reject, QMessageBox.ButtonRole.RejectRole)
-        # Enter и Escape не подтверждают: удалить или сменить можно только явно.
-        box.setDefaultButton(cancel_button)
-        box.setEscapeButton(cancel_button)
-
-        def finished(_result: int) -> None:
-            if box.clickedButton() is accept_button:
-                on_confirm()
-
-        box.finished.connect(finished)
-        self._app.present_dialog(box)
+        # Вопрос о смене адреса приходит и при открытых настройках: тогда поверх них.
+        parent = self._app.dialog_parent()
+        box = build_confirmation(
+            kind, heading, body, on_confirm, confirm_label=confirm_label, parent=parent
+        )
+        self._app.show_dialog(box, parent)
 
     def open_subscription_form(self, name: str, url: str) -> None:
-        self.toast(NOT_YET_TEXT)
+        self._app.open_add_subscription(name=name, url=url)
 
     def open_routing_import(self, rows, on_confirm) -> None:
-        self.toast(NOT_YET_TEXT)
+        from src.ui.qt.dialogs.routing_import import RoutingImportDialog
+
+        parent = self._app.dialog_parent()
+        self._app.show_dialog(RoutingImportDialog(rows, on_confirm, parent), parent)
 
 
 class QtApplication:
@@ -211,17 +197,21 @@ class QtApplication:
             "connect": lambda: self.controller.connect_selected(),
             "disconnect": lambda: self.controller.disconnect_proxy(),
             "toggle-connection": lambda: self.controller.toggle_connection(),
+            "add-profile": self.open_add_profile,
+            "add-profile-from-clipboard": self.add_profile_from_clipboard,
+            "add-subscription": self.open_add_subscription,
+            "add-group": self.open_add_group,
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
             "search": self._focus_search,
+            "settings": self.open_settings,
+            "about": self.open_about,
+            "shortcuts": self.open_shortcuts,
             "quit": self.quit,
             "hide-window": self._hide_window,
             "activate-window": self.activate,
             "restore-routing": lambda: self.controller.restore_routing(),
         }
-        for name in NOT_YET:
-            handlers[name] = lambda: self.controller.toast(NOT_YET_TEXT)
-
         for name, handler in handlers.items():
             action = QAction(name, self.qt)
             if name in SHORTCUTS:
@@ -229,10 +219,29 @@ class QtApplication:
             action.triggered.connect(lambda _checked=False, fn=handler: fn())
             self.actions[name] = action
             self._handlers[name] = lambda _target, fn=handler: fn()
-        # Профиль трей адресует числом, как строчные действия окна.
-        self._handlers["connect-profile"] = lambda target: self.controller.connect_profile(
-            int(target)
-        )
+
+        row_handlers: dict[str, Callable[[int], None]] = {
+            "connect-profile": lambda target: self.controller.connect_profile(target),
+            "edit-profile": self.edit_profile,
+            "delete-profile": self.delete_profile,
+            "profile-routing": self.profile_routing,
+            "test-profile": lambda target: self.controller.test_latency_for(target),
+            "toggle-group": self._toggle_group,
+            "test-group": lambda target: self.controller.test_latency_for_group(target),
+            "keep-working": lambda target: self.controller.keep_working_profiles(target),
+            "edit-group": self.edit_group,
+            "delete-group": self.delete_group,
+            "update-subscription": lambda target: self.controller.update_subscription(target),
+            "open-subscription-page": lambda gid: self.open_subscription_link(
+                gid, "sub_web_page_url"
+            ),
+            "open-subscription-support": lambda gid: self.open_subscription_link(
+                gid, "sub_support_url"
+            ),
+        }
+        # Трей и меню строк адресуют профиль или группу числом.
+        for name in ROW_ACTIONS:
+            self._handlers[name] = lambda target, fn=row_handlers[name]: fn(int(target))
         self.controller.sync_restore_routing()
 
     def activate_action(self, name: str, target=None) -> None:
@@ -270,6 +279,173 @@ class QtApplication:
     @property
     def current_dialog(self):
         return self._dialog
+
+    def dialog_parent(self) -> QWidget | None:
+        """Над чем открывать вопрос: над окном настроек, если оно открыто."""
+        return self._dialog if self._dialog is not None else self.window
+
+    def show_dialog(self, dialog, parent: QWidget | None = None) -> bool:
+        """Показать диалог: из окна настроек — поверх него, иначе через слот.
+
+        Формы, открытые из настроек (правка подписки, очистка журналов),
+        принадлежат настройкам и слот не занимают; всё остальное — по
+        одному, чтобы трей и сочетания не громоздили окна друг на друга.
+        """
+        if parent is not None and parent is self._dialog:
+            dialog.setParent(parent, dialog.windowFlags())
+            dialog.open()
+            return True
+        if dialog.parent() is None and self.window is not None:
+            dialog.setParent(self.window, dialog.windowFlags())
+        return self.present_dialog(dialog)
+
+    def refresh_dialog(self) -> None:
+        refresh = getattr(self._dialog, "refresh", None)
+        if refresh is not None:
+            refresh()
+
+    # Формы. Результат уходит в контроллер теми же вызовами, что из GTK.
+
+    def open_add_profile(self, link: str = "") -> None:
+        from src.ui.qt.dialogs.profile import AddProfileDialog
+
+        dialog = AddProfileDialog(link=link)
+        dialog.profile_ready.connect(self.controller.add_profile_from_bean)
+        self.show_dialog(dialog)
+
+    def add_profile_from_clipboard(self) -> None:
+        """Форма добавления со ссылкой из буфера обмена."""
+        self.open_add_profile(clipboard_text())
+
+    def open_add_subscription(
+        self, *, name: str = "", url: str = "", parent: QWidget | None = None
+    ) -> None:
+        from src.ui.qt.dialogs.subscription import SubscriptionDialog
+
+        dialog = SubscriptionDialog()
+        dialog.name_edit.setText(name)
+        dialog.url_edit.setText(url)
+        dialog.subscription_ready.connect(self.controller.add_subscription)
+        self.show_dialog(dialog, parent)
+
+    def open_add_group(self) -> None:
+        from src.ui.qt.dialogs.group import GroupDialog
+
+        dialog = GroupDialog()
+        dialog.group_ready.connect(self.controller.add_group)
+        self.show_dialog(dialog)
+
+    def open_settings(self) -> None:
+        from src.ui.qt.dialogs.settings import SettingsDialog
+
+        dialog = SettingsDialog(self, dispatch=self.loop.dispatch)
+        # Кнопки «Сохранить» нет: правки уходят в контроллер по мере ввода.
+        dialog.settings_saved.connect(self.controller.apply_settings)
+        self.show_dialog(dialog)
+
+    def open_about(self) -> None:
+        from src.ui.qt.dialogs.about import AboutDialog
+
+        core = core_version(getattr(self.context, "xray_manager", None))
+        self.show_dialog(AboutDialog(app_version(), core))
+
+    def open_shortcuts(self) -> None:
+        from src.ui.qt.dialogs.shortcuts import ShortcutsDialog
+
+        self.show_dialog(ShortcutsDialog())
+
+    # Действия строк дерева и списка подписок.
+
+    def _profile_or_toast(self, profile_id: int):
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.controller.toast("Профиль не найден")
+        return profile
+
+    def edit_profile(self, profile_id: int) -> None:
+        from src.ui.qt.dialogs.profile import EditProfileDialog
+
+        if (profile := self._profile_or_toast(profile_id)) is None:
+            return
+        dialog = EditProfileDialog(profile)
+        dialog.profile_saved.connect(self.controller.save_profiles)
+        self.show_dialog(dialog)
+
+    def delete_profile(self, profile_id: int) -> None:
+        if (profile := self._profile_or_toast(profile_id)) is None:
+            return
+        self.show_dialog(
+            build_confirmation(
+                CONFIRM_DELETE,
+                "Удалить профиль?",
+                f"«{profile.name}» будет удалён безвозвратно.",
+                lambda: self.controller.delete_profile(profile_id),
+                parent=self.window,
+            )
+        )
+
+    def profile_routing(self, profile_id: int) -> None:
+        from src.ui.qt.dialogs.profile_routing import ProfileRoutingDialog
+
+        if (profile := self._profile_or_toast(profile_id)) is None:
+            return
+        dialog = ProfileRoutingDialog(profile)
+        dialog.routing_saved.connect(self.controller.save_profiles)
+        self.show_dialog(dialog)
+
+    def edit_group(self, group_id: int, parent: QWidget | None = None) -> None:
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            self.controller.toast("Группа не найдена")
+            return
+        if group.is_subscription:
+            from src.ui.qt.dialogs.subscription import SubscriptionDialog
+
+            dialog = SubscriptionDialog(group)
+            dialog.subscription_ready.connect(
+                lambda name, url: self.controller.update_group(group_id, name=name, url=url)
+            )
+        else:
+            from src.ui.qt.dialogs.group import GroupDialog
+
+            dialog = GroupDialog(group)
+            dialog.group_ready.connect(
+                lambda name: self.controller.update_group(group_id, name=name)
+            )
+        self.show_dialog(dialog, parent)
+
+    def delete_group(self, group_id: int, parent: QWidget | None = None) -> None:
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            self.controller.toast("Группа не найдена")
+            return
+        count = len(self.context.profiles.get_profiles_in_group(group_id))
+        self.show_dialog(
+            build_confirmation(
+                CONFIRM_DELETE,
+                "Удалить группу?",
+                f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
+                lambda: self.controller.delete_group(group_id),
+                parent=parent or self.window,
+            ),
+            parent,
+        )
+
+    def open_subscription_link(self, group_id: int, field: str) -> None:
+        """Ссылка провайдера; проверяется заново: файл профилей правят и вручную."""
+        from src.sub.metadata import is_safe_support_url, is_safe_web_page_url
+
+        is_safe = is_safe_web_page_url if field == "sub_web_page_url" else is_safe_support_url
+        group = self.context.profiles.get_group(group_id)
+        url = getattr(group, field, "") if group is not None else ""
+        if not url or not is_safe(url):
+            self.controller.toast("Ссылка недоступна")
+            return
+        open_url(url)
+
+    def _toggle_group(self, group_id: int) -> None:
+        if self.window is not None:
+            self.window.toggle_group(group_id)
 
     def _hide_window(self) -> None:
         if self.window is not None:
