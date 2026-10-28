@@ -49,6 +49,17 @@ def normalize_routing_entry(value: str) -> str:
             value = parts.hostname
         except ValueError:
             raise ValueError("URL правила должен содержать имя сайта без credentials") from None
+    prefix, _, rest = value.partition(":")
+    if prefix.lower() in ("full", "domain"):
+        try:
+            host = rest.lower().encode("idna").decode("ascii")
+        except UnicodeError:
+            raise ValueError("Некорректное доменное имя") from None
+        # Ядро сравнивает правило с именем в нижнем регистре и в punycode.
+        # Звёздочка — синтаксис голого суффикса, здесь она была бы буквой.
+        if not re.fullmatch(r"[a-z0-9_.-]+", host) or host.startswith(".") or len(host) > 253:
+            raise ValueError("Некорректное правило маршрутизации")
+        return f"{prefix.lower()}:{host}"
     if value.lower().startswith(
         ("domain:", "full:", "regexp:", "keyword:", "dotless:", "geosite:", "geoip:")
     ):

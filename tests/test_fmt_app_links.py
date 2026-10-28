@@ -43,3 +43,22 @@ def test_global_proxy_flag_does_not_disable_imported_direct_lists():
     link = parse_app_link("veblock://routing/add/" + payload)
     assert link.routing.mode == "custom"
     assert link.routing.direct_list == ["example.org"]
+
+
+def test_happ_rules_keep_exact_domains_idn_and_compressed_ipv6():
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {
+                "DirectSites": ["full:Пример.РФ", "domain:Example.org", "xn--p1ai"],
+                "DirectIp": ["2001:db8::1", "2a00:1450::/32"],
+            }
+        ).encode()
+    ).decode()
+    link = parse_app_link("happ://routing/add/" + payload)
+    assert link.routing.direct_list == [
+        "full:xn--e1afmkfd.xn--p1ai",
+        "domain:example.org",
+        "xn--p1ai",
+        "2001:db8::1",
+        "2a00:1450::/32",
+    ]

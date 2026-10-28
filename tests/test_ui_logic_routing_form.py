@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.core.geo import GeoCatalog
-from src.ui.logic.routing_form import LIST_HINT, geo_summary, ru_direct_subtitle
+from src.ui.logic.routing_form import (
+    LIST_HINT,
+    geo_summary,
+    normalize_routing_entry,
+    ru_direct_subtitle,
+)
 
 FULL = GeoCatalog(geosite=frozenset({"category-ru", "category-gov-ru"}), geoip=frozenset({"ru"}))
 
@@ -36,3 +43,26 @@ def test_geo_summary_counts_categories():
 
 def test_geo_summary_without_bases():
     assert geo_summary(GeoCatalog()) == "Не найдены: правила geosite: и geoip: не применяются"
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("full:Example.COM", "full:example.com"),
+        ("domain:Пример.РФ", "domain:xn--e1afmkfd.xn--p1ai"),
+        ("full:xn--e1afmkfd.xn--p1ai", "full:xn--e1afmkfd.xn--p1ai"),
+        # Регистр регулярного выражения и ключевого слова — часть правила.
+        ("regexp:^Api\\.", "regexp:^Api\\."),
+        ("keyword:Google", "keyword:Google"),
+        ("geosite:category-ru", "geosite:category-ru"),
+    ],
+)
+def test_domain_rules_match_the_name_the_core_compares(raw, expected):
+    """Ядро сравнивает правило с именем в нижнем регистре и в punycode."""
+    assert normalize_routing_entry(raw) == expected
+
+
+@pytest.mark.parametrize("raw", ["full:", "full:*.example.com", "domain:bad host"])
+def test_malformed_domain_rules_are_rejected(raw):
+    with pytest.raises(ValueError, match="Некорректн"):
+        normalize_routing_entry(raw)
