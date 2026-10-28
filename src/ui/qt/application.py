@@ -13,15 +13,15 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QKeySequence
 from PySide6.QtNetwork import QNetworkInformation
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from src.core.config import get_asset_path
 from src.ui.controller import CONFIRM_URL_CHANGE, AppController, resume_monitoring
-from src.ui.logic.appearance import normalize_theme
 from src.ui.logic.version import app_version
 from src.ui.qt.dispatch import QtLoop
+from src.ui.qt.theme import apply_theme
 from src.ui.qt.window import MainWindow
 
 if TYPE_CHECKING:
@@ -67,15 +67,6 @@ def network_available() -> bool:
     if info is None:
         return True
     return info.reachability() != QNetworkInformation.Reachability.Disconnected
-
-
-def apply_theme(theme: str | None) -> None:
-    """Светлая или тёмная схема; в «Системной» Qt сам следит за ОС."""
-    scheme = {
-        "light": Qt.ColorScheme.Light,
-        "dark": Qt.ColorScheme.Dark,
-    }.get(normalize_theme(theme), Qt.ColorScheme.Unknown)
-    QGuiApplication.styleHints().setColorScheme(scheme)
 
 
 class _QtShell:
