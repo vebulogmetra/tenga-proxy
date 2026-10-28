@@ -505,3 +505,94 @@ def test_refresh_subscriptions_sums_the_groups(made):
     _wait_subscriptions(controller)
 
     assert shell.last_toast == "Обновлено профилей: 4"
+
+
+# --- замер задержки ---
+
+
+def _wait_latency(controller):
+    if controller.latency_runner is not None:
+        controller.latency_runner.wait(5)
+
+
+def test_test_latency_probes_every_profile_and_stores_the_result(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    probed = []
+    controller.set_latency_probe(lambda pid: probed.append(pid) or 55)
+
+    controller.test_latency()
+    _wait_latency(controller)
+
+    assert probed == [entry.id]
+    assert controller.context.profiles.get_profile(entry.id).latency_ms == 55
+    assert shell.last_toast == "Проверка задержки завершена"
+    assert ("set_ping_progress", None) in shell.calls
+
+
+def test_test_latency_without_profiles_toasts(made):
+    controller, shell, _ = made
+    controller.set_latency_probe(lambda _pid: 1)
+
+    controller.test_latency()
+
+    assert shell.last_toast == "Нет профилей для проверки"
+
+
+def test_probe_is_refused_while_tun_is_active(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    controller.set_latency_probe(lambda _pid: 1)
+    controller.context.proxy_state.set_running(entry.id, mode="tun")
+
+    controller.test_latency_for(entry.id)
+
+    assert shell.last_toast.startswith("Замер при активном TUN недоступен")
+
+
+def test_group_run_sorts_by_ping_and_coalesces_redraws(made):
+    controller, shell, loop = made
+    group = controller.add_group("G")
+    first = add_profile(controller, group_id=group.id)
+    second = add_profile(controller, group_id=group.id)
+    controller.set_latency_probe(lambda pid: 10 if pid == first.id else 20)
+
+    controller.test_latency_for_group(group.id)
+    _wait_latency(controller)
+
+    assert ("sort_by_ping",) in shell.calls
+    assert controller.context.profiles.get_profile(second.id).latency_ms == 20
+    # Отложенная перерисовка снята итоговой: таймер отменён, не сработал.
+    assert loop.scheduled == [] and len(loop.cancelled) >= 1
+
+
+def test_keep_working_asks_before_removing_dead_profiles(made):
+    controller, shell, _ = made
+    group = controller.add_group("G")
+    alive = add_profile(controller, group_id=group.id)
+    dead = add_profile(controller, group_id=group.id)
+    controller.set_latency_probe(lambda pid: 30 if pid == alive.id else -1)
+
+    controller.keep_working_profiles(group.id)
+    _wait_latency(controller)
+
+    confirm = shell.confirms[-1]
+    assert confirm.kind == CONFIRM_DELETE and confirm.confirm_label == "Оставить рабочие"
+    confirm.on_confirm()
+    assert controller.context.profiles.get_profile(dead.id) is None
+    assert controller.context.profiles.get_profile(alive.id) is not None
+
+
+def test_keep_working_is_cancelled_without_network(tmp_path):
+    context = AppContext(config_dir=tmp_path)
+    shell = FakeShell()
+    controller = AppController(context, shell, ImmediateLoop(), network_available=lambda: False)
+    group = controller.add_group("G")
+    add_profile(controller, group_id=group.id)
+    controller.set_latency_probe(lambda _pid: -1)
+
+    controller.keep_working_profiles(group.id)
+    _wait_latency(controller)
+
+    assert shell.confirms == []
+    assert shell.last_toast.startswith("Фильтрация отменена")

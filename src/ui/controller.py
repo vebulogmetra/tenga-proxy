@@ -601,6 +601,229 @@ class AppController:
         self.toast(f"Не удалось обновить подписки: {reason}")
         self._offer_url_change()
 
-    # --- замер задержки (задача 6) ---
+    # --- замер задержки ---
+
+    def set_latency_probe(self, probe: Callable[[int], int]) -> None:
+        """Install the function measuring one profile's latency.
+
+        Проба передаётся снаружи: она живёт на уровне ядра и требует запуска
+        временного xray, а окно не должно знать об этом.
+        """
+        self._latency_probe = probe
+        self.latency_runner = LatencyRunner(probe, dispatch=self._loop.dispatch)
+
+    def _ensure_latency_runner(self) -> LatencyRunner:
+        if self.latency_runner is None:
+            if self._latency_probe is not None:
+                self.latency_runner = LatencyRunner(
+                    self._latency_probe, dispatch=self._loop.dispatch
+                )
+            else:
+                # Весь набор меряет один временный процесс ядра.
+                self.latency_runner = LatencyRunner(
+                    batch_probe=make_batch_probe(self.context), dispatch=self._loop.dispatch
+                )
+        return self.latency_runner
+
+    def _can_probe(self) -> bool:
+        from src.db.config import ProxyMode
+
+        state = self.context.proxy_state
+        if state.is_running and state.started_mode == ProxyMode.TUN:
+            self.toast(
+                "Замер при активном TUN недоступен: независимый маршрут не обеспечен. Отключите TUN для проверки."
+            )
+            return False
+        if self._subscription_busy:
+            self.toast("Дождитесь обновления подписок")
+            return False
+        return True
+
+    def keep_working_profiles(self, group_id: int) -> None:
+        from src.ui.logic.latency import failed_profile_ids
+
+        if not self._can_probe():
+            return
+        store = self.context.profiles
+
+        def signature():
+            return [(p.id, p.bean.to_share_link()) for p in store.get_profiles_in_group(group_id)]
+
+        before = signature()
+        ids = [profile_id for profile_id, _link in before]
+        if not ids:
+            return
+        results = {}
+        runner = self._ensure_latency_runner()
+
+        def result(profile_id, value):
+            results[profile_id] = value
+            self._on_latency_result(profile_id, value)
+
+        def finished():
+            self._on_latency_done()
+            if (
+                signature() != before
+                or not runner.last_run_complete
+                or not self._network_available()
+            ):
+                self.toast("Фильтрация отменена: неполный замер, нет сети или группа изменилась")
+                return
+            removable = failed_profile_ids(
+                ids, results, complete=True, active_id=self.context.proxy_state.started_profile_id
+            )
+            working = sum(value >= 0 for value in results.values())
+            if not removable:
+                self.toast(f"Рабочих: {working} из {len(ids)}. Профили не удалены")
+                return
+
+            def remove():
+                if signature() != before or self._subscription_busy or runner.is_busy:
+                    self.toast("Группа изменилась; повторите проверку")
+                    return
+                for profile_id in removable:
+                    if profile_id != self.context.proxy_state.started_profile_id:
+                        store.remove_profile(profile_id)
+                self.save_profiles()
+
+            self._shell.confirm(
+                CONFIRM_DELETE,
+                "Оставить рабочие профили?",
+                f"Рабочих: {working} из {len(ids)}. Будет удалено: {len(removable)}. Активный профиль сохраняется.",
+                remove,
+                confirm_label="Оставить рабочие",
+            )
+
+        if not runner.run(ids, on_result=result, on_done=finished):
+            self.toast("Проверка задержки уже идёт")
+
+    def test_latency(self) -> None:
+        if not self._can_probe():
+            return
+        profile_ids = list(self.context.profiles.profiles)
+        if not profile_ids:
+            self.toast("Нет профилей для проверки")
+            return
+
+        runner = self._ensure_latency_runner()
+        started = runner.run(
+            profile_ids,
+            on_result=self._on_latency_result,
+            on_done=self._on_latency_done,
+        )
+        if not started:
+            self.toast("Проверка задержки уже идёт")
+            return
+
+        by_group: dict[int, list[int]] = {}
+        for profile_id in profile_ids:
+            profile = self.context.profiles.get_profile(profile_id)
+            if profile is not None:
+                by_group.setdefault(profile.group_id, []).append(profile_id)
+        self._show_ping_progress(PingProgress(by_group))
+        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+
+    def test_latency_for(self, profile_id: int) -> None:
+        """Measure the latency of one profile."""
+        if not self._can_probe():
+            return
+        if self.context.profiles.get_profile(profile_id) is None:
+            self.toast("Профиль не найден")
+            return
+
+        runner = self._ensure_latency_runner()
+        started = runner.run(
+            [profile_id],
+            on_result=self._on_latency_result,
+            on_done=self._on_latency_done,
+        )
+        if not started:
+            self.toast("Проверка задержки уже идёт")
+
+    def test_latency_for_group(self, group_id: int) -> None:
+        """Measure the latency of one group, ordering rows as results arrive."""
+        if not self._can_probe():
+            return
+        store = self.context.profiles
+        if store.get_group(group_id) is None:
+            self.toast("Группа не найдена")
+            return
+
+        profile_ids = [profile.id for profile in store.get_profiles_in_group(group_id)]
+        if not profile_ids:
+            self.toast("В группе нет профилей")
+            return
+
+        # Пинг группы — единственный случай, когда порядок строк говорит о
+        # результате: список пересортировывается по задержке, пока идёт замер.
+        self._shell.sort_by_ping()
+
+        runner = self._ensure_latency_runner()
+        started = runner.run(
+            profile_ids,
+            on_result=self._on_latency_result_live,
+            on_done=self._on_latency_done,
+        )
+        if not started:
+            self.toast("Проверка задержки уже идёт")
+            return
+
+        self._show_ping_progress(PingProgress({group_id: profile_ids}))
+        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+
+    def _show_ping_progress(self, progress: PingProgress | None) -> None:
+        """Hand the progress of a run to the group rows; None hides it."""
+        self._ping_progress = progress
+        self._shell.set_ping_progress(progress)
+
+    def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is not None:
+            profile.latency_ms = latency_ms
+
+        if self._ping_progress is None:
+            return
+        group_id = self._ping_progress.record(profile_id)
+        if group_id is not None:
+            self._shell.update_group_progress(group_id)
+
+    def _on_latency_result_live(self, profile_id: int, latency_ms: int) -> None:
+        """Store one result and schedule a re-sort of the list.
+
+        Перерисовка склеивается по таймеру: список должен пересортировываться
+        по ходу замера, но на группе в сотни профилей построчный refresh занял
+        бы секунды главного цикла и превратил бы обновление в рывки.
+        """
+        self._on_latency_result(profile_id, latency_ms)
+        self._schedule_latency_refresh()
+
+    def _schedule_latency_refresh(self) -> None:
+        if not self._shell.has_window() or self._latency_refresh_handle is not None:
+            return
+
+        def _redraw() -> bool:
+            self._latency_refresh_handle = None
+            self._shell.refresh_pages()
+            return False
+
+        self._latency_refresh_handle = self._loop.schedule(LATENCY_REFRESH_INTERVAL_MS, _redraw)
+
+    def _cancel_latency_refresh(self) -> None:
+        if self._latency_refresh_handle is not None:
+            self._loop.cancel(self._latency_refresh_handle)
+            self._latency_refresh_handle = None
+
+    def _on_latency_done(self) -> None:
+        # Итоговая перерисовка всё равно будет ниже: отложенная только
+        # продублировала бы её уже после сохранения.
+        self._cancel_latency_refresh()
+        self._show_ping_progress(None)
+        try:
+            self.context.save_profiles()
+        except Exception as e:
+            logger.warning("Could not persist latency results: %s", e)
+
+        self._shell.refresh_pages()
+        self.toast("Проверка задержки завершена")
 
     # --- обновления и ссылки (задача 7) ---
