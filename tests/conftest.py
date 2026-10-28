@@ -191,3 +191,17 @@ def pump():
             context.iteration(False)
 
     return run
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Один `QApplication` на прогон: Qt не даёт создать второй.
+
+    Тесты Qt помечены `qt` и идут через `make test-qt` (offscreen); без
+    PySide6 они пропускаются, а не падают на импорте.
+    """
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication(["veblock-tests"])
+    return app

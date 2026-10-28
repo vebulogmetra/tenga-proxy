@@ -20,9 +20,10 @@ dependencies = [
     "grpcio-tools>=1.76.0",
     "idna>=3.11",
     "protobuf>=6.33.1",
-    "pycairo>=1.29.0",
+    # GTK-интерфейс Linux; на Windows интерфейс на Qt (группа windows).
+    "pycairo>=1.29.0; sys_platform != 'win32'",
     "Pygments>=2.19.2",
-    "PyGObject>=3.54.5",
+    "PyGObject>=3.54.5; sys_platform != 'win32'",
     "PyYAML>=6.0.3",
     "requests>=2.32.5",
     "typing_extensions>=4.15.0",
@@ -37,6 +38,12 @@ dev = [
     "coverage>=7.12.0",
     "ruff>=0.8.0",
     "isort>=5.13.0",
+]
+# Интерфейс Windows (docs/plans/2026-10-28-windows-qt-frontend-design.md).
+# На Linux ставится по желанию: `--ui qt` и `make test-qt`.
+windows = [
+    "PySide6-Essentials>=6.8",
+    "pywin32>=308; sys_platform == 'win32'",
 ]
 build = [
     "pyinstaller>=6.17.0",
@@ -54,13 +61,14 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "-m",
-    "not gtk",
+    "not gtk and not qt",
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 markers = [
     "gtk: requires a display, run through make test-gtk",
     "windows: requires real Windows, skipped elsewhere",
+    "qt: Qt widgets, run through make test-qt",
 ]
 
 [tool.ruff]
