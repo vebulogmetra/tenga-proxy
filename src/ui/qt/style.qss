@@ -1,0 +1,31 @@
+/* Своей темы нет: цвета берутся из системной палитры (palette(...)).
+   Правила только для карточки, плашки и тоста — у них нет системного вида. */
+
+#statusCard {
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+}
+
+#statusTitle {
+    font-size: 15pt;
+    font-weight: 600;
+}
+
+#statusCard[state="status-connected"] #statusTitle {
+    color: #2e9d58;
+}
+
+#statusCard[state="status-error"] #statusTitle {
+    color: #d13438;
+}
+
+#pendingBanner {
+    background: palette(alternate-base);
+    border-radius: 6px;
+}
+
+#toast {
+    background: palette(tool-tip-base);
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+}
