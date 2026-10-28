@@ -8,6 +8,37 @@ from src.core.geo import RU_DIRECT_GEOIP, RU_DIRECT_GEOSITES, GeoCatalog, asset_
 LIST_HINT = "По одной записи в строке: домен, подсеть, geosite:категория, geoip:страна"
 BLOCK_HINT = "Соединения обрываются, имена не резолвятся. Применяется раньше остальных списков"
 
+# Порядок групп правил маршрутизации профиля: ключ настройки → порядок.
+ORDER_PRESETS: dict[str, list[str]] = {
+    "direct_vpn_proxy": ["direct", "vpn", "proxy"],
+    "direct_proxy_vpn": ["direct", "proxy", "vpn"],
+    "vpn_direct_proxy": ["vpn", "direct", "proxy"],
+    "vpn_proxy_direct": ["vpn", "proxy", "direct"],
+    "proxy_direct_vpn": ["proxy", "direct", "vpn"],
+    "proxy_vpn_direct": ["proxy", "vpn", "direct"],
+}
+
+ORDER_LABELS = {
+    "direct_vpn_proxy": "Напрямую → VPN → Прокси",
+    "direct_proxy_vpn": "Напрямую → Прокси → VPN",
+    "vpn_direct_proxy": "VPN → Напрямую → Прокси",
+    "vpn_proxy_direct": "VPN → Прокси → Напрямую",
+    "proxy_direct_vpn": "Прокси → Напрямую → VPN",
+    "proxy_vpn_direct": "Прокси → VPN → Напрямую",
+}
+
+
+def order_key(order: list[str]) -> str:
+    """Ключ пресета для сохранённого порядка; незнакомый — первый пресет.
+
+    Порядок мог прийти из другой версии или из испорченного файла.
+    """
+    for key, preset in ORDER_PRESETS.items():
+        if preset == list(order):
+            return key
+    return next(iter(ORDER_PRESETS))
+
+
 _RU_DIRECT_RULES = (*RU_DIRECT_GEOSITES, RU_DIRECT_GEOIP)
 
 

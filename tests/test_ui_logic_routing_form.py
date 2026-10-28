@@ -66,3 +66,19 @@ def test_domain_rules_match_the_name_the_core_compares(raw, expected):
 def test_malformed_domain_rules_are_rejected(raw):
     with pytest.raises(ValueError, match="Некорректн"):
         normalize_routing_entry(raw)
+
+
+# --- порядок групп правил (общий для GTK и Qt) ---
+
+
+def test_order_key_finds_the_preset():
+    from src.ui.logic.routing_form import ORDER_LABELS, ORDER_PRESETS, order_key
+
+    assert order_key(["vpn", "proxy", "direct"]) == "vpn_proxy_direct"
+    assert set(ORDER_PRESETS) == set(ORDER_LABELS)
+
+
+def test_unknown_order_falls_back_to_the_first_preset():
+    from src.ui.logic.routing_form import order_key
+
+    assert order_key(["proxy"]) == "direct_vpn_proxy"

@@ -57,6 +57,9 @@ class DataStore(ConfigBase):
     window_size: str = ""
     splitter_state: str = ""
     start_minimal: bool = False
+    # Qt-интерфейс: закрытие окна прячет его в трей; панель мониторинга видна.
+    close_to_tray: bool = True
+    monitoring_panel: bool = True
     # Subscriptions
     user_agent: str = ""
     # HWID создаётся при включении флага и скрыт из repr настроек.

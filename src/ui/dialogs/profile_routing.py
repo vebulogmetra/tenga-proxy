@@ -13,25 +13,14 @@ from src.db.config import RoutingMode, RoutingSettings, VpnSettings
 from src.ui.dialogs.settings import KeyedCombo
 from src.ui.logic import platform_texts
 from src.ui.logic.forms import parse_host_list
-from src.ui.logic.routing_form import BLOCK_HINT, LIST_HINT, current_catalog, ru_direct_subtitle
-
-ORDER_PRESETS: dict[str, list[str]] = {
-    "direct_vpn_proxy": ["direct", "vpn", "proxy"],
-    "direct_proxy_vpn": ["direct", "proxy", "vpn"],
-    "vpn_direct_proxy": ["vpn", "direct", "proxy"],
-    "vpn_proxy_direct": ["vpn", "proxy", "direct"],
-    "proxy_direct_vpn": ["proxy", "direct", "vpn"],
-    "proxy_vpn_direct": ["proxy", "vpn", "direct"],
-}
-
-ORDER_LABELS = {
-    "direct_vpn_proxy": "Напрямую → VPN → Прокси",
-    "direct_proxy_vpn": "Напрямую → Прокси → VPN",
-    "vpn_direct_proxy": "VPN → Напрямую → Прокси",
-    "vpn_proxy_direct": "VPN → Прокси → Напрямую",
-    "proxy_direct_vpn": "Прокси → Напрямую → VPN",
-    "proxy_vpn_direct": "Прокси → VPN → Напрямую",
-}
+from src.ui.logic.routing_form import (
+    BLOCK_HINT,
+    LIST_HINT,
+    ORDER_LABELS,
+    ORDER_PRESETS,
+    current_catalog,
+    ru_direct_subtitle,
+)
 
 
 def _list_view(title: str, subtitle: str) -> tuple[Adw.PreferencesGroup, Gtk.TextView]:

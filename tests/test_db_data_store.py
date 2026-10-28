@@ -128,3 +128,10 @@ def test_failed_atomic_settings_save_preserves_previous_file(tmp_path, monkeypat
     assert config.save(path) is False
     assert path.read_bytes() == before
     assert [item.name for item in tmp_path.iterdir()] == [path.name]
+
+
+def test_qt_window_preferences_default_on():
+    store = DataStore()
+
+    assert store.close_to_tray is True
+    assert store.monitoring_panel is True

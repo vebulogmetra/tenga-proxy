@@ -9,6 +9,10 @@ from urllib.parse import urlsplit
 from src.db.config import TlsFragmentSettings
 from src.sub.url_policy import SubscriptionPolicyError, validate_url
 
+LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
+DEFAULT_LOG_LEVEL = "info"
+DEFAULT_TUN_NAME = "xray0"
+
 
 def valid_dns_address(value: str) -> bool:
     if not value or value == "local":

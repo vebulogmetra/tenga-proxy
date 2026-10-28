@@ -23,13 +23,14 @@ from src.ui.logic import platform_layout, platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
-from src.ui.logic.settings_form import validate_settings
+from src.ui.logic.settings_form import (
+    DEFAULT_LOG_LEVEL,
+    DEFAULT_TUN_NAME,
+    LOG_LEVELS,
+    validate_settings,
+)
 from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
 from src.ui.window import apply_theme
-
-LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
-DEFAULT_LOG_LEVEL = "info"
-DEFAULT_TUN_NAME = "xray0"
 
 
 class KeyedCombo:
