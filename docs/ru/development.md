@@ -136,6 +136,15 @@ uv run pytest tests/test_specific.py
 (`src/core/main_loop.py`). `TengaApplication` реализует `Shell` и
 делегирует контроллеру; тесты контроллера идут без дисплея.
 
+### Интерфейс Qt
+
+`src/ui/qt/` — интерфейс Windows на PySide6. На Linux он запускается
+`python gui.py --ui qt` после `uv sync --extra windows`. Тесты —
+`make test-qt` (платформа offscreen, дисплей не нужен).
+
+На Windows окружение разработки — Git Bash, Python 3.12 с python.org и uv:
+`bash core/scripts/install_dev.sh`, затем `uv run python gui.py`.
+
 ### Управление профилями
 
 Модуль `src.db.profiles` управляет профилями и группами:

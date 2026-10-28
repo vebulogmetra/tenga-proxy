@@ -137,6 +137,15 @@ update checks and app link import. It talks to the interface through the
 (`src/core/main_loop.py`). `TengaApplication` implements `Shell` and
 delegates to the controller; controller tests run without a display.
 
+### Qt Interface
+
+`src/ui/qt/` is the PySide6 interface for Windows. On Linux, run it with
+`python gui.py --ui qt` after `uv sync --extra windows`. Tests:
+`make test-qt` (offscreen platform, no display needed).
+
+On Windows, develop in Git Bash with Python 3.12 from python.org and uv:
+`bash core/scripts/install_dev.sh`, then `uv run python gui.py`.
+
 ### Profile Management
 
 The `src.db.profiles` module manages profiles and groups:

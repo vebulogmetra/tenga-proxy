@@ -25,6 +25,9 @@ uv sync --extra dev
 # Запустить GUI
 python gui.py
 
+# Qt-интерфейс на Linux (нужна группа windows: uv sync --extra windows)
+python gui.py --ui qt
+
 # Запустить CLI
 python cli.py --help
 ```
@@ -114,6 +117,7 @@ src/
 ├── ui/            # GTK4 + libadwaita интерфейс
 │   ├── application.py # TengaApplication - Adw.Application, действия, трей
 │   ├── controller.py  # AppController - оркестровка без GTK, протокол Shell
+│   ├── qt/            # Интерфейс PySide6 (Windows; на Linux — gui.py --ui qt)
 │   ├── window.py      # MainWindow - Adw.ApplicationWindow
 │   ├── pages/         # Страницы: профили, подписки, мониторинг
 │   ├── widgets/       # Виджеты (статус-карточка)
@@ -261,6 +265,13 @@ Windows) и возвращается при следующем старте, е�
 `src/ui/tray/{dbusmenu,menu}.py`) не импортирует GTK и тестируется обычным
 pytest, без дисплея.
 
+**Qt-интерфейс** (`src/ui/qt/`) — на Windows по умолчанию, на Linux по
+`--ui qt`. `QtApplication` — оболочка над тем же `AppController`:
+`QAction` с именами действий GTK, `_QtShell`, `QtLoop` (главный цикл Qt
+как `MainLoop`), `QtTrayItem` для `TrayController`. Выбор интерфейса —
+`choose_frontend()` в `gui.py`; модули `src/ui/qt` не импортируют `gi`
+и не читают `IS_WINDOWS`
+
 **Single Instance**:
 - Единственность обеспечивает `Gio.Application` через имя на шине сессии:
   второй запуск активирует окно первого и завершается
@@ -313,14 +324,20 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   тесты окна пропускаются с объяснением, а не падают
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
+- Тесты Qt-интерфейса — `make test-qt`: маркер `qt`, платформа offscreen,
+  PySide6 из группы `windows`. pytest-qt не используется: без PySide6 его
+  плагин роняет весь pytest. Фикстура `qapp` — в `tests/conftest.py`,
+  ожидание событий — `tests/support/qt.py`
 - CI: `.github/workflows/linux.yml` (lint, pytest, GTK, трей, deb) и
   `.github/workflows/windows.yml`
 - Тесты, которым нужна настоящая Windows, помечены маркером `windows` и вне
   win32 пропускаются. `tests/integration/` — служба на живой Windows (нужны
   установленная служба, права администратора и `TENGA_SERVICE_TESTS=1`);
   запускается в CI
-- Windows-разработка — MSYS2 UCRT64 (GTK из пакетов, не `uv`); Python MSYS2
-  по умолчанию читает файлы в cp1252, нужен `export PYTHONUTF8=1`
+- Windows-разработка — Git Bash, CPython с python.org и uv
+  (`bash core/scripts/install_dev.sh` ставит `--extra windows --extra dev`).
+  MSYS2 UCRT64 нужна только прежней GTK-сборке и CI до фазы 4
+  (`docs/plans/2026-10-28-windows-qt-frontend-design.md`)
 
 ### Code Style
 - Линтер: ruff

@@ -211,14 +211,15 @@ Windows нет.
 ## Сборка и поставка
 
 - `pyproject.toml`: группа `windows` — `PySide6-Essentials>=6.8`, `pywin32`;
-  в `dev` добавляется `pytest-qt`. На Windows: CPython 3.12 с python.org,
+  pytest-qt не используется (без PySide6 его плагин роняет pytest); `qapp` —
+  своя фикстура. На Windows: CPython 3.12 с python.org,
   `uv sync --extra windows --extra dev`. На Linux Qt ставится тем же
   `--extra windows` по желанию.
 - `packaging/windows/tenga-proxy.spec`: анализ GUI без хуков gi, встроенные
-  хуки PyInstaller для PySide6, исключить `PySide6.QtNetwork`, `QtQml`,
-  `QtQuick`, `QtPdf` и прочие неиспользуемые модули. Ожидаемый размер
-  каталога 60–80 МБ против нынешних более ста. Служба собирается как
-  сейчас, `tenga-proxy-svc.exe` без Qt.
+  хуки PyInstaller для PySide6, исключить `QtQml`, `QtQuick`, `QtPdf` и
+  прочие неиспользуемые модули; QtNetwork нужен `QNetworkInformation` для
+  failover. Ожидаемый размер каталога 60–80 МБ против нынешних более ста.
+  Служба собирается как сейчас, `tenga-proxy-svc.exe` без Qt.
 - `core/scripts/build_windows.sh` запускается из Git Bash или PowerShell
   обычным Python; ветка MSYS2 убирается. Inno Setup без изменений.
 - `install_dev.sh` на Windows: `uv sync` вместо `pacman`.
@@ -229,7 +230,8 @@ Windows нет.
   `dispatch`. Тесты поведения, которые сейчас живут в GTK-тестах
   `application.py`, по возможности переезжают сюда.
 - **Qt-виджеты**: маркер `qt`, исключён из `addopts` по умолчанию, цель
-  `make test-qt` с `QT_QPA_PLATFORM=offscreen` и `pytest-qt`.
+  `make test-qt` с `QT_QPA_PLATFORM=offscreen`, фикстура `qapp` и
+  `tests/support/qt.py`.
 - **CI Linux** (`linux.yml`): новый шаг Qt-тестов с пакетами `libegl1
   libgl1 libfontconfig1`, чтобы регрессии Windows-интерфейса ловились на
   каждом пуше.
