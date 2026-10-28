@@ -175,7 +175,6 @@ class TengaApplication(Adw.Application):
 
     def import_app_link(self, raw: str) -> None:
         from src.fmt.app_links import parse_app_link
-        from src.ui.dialogs.confirm import build_delete_confirmation as build_confirmation
         from src.ui.dialogs.subscription import SubscriptionDialog
 
         try:
@@ -194,31 +193,18 @@ class TengaApplication(Adw.Application):
             )
             self.present_dialog(dialog)
         else:
-            old, new = self.context.config.routing, link.routing
-            lines = ["Будет заменена общая маршрутизация.", f"Режим: {old.mode} → {new.mode}"]
-            for key in ("direct_list", "proxy_list", "block_list"):
-                before, after = set(getattr(old, key)), set(getattr(new, key))
-                lines.append(f"{key}: +{len(after - before)}, −{len(before - after)}")
-                lines.extend(
-                    "+ " + value
-                    for value in list(dict.fromkeys(getattr(new, key)))[:10]
-                    if value not in before
-                )
-            lines.extend(link.warnings)
-            lines.append("DNS, VPN, порядок правил и адреса геобаз из ссылки не импортируются.")
+            from src.ui.dialogs.routing_import import RoutingImportDialog
+            from src.ui.logic.routing_import import effective_routing, import_rows
 
-            def apply():
-                # Only the fields shown in the diff change.
-                old.mode = new.mode
-                old.use_saved_lists = True
-                for key in ("direct_list", "proxy_list", "block_list"):
-                    setattr(old, key, getattr(new, key))
-                self.apply_settings()
-
+            config, config_dir = self.context.config, self.context.config_dir
+            rows = import_rows(
+                effective_routing(config.routing, config_dir),
+                link.routing,
+                name=link.name,
+                direct_default=link.direct_default,
+            )
             self.present_dialog(
-                build_confirmation(
-                    "Импорт маршрутизации", "\n".join(lines), apply, confirm_label="Импортировать"
-                )
+                RoutingImportDialog(rows, lambda: self._apply_routing_import(link.routing))
             )
 
     def resume_monitoring(self) -> None:
@@ -605,6 +591,13 @@ class TengaApplication(Adw.Application):
         if self._window is not None:
             self._window.refresh_status()
         return True
+
+    def _apply_routing_import(self, routing) -> None:
+        from src.ui.logic.routing_import import apply_import
+
+        apply_import(self.context.config, routing, self.context.config_dir)
+        if self.apply_settings():
+            self.toast("Маршрутизация импортирована")
 
     def reconnect_current(self) -> None:
         state = self.context.proxy_state

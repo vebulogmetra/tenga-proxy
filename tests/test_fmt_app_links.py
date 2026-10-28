@@ -77,7 +77,6 @@ def test_routing_profile_name_is_cleaned_and_bounded():
 def test_provider_direct_default_is_reported_not_applied():
     link = parse_app_link(_routing({"GlobalProxy": False, "DirectSites": ["example.org"]}))
     assert link.direct_default is True
-    assert link.warnings == ()
     assert link.routing.mode == "custom"
 
 

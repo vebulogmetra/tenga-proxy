@@ -1047,20 +1047,45 @@ def test_application_subscription_link_prefills_without_fetch(adw_app):
     assert calls == []
 
 
-def test_routing_import_requires_confirmation(adw_app):
+def _routing_link(fields):
     import base64
     import json
 
+    return "happ://routing/add/" + base64.urlsafe_b64encode(json.dumps(fields).encode()).decode()
+
+
+def test_routing_import_requires_confirmation(adw_app):
     adw_app.activate()
     before = list(adw_app.context.config.routing.direct_list)
-    payload = base64.urlsafe_b64encode(
-        json.dumps({"DirectSites": ["example.org"], "GlobalProxy": False}).encode()
-    ).decode()
-    adw_app.import_app_link("wingeon://routing/add/" + payload)
+    adw_app.import_app_link(_routing_link({"DirectSites": ["example.org"], "GlobalProxy": False}))
     assert adw_app.context.config.routing.direct_list == before
-    adw_app.current_dialog.emit("response", "delete")
+    adw_app.current_dialog.emit("response", "import")
     assert adw_app.context.config.routing.direct_list == ["example.org"]
+    assert adw_app.context.config.routing_backup is not None
     assert not adw_app.context.proxy_state.is_running
+
+
+def test_routing_import_dialog_lists_rows(adw_app):
+    adw_app.activate()
+    adw_app.import_app_link(_routing_link({"Name": "RU", "GlobalProxy": False}))
+    dialog = adw_app.current_dialog
+    assert dialog.row_titles() == [
+        "Профиль",
+        "Через прокси",
+        "Напрямую",
+        "Блокировать",
+        "Остальное",
+        "Не переносится",
+    ]
+    assert dialog.rest_row.has_css_class("error")
+
+
+def test_routing_import_cancel_changes_nothing(adw_app):
+    adw_app.activate()
+    adw_app.import_app_link(_routing_link({"DirectSites": ["example.org"]}))
+    adw_app.current_dialog.emit("response", "cancel")
+    assert adw_app.context.config.routing.direct_list == []
+    assert adw_app.context.config.routing_backup is None
 
 
 def test_pending_settings_banner_tracks_change_and_revert(adw_app):

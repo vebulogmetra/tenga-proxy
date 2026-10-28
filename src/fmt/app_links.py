@@ -22,8 +22,6 @@ class AppLink:
     routing: RoutingSettings | None = None
     # Провайдер просил пускать мимо списков напрямую; не применяется.
     direct_default: bool = False
-    # Убирается вместе с текстом окна в application.py.
-    warnings: tuple[str, ...] = ()
 
 
 def _decode(value: str, *, name=False):
