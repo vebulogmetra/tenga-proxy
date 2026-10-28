@@ -386,6 +386,21 @@ class SettingsDialog(Adw.PreferencesDialog):
         actions = Adw.PreferencesGroup(title="Обслуживание")
         page.add(actions)
 
+        # Без подтверждения, как в Android: откат меняет только списки,
+        # которые пользователь сам только что заменил импортом.
+        self.restore_routing_row = Adw.ActionRow(
+            title="Маршрутизация до импорта",
+            subtitle="Вернёт режим и списки, которые были до последнего импорта ссылкой",
+        )
+        self.restore_routing_button = Gtk.Button(
+            label="Вернуть", valign=Gtk.Align.CENTER, action_name="app.restore-routing"
+        )
+        self.restore_routing_row.add_suffix(self.restore_routing_button)
+        self.restore_routing_row.set_visible(
+            getattr(self._config, "routing_backup", None) is not None
+        )
+        actions.add(self.restore_routing_row)
+
         self.clear_logs_row = Adw.ActionRow(
             title="Очистить журналы", subtitle="Удаляет накопленные файлы логов"
         )

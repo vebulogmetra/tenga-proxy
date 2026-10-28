@@ -331,12 +331,14 @@ class TengaApplication(Adw.Application):
             "quit": self.quit,
             "hide-window": self._hide_window,
             "activate-window": self._activate_window,
+            "restore-routing": self.restore_routing,
         }
 
         for name, handler in handlers.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _action, _param, fn=handler: fn())
             self.add_action(action)
+        self._sync_restore_routing()
 
         # Действие с параметром: трей адресует конкретный профиль числом, как
         # это делают строчные действия окна.
@@ -597,7 +599,25 @@ class TengaApplication(Adw.Application):
 
         apply_import(self.context.config, routing, self.context.config_dir)
         if self.apply_settings():
-            self.toast("Маршрутизация импортирована")
+            self._sync_restore_routing()
+            self.toast(
+                "Маршрутизация импортирована", button="Вернуть", action="app.restore-routing"
+            )
+
+    def restore_routing(self) -> None:
+        """Вернуть общую маршрутизацию до последнего импорта ссылкой."""
+        from src.ui.logic.routing_import import restore_backup
+
+        if not restore_backup(self.context.config):
+            return
+        if self.apply_settings():
+            self.toast("Маршрутизация до импорта возвращена")
+        self._sync_restore_routing()
+
+    def _sync_restore_routing(self) -> None:
+        action = self.lookup_action("restore-routing")
+        if action is not None:
+            action.set_enabled(self.context.config.routing_backup is not None)
 
     def reconnect_current(self) -> None:
         state = self.context.proxy_state
@@ -1193,14 +1213,16 @@ class TengaApplication(Adw.Application):
         self._app_release_fetcher = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
+        # Действие пережило бы смену контекста с состоянием прежнего.
+        self._sync_restore_routing()
 
-    def toast(self, text: str) -> None:
+    def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
         """Show a message in the window, if there is one."""
         # Последнее сообщение хранится и без окна: тосты — единственный
         # видимый результат многих действий, и тестам нужно их читать.
         self.last_toast_for_test = text
         if self._window is not None:
-            self._window.toast(text)
+            self._window.toast(text, button=button, action=action)
 
     # Сигналы
 

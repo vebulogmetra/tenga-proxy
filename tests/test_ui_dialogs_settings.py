@@ -487,3 +487,16 @@ def test_settings_autosave_after_debounce_without_loading_writes(gtk_ready):
         time.sleep(0.01)
     assert saved == [True]
     assert config.user_agent == "new agent"
+
+
+def test_restore_routing_row_follows_backup(gtk_ready):
+    from src.db.config import RoutingSettings
+
+    dialog, _context = make_about_dialog()
+    assert not dialog.restore_routing_row.get_visible()
+
+    config = make_config()
+    config.routing_backup = RoutingSettings()
+    dialog, _context = make_about_dialog(config)
+    assert dialog.restore_routing_row.get_visible()
+    assert dialog.restore_routing_button.get_action_name() == "app.restore-routing"

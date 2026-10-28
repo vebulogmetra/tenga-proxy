@@ -583,9 +583,13 @@ class MainWindow(Adw.ApplicationWindow):
         """Show a connection failure on the card."""
         self.status_card.update(status_view(ConnectionState.ERROR, error=message))
 
-    def toast(self, text: str) -> None:
-        """Show a transient message over the content."""
-        self.toast_overlay.add_toast(Adw.Toast(title=text))
+    def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
+        """Show a transient message over the content, optionally with an undo-like button."""
+        toast = Adw.Toast(title=text)
+        if button and action:
+            toast.set_button_label(button)
+            toast.set_action_name(action)
+        self.toast_overlay.add_toast(toast)
 
     def _on_status_action(self, _card: StatusCard) -> None:
         app = self.get_application()

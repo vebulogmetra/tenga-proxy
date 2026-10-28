@@ -1181,3 +1181,34 @@ def test_working_filter_does_not_delete_after_group_changes(adw_app, monkeypatch
     adw_app.context.profiles.add_profile(VLESSBean(name="New"), group.id)
     adw_app.current_dialog.emit("response", "delete")
     assert adw_app.context.profiles.get_profile(second.id) is second
+
+
+def test_restore_routing_returns_lists_before_import(adw_app):
+    adw_app.activate()
+    adw_app.context.config.routing.direct_list = ["old.example"]
+    adw_app.context.config.routing.use_saved_lists = True
+    action = adw_app.lookup_action("restore-routing")
+    assert not action.get_enabled()
+
+    adw_app.import_app_link(_routing_link({"DirectSites": ["new.example"]}))
+    adw_app.current_dialog.emit("response", "import")
+    assert action.get_enabled()
+    assert adw_app.last_toast_for_test == "Маршрутизация импортирована"
+
+    adw_app.activate_action("restore-routing", None)
+    assert adw_app.context.config.routing.direct_list == ["old.example"]
+    assert adw_app.context.config.routing_backup is None
+    assert not action.get_enabled()
+    assert adw_app.last_toast_for_test == "Маршрутизация до импорта возвращена"
+
+
+def test_restore_routing_is_persisted(adw_app):
+    from src.db.data_store import DataStore
+
+    adw_app.activate()
+    adw_app.import_app_link(_routing_link({"DirectSites": ["new.example"]}))
+    adw_app.current_dialog.emit("response", "import")
+    adw_app.activate_action("restore-routing", None)
+    saved = DataStore.load(adw_app.context.config_dir / "settings.json")
+    assert saved.routing_backup is None
+    assert saved.routing.direct_list == []
