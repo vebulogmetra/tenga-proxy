@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("uris", nargs="*", help="Ссылки импорта приложения")
     parser.add_argument("--no-tray", action="store_true", help="Не показывать иконку в трее")
+    parser.add_argument(
+        "--ui",
+        choices=("gtk", "qt"),
+        help="Интерфейс: по умолчанию Qt на Windows и GTK на Linux",
+    )
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION}")
     return parser
 
@@ -50,6 +55,23 @@ def parse_args(argv: list[str] | None = None):
 def adwaita_is_supported(major: int, minor: int) -> bool:
     """Check libadwaita against the minimum version the new UI needs."""
     return (major, minor) >= MIN_ADWAITA
+
+
+def choose_frontend(requested: str | None) -> str:
+    """Qt на Windows, GTK на Linux; `--ui` переопределяет для разработки."""
+    if requested:
+        return requested
+    from src.core import platform_info
+
+    return "qt" if platform_info.IS_WINDOWS else "gtk"
+
+
+def qt_install_hint() -> str:
+    return "Установите зависимости интерфейса Qt: uv sync --extra windows"
+
+
+def install_hint(frontend: str) -> str:
+    return qt_install_hint() if frontend == "qt" else gtk_install_hint()
 
 
 def gtk_install_hint() -> str:
@@ -101,6 +123,8 @@ def cleanup_legacy_install() -> None:
 
 
 # --- GTK bootstrap ---
+# Маркер читает tests/test_gui_entrypoint.py: выше него — только определения,
+# ниже — запуск: логи, разбор аргументов и, для GTK, проверка библиотек.
 
 logger = setup_early_logging()
 logger.info("=== Veblock starting ===")
@@ -110,6 +134,8 @@ logger.info(f"WAYLAND_DISPLAY: {os.environ.get('WAYLAND_DISPLAY')}")
 logger.info(f"XDG_SESSION_TYPE: {os.environ.get('XDG_SESSION_TYPE')}")
 
 _ARGS, _EXTRA = parse_args()
+FRONTEND = choose_frontend(_ARGS.ui)
+logger.info(f"Frontend: {FRONTEND}")
 
 # Локаль выбирается до импорта GTK: переводы подхватываются при инициализации
 # библиотеки, и позже смена переменных уже ничего не даёт.
@@ -117,52 +143,59 @@ from src.ui.logic.locale import apply_locale
 
 apply_locale()
 
-if "GI_TYPELIB_PATH" not in os.environ:
-    typelib_paths = [
-        "/usr/lib/girepository-1.0",
-        "/usr/lib/x86_64-linux-gnu/girepository-1.0",
-    ]
-    existing_paths = [p for p in typelib_paths if os.path.exists(p)]
-    if existing_paths:
-        os.environ["GI_TYPELIB_PATH"] = ":".join(existing_paths)
 
-try:
-    import gi
+def bootstrap_gtk() -> None:
+    """Проверить GTK и дисплей до создания приложения; Qt этого не требует."""
+    if "GI_TYPELIB_PATH" not in os.environ:
+        typelib_paths = [
+            "/usr/lib/girepository-1.0",
+            "/usr/lib/x86_64-linux-gnu/girepository-1.0",
+        ]
+        existing_paths = [p for p in typelib_paths if os.path.exists(p)]
+        if existing_paths:
+            os.environ["GI_TYPELIB_PATH"] = ":".join(existing_paths)
 
-    gi.require_version("Gdk", "4.0")
-    gi.require_version("Gtk", "4.0")
-    gi.require_version("Adw", "1")
-    from gi.repository import Adw, Gdk, Gtk
+    try:
+        import gi
 
-    if not adwaita_is_supported(Adw.MAJOR_VERSION, Adw.MINOR_VERSION):
-        print(
-            f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
-            f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
-        )
+        gi.require_version("Gdk", "4.0")
+        gi.require_version("Gtk", "4.0")
+        gi.require_version("Adw", "1")
+        from gi.repository import Adw, Gdk, Gtk
+
+        if not adwaita_is_supported(Adw.MAJOR_VERSION, Adw.MINOR_VERSION):
+            print(
+                f"Нужна libadwaita {MIN_ADWAITA[0]}.{MIN_ADWAITA[1]} или новее, "
+                f"установлена {Adw.MAJOR_VERSION}.{Adw.MINOR_VERSION}."
+            )
+            print(gtk_install_hint())
+            sys.exit(1)
+
+        logger.info("GTK4 imported successfully")
+
+        if not Gtk.init_check():
+            logger.error("Gtk.init_check() failed")
+            display = Gdk.Display.get_default()
+            logger.error(f"Display: {display}")
+            print("Не удалось подключиться к дисплею.")
+            print("Убедитесь, что запускаете приложение в графическом окружении.")
+            sys.exit(1)
+
+        display = Gdk.Display.get_default()
+        logger.info(f"Display: {display.get_name() if display else 'None'}")
+
+    except ImportError as e:
+        logger.exception(f"Error importing GTK: {e}")
+        print(f"Ошибка импорта GTK: {e}")
         print(gtk_install_hint())
         sys.exit(1)
+    except Exception as e:
+        logger.exception(f"Error initializing GTK: {e}")
+        raise
 
-    logger.info("GTK4 imported successfully")
 
-    if not Gtk.init_check():
-        logger.error("Gtk.init_check() failed")
-        display = Gdk.Display.get_default()
-        logger.error(f"Display: {display}")
-        print("Не удалось подключиться к дисплею.")
-        print("Убедитесь, что запускаете приложение в графическом окружении.")
-        sys.exit(1)
-
-    display = Gdk.Display.get_default()
-    logger.info(f"Display: {display.get_name() if display else 'None'}")
-
-except ImportError as e:
-    logger.exception(f"Error importing GTK: {e}")
-    print(f"Ошибка импорта GTK: {e}")
-    print(gtk_install_hint())
-    sys.exit(1)
-except Exception as e:
-    logger.exception(f"Error initializing GTK: {e}")
-    raise
+if FRONTEND == "gtk":
+    bootstrap_gtk()
 
 from src.core.config import (
     BUNDLE_DIR,
@@ -186,15 +219,21 @@ def main() -> int:
     lock_file = get_lock_file(args.config_dir)
     single_instance = SingleInstance(lock_file)
     holds_lock = single_instance.acquire()
-    if not holds_lock:
-        from src.core.platform_info import IS_WINDOWS
+    from src.core.platform_info import IS_WINDOWS
 
+    if not holds_lock:
         if IS_WINDOWS:
             # Без D-Bus Gio.Application не найдёт первый экземпляр сам.
             from src.sys.windows.activation import pipe_address, send_activation
 
             delivered = send_activation(pipe_address(str(lock_file)), args.uris)
             return 0 if delivered else 1
+        if FRONTEND == "qt":
+            # Qt на Linux — режим разработки: окно первого экземпляра поднять
+            # некому, GApplication и D-Bus тут нет.
+            logger.info("Another instance holds the lock")
+            print("Veblock уже запущен")
+            return 1
         # Приложение всё равно запускается: имя на шине занято первым
         # процессом, он получит `activate` и поднимет окно, а этот процесс
         # сразу завершится. Блокировку он не трогает — xray остаётся один.
@@ -205,18 +244,23 @@ def main() -> int:
         cleanup_legacy_install()
 
     try:
+        options = {
+            "config_dir": args.config_dir,
+            "lock": single_instance if holds_lock else None,
+            "lock_path": lock_file,
+            "with_tray": not args.no_tray,
+            "uris": args.uris,
+        }
+        if FRONTEND == "qt":
+            from src.ui.qt.application import run_app
+
+            return run_app(**options, accept_activation=IS_WINDOWS)
         from src.ui.application import run_app
 
-        return run_app(
-            config_dir=args.config_dir,
-            lock=single_instance if holds_lock else None,
-            lock_path=lock_file,
-            with_tray=not args.no_tray,
-            uris=args.uris,
-        )
+        return run_app(**options)
     except ImportError as e:
         print(f"Ошибка импорта: {e}")
-        print(gtk_install_hint())
+        print(install_hint(FRONTEND))
         return 1
     except Exception as e:
         print(f"Ошибка: {e}")

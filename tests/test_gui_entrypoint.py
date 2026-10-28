@@ -113,3 +113,26 @@ def test_legacy_cleanup_never_blocks_the_start(entry, monkeypatch):
     monkeypatch.setattr(config, "is_packaged", lambda: True)
 
     entry.cleanup_legacy_install()
+
+
+# --- выбор интерфейса ---
+
+
+def test_ui_flag_selects_the_frontend(entry):
+    args, _ = entry.parse_args(["--ui", "qt"])
+
+    assert entry.choose_frontend(args.ui) == "qt"
+
+
+@pytest.mark.parametrize(("is_windows", "expected"), [(True, "qt"), (False, "gtk")])
+def test_default_frontend_follows_the_os(entry, monkeypatch, is_windows, expected):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", is_windows)
+
+    assert entry.choose_frontend(None) == expected
+
+
+def test_qt_hint_names_the_dependency_group(entry):
+    assert "--extra windows" in entry.install_hint("qt")
+    assert entry.install_hint("gtk") == entry.gtk_install_hint()
