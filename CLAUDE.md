@@ -270,7 +270,13 @@ pytest, без дисплея.
 `QAction` с именами действий GTK, `_QtShell`, `QtLoop` (главный цикл Qt
 как `MainLoop`), `QtTrayItem` для `TrayController`. Выбор интерфейса —
 `choose_frontend()` в `gui.py`; модули `src/ui/qt` не импортируют `gi`
-и не читают `IS_WINDOWS`
+и не читают `IS_WINDOWS`.
+Диалоги — `src/ui/qt/dialogs/` (формы, подтверждения, «VPN и маршруты»,
+окно настроек со списком подписок); проверка полей — та же
+`src/ui/logic/`, что у GTK. Действия над строками дерева (`edit-profile`,
+`delete-group`…) адресуют профиль или группу числом. Диалоги идут по
+одному через `QtApplication.show_dialog`; формы, открытые из настроек,
+кладутся поверх них
 
 **Single Instance**:
 - Единственность обеспечивает `Gio.Application` через имя на шине сессии:

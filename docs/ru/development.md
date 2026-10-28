@@ -142,6 +142,10 @@ uv run pytest tests/test_specific.py
 `python gui.py --ui qt` после `uv sync --extra windows`. Тесты —
 `make test-qt` (платформа offscreen, дисплей не нужен).
 
+Формы и окно настроек — в `src/ui/qt/dialogs/`; правила проверки полей
+общие с GTK и лежат в `src/ui/logic/`. Новое поле настроек добавляется в
+обе реализации окна настроек.
+
 На Windows окружение разработки — Git Bash, Python 3.12 с python.org и uv:
 `bash core/scripts/install_dev.sh`, затем `uv run python gui.py`.
 

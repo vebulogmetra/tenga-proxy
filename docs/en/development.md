@@ -143,6 +143,10 @@ delegates to the controller; controller tests run without a display.
 `python gui.py --ui qt` after `uv sync --extra windows`. Tests:
 `make test-qt` (offscreen platform, no display needed).
 
+Forms and the settings window live in `src/ui/qt/dialogs/`; field
+validation is shared with GTK in `src/ui/logic/`. A new setting goes into
+both settings windows.
+
 On Windows, develop in Git Bash with Python 3.12 from python.org and uv:
 `bash core/scripts/install_dev.sh`, then `uv run python gui.py`.
 

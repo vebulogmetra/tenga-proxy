@@ -40,7 +40,8 @@ Linux GUI, D-Bus, TUN и сборку deb-пакета. Сообщай, каки
 - `src/ui/` — приложение, окно, страницы, диалоги, виджеты и трей;
   `src/ui/controller.py` — AppController, оркестровка приложения без GTK;
   `src/ui/logic/` — логика без GTK.
-- `src/ui/qt/` — интерфейс PySide6 (Windows; на Linux — `gui.py --ui qt`).
+- `src/ui/qt/` — интерфейс PySide6 (Windows; на Linux — `gui.py --ui qt`);
+  `src/ui/qt/dialogs/` — формы и окно настроек.
 - `src/core/main_loop.py` — MainLoop: главный цикл как зависимость монитора
   и контроллера.
 - `tests/` — pytest-тесты; `tests/conftest.py` — общие фикстуры;

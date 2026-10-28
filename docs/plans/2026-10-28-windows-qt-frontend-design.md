@@ -62,6 +62,19 @@ GTK без изменения поведения. Ядро, хранилище, 
 `src/core/main_loop.py` и передаётся монитору параметром; поведение в GTK
 прежнее. Остальной `src/core` без изменений.
 
+**Уточнение по итогам фазы 3:**
+- окно настроек модальное, как `Adw.PreferencesDialog`; формы, открытые из
+  него (правка подписки, очистка журналов, вопрос о смене адреса), кладутся
+  поверх и слот диалога не занимают;
+- иконки кнопок — `QIcon.ThemeIcon` (Qt ≥ 6.7): на Windows Qt сам берёт
+  глифы Segoe Fluent Icons или MDL2, свой словарь глифов не нужен; без темы
+  иконок на кнопке короткая подпись;
+- `SHORTCUTS` живёт в `src/ui/qt/dialogs/shortcuts.py` вместе со списком
+  описаний;
+- файлы диалогов названы по таблице «Решения фазы» плана
+  `2026-10-28-windows-qt-phase3-parity.md`; пресеты порядка правил и уровни
+  журнала перенесены из GTK-диалогов в `src/ui/logic/`.
+
 **Появляется**: `src/ui/controller.py` (общая оркестровка) и фронтенд
 `src/ui/qt/`. `gui.py` выбирает фронтенд: на Windows — Qt, на Linux — GTK;
 флаг `--ui qt` запускает Qt-интерфейс на Linux для разработки (PySide6
@@ -118,12 +131,14 @@ src/ui/qt/
 ├── dispatch.py      QObject-диспетчер главного потока
 ├── window.py        QMainWindow: карточка, дерево, панель, низ, тост
 ├── models.py        QAbstractItemModel над build_profile_rows()
-├── widgets/         status_card.py, toast.py, name_label (флаг + текст)
-├── dialogs/         settings.py, add_profile.py, edit_profile.py, group.py,
-│                    subscription.py, profile_routing.py, routing_import.py,
-│                    confirm.py, shortcuts.py, about.py
+├── theme.py         светлая или тёмная схема по настройке «Тема»
+├── widgets/         status_card.py, toast.py, diagnostics.py (журнал)
+├── dialogs/         base.py, profile.py (добавление и правка), group.py,
+│                    subscription.py, confirm.py, routing_import.py,
+│                    profile_routing.py, settings.py, settings_pages.py,
+│                    shortcuts.py, about.py
 ├── tray.py          QtTrayItem: QSystemTrayIcon + QMenu из MenuModel
-├── icons.py         имя → глиф Segoe Fluent Icons / MDL2, svg на Linux
+├── icons.py         флаги стран (svg) и логотип по состоянию
 └── style.qss        карточка, тост, группы дерева
 ```
 
@@ -194,9 +209,9 @@ failover — `showMessage`; на Windows 10 и 11 это системный то
 на Windows 10. Шрифт системный. Настройка темы «Система / Светлая /
 Тёмная» — `QGuiApplication.styleHints().setColorScheme()`; в режиме
 «Система» Qt следит за реестром сам и перекрашивает заголовок окна. Иконки
-действий — глифы шрифта Segoe Fluent Icons (Windows 11) или Segoe MDL2
-Assets (Windows 10) через словарь имя → код в `icons.py`; на Linux для
-разработки — svg из комплекта. QSS только для карточки статуса, тоста и
+действий — `QIcon.ThemeIcon`: на Windows Qt берёт глифы Segoe Fluent Icons
+(Windows 11) или Segoe MDL2 Assets (Windows 10) сам; без темы иконок —
+короткая подпись (уточнено в фазе 3). QSS только для карточки статуса, тоста и
 групп дерева. Флаги стран всегда картинками: эмодзи-флагов в шрифтах
 Windows нет.
 
