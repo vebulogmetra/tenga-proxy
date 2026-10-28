@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from src.core.http_probe import measure_latency
+from src.core.main_loop import GLibLoop, MainLoop
 from src.core.performance import measure_time
 
 if TYPE_CHECKING:
@@ -42,16 +43,19 @@ class ConnectionMonitor:
     - VPN: NetworkManager connection status (if VPN integration enabled)
     """
 
-    def __init__(self, context: AppContext):
+    def __init__(self, context: AppContext, loop: MainLoop | None = None):
         """
         Initialize monitor.
 
         Args:
             context: Application context
+            loop: главный цикл для таймеров и доставки результатов из потоков;
+                по умолчанию GLib
         """
         self._context = context
-        self._timer_id: int | None = None
-        self._traffic_timer_id: int | None = None
+        self._loop: MainLoop = loop if loop is not None else GLibLoop()
+        self._timer_id: object | None = None
+        self._traffic_timer_id: object | None = None
         self._traffic_in_progress = False
         self._check_in_progress = False
         self._check_generation = 0
@@ -87,15 +91,13 @@ class ConnectionMonitor:
 
         # Schedule periodic checks
         interval_ms = self._context.config.monitoring.check_interval_seconds * 1000
-        from gi.repository import GLib
-
-        self._timer_id = GLib.timeout_add(interval_ms, self._check_connections)
+        self._timer_id = self._loop.schedule(interval_ms, self._check_connections)
         logger.info("Monitoring timer started (ID: %s)", self._timer_id)
 
         # Счётчик трафика идёт своим таймером: у проверки доступности интервал
         # в десять секунд, для растущих байтов это слишком редко.
         traffic_interval_ms = max(200, int(self._context.config.traffic_loop_interval))
-        self._traffic_timer_id = GLib.timeout_add(traffic_interval_ms, self._tick_traffic)
+        self._traffic_timer_id = self._loop.schedule(traffic_interval_ms, self._tick_traffic)
         logger.info(
             "Traffic timer started (ID: %s, interval: %d ms)",
             self._traffic_timer_id,
@@ -114,18 +116,14 @@ class ConnectionMonitor:
         # Таймер трафика снимается до раннего возврата: он заводится вместе с
         # основным, но пережил бы его, если выйти раньше.
         if self._traffic_timer_id is not None:
-            from gi.repository import GLib
-
-            GLib.source_remove(self._traffic_timer_id)
+            self._loop.cancel(self._traffic_timer_id)
             self._traffic_timer_id = None
 
         if self._timer_id is None:
             return
 
         logger.info("Stopping connection monitoring")
-        from gi.repository import GLib
-
-        GLib.source_remove(self._timer_id)
+        self._loop.cancel(self._timer_id)
         self._timer_id = None
 
         # Reset status
@@ -226,9 +224,7 @@ class ConnectionMonitor:
 
         # Состояние правится и слушатели зовутся только из главного потока:
         # по их цепочке идёт перерисовка виджетов.
-        from gi.repository import GLib
-
-        GLib.idle_add(self._apply_traffic, stats.upload, stats.download)
+        self._loop.dispatch(self._apply_traffic, stats.upload, stats.download)
 
     def _apply_traffic(self, upload: int, download: int) -> bool:
         """Store the counters and repaint, if anything actually changed."""
@@ -339,9 +335,7 @@ class ConnectionMonitor:
         try:
             self._run_check()
         finally:
-            from gi.repository import GLib
-
-            GLib.idle_add(self._finish_check, generation)
+            self._loop.dispatch(self._finish_check, generation)
 
     def _finish_check(self, generation: int = 0) -> bool:
         """Allow the next tick to start a check (runs on the main loop).
@@ -415,9 +409,7 @@ class ConnectionMonitor:
             return
 
         # Update UI in main thread
-        from gi.repository import GLib
-
-        GLib.idle_add(self._update_status_from_async, previous_status, new_status)
+        self._loop.dispatch(self._update_status_from_async, previous_status, new_status)
 
     def _update_status_from_async(
         self, previous_status: ConnectionStatus, new_status: ConnectionStatus
@@ -500,7 +492,7 @@ class ConnectionMonitor:
                 self._context.config.monitoring.enabled = False
 
 
-def attach_monitor(context: AppContext) -> ConnectionMonitor:
+def attach_monitor(context: AppContext, loop: MainLoop | None = None) -> ConnectionMonitor:
     """Create the connection monitor and hand it to the context.
 
     Без этого вызова `context.monitor` остаётся `None`: наблюдение не
@@ -511,6 +503,6 @@ def attach_monitor(context: AppContext) -> ConnectionMonitor:
     if existing is not None:
         return existing
 
-    monitor = ConnectionMonitor(context)
+    monitor = ConnectionMonitor(context, loop=loop)
     context.set_monitor(monitor)
     return monitor

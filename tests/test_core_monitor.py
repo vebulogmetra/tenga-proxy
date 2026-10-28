@@ -891,3 +891,48 @@ def test_status_change_wakes_up_the_state_listeners(tmp_path, monkeypatch):
     _background_check(monitor, monkeypatch)  # доступен → сервер молчит
 
     assert len(woken) == 2
+
+
+# --- главный цикл как зависимость ---
+
+
+def test_monitor_uses_the_injected_loop_for_timers(tmp_path):
+    from src.core.main_loop import ImmediateLoop
+    from src.core.monitor import ConnectionMonitor
+
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    loop = ImmediateLoop()
+    monitor = ConnectionMonitor(context, loop=loop)
+    monitor._check_connections = lambda: True
+
+    monitor.start()
+    monitor.stop()
+
+    intervals = sorted(ms for ms, _fn in loop.cancelled)
+    assert intervals == sorted(
+        [
+            context.config.monitoring.check_interval_seconds * 1000,
+            max(200, int(context.config.traffic_loop_interval)),
+        ]
+    )
+    assert loop.scheduled == []
+
+
+def test_attach_monitor_passes_the_loop_through(tmp_path):
+    from src.core.main_loop import ImmediateLoop
+    from src.core.monitor import attach_monitor
+
+    context = AppContext(config_dir=tmp_path)
+    loop = ImmediateLoop()
+
+    monitor = attach_monitor(context, loop=loop)
+
+    assert monitor._loop is loop
+
+
+def test_monitor_defaults_to_glib_loop(tmp_path):
+    from src.core.main_loop import GLibLoop
+    from src.core.monitor import ConnectionMonitor
+
+    assert isinstance(ConnectionMonitor(AppContext(config_dir=tmp_path))._loop, GLibLoop)
