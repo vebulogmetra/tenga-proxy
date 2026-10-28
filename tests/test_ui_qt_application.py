@@ -340,7 +340,9 @@ def test_qt_frontend_imports_without_gtk():
 
     code = (
         "import sys; sys.modules['gi'] = None; "
-        "import src.ui.qt.application, src.ui.qt.tray, src.ui.tray.controller"
+        "import src.ui.qt.application, src.ui.qt.tray, src.ui.tray.controller, "
+        "src.ui.qt.dialogs.settings, src.ui.qt.dialogs.settings_pages, "
+        "src.ui.qt.dialogs.profile_routing, src.ui.qt.widgets.diagnostics"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
 

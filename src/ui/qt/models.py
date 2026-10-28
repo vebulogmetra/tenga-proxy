@@ -7,8 +7,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from PySide6.QtCore import QModelIndex, Qt
-from PySide6.QtGui import QFont, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QBrush, QColor, QFont, QStandardItem, QStandardItemModel
 
 from src.ui.logic.latency import PingProgress
 from src.ui.logic.profiles_view import GroupRow, ProfileRow, SortKey, ping_text
@@ -23,6 +25,9 @@ SORT_KEYS = {NAME_COLUMN: SortKey.NAME, TYPE_COLUMN: SortKey.TYPE, PING_COLUMN: 
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1
 ID_ROLE = Qt.ItemDataRole.UserRole + 2
 GROUP, PROFILE = "group", "profile"
+
+# Истёкшая подписка: тот же красный, что у ошибок в карточке.
+EXPIRED_COLOR = QColor("#d13438")
 
 
 def _cell(text: str) -> QStandardItem:
@@ -46,15 +51,29 @@ class ProfileTreeModel(QStandardItemModel):
         self.setHorizontalHeaderLabels(list(COLUMNS))
         self._rows: list[GroupRow] = []
 
-    def set_rows(self, rows: list[GroupRow], progress: PingProgress | None = None) -> None:
+    def set_rows(
+        self,
+        rows: list[GroupRow],
+        progress: PingProgress | None = None,
+        details: Mapping[int, tuple[str, bool]] | None = None,
+    ) -> None:
+        """`details` — трафик и срок подписки по id группы: (текст, истекла ли)."""
         self._rows = rows
         self.removeRows(0, self.rowCount())
         for row in rows:
-            self.appendRow(self._group_items(row, progress))
+            text, expired = (details or {}).get(row.group_id, ("", False))
+            self.appendRow(self._group_items(row, progress, text, expired))
 
-    def _group_items(self, row: GroupRow, progress: PingProgress | None) -> list[QStandardItem]:
+    def _group_items(
+        self, row: GroupRow, progress: PingProgress | None, details: str, expired: bool
+    ) -> list[QStandardItem]:
         name = _cell(row.title)
-        cells = [name, _cell(""), _cell(""), _cell(group_count_text(row, progress))]
+        info = _cell(details)
+        info.setToolTip(details)
+        if expired:
+            # Серверов в истёкшей подписке обычно уже нет: видно сразу.
+            info.setForeground(QBrush(EXPIRED_COLOR))
+        cells = [name, _cell(""), info, _cell(group_count_text(row, progress))]
         for cell in cells:
             cell.setData(GROUP, KIND_ROLE)
             cell.setData(row.group_id, ID_ROLE)

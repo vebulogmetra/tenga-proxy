@@ -14,8 +14,10 @@ from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QPushButton, QVBoxLay
 
 from src.core.config import get_asset_path
 from src.ui.logic.status import StatusView
+from src.ui.qt.icons import flagged
 
 LOGO_SIZE = 48
+FLAG_SIZE = 16
 
 
 @cache
@@ -43,17 +45,26 @@ class StatusCard(QFrame):
         self.logo.setFixedSize(LOGO_SIZE, LOGO_SIZE)
         self.title = QLabel()
         self.title.setObjectName("statusTitle")
+        # Имя профиля с флагом картинкой: эмодзи-флагов в шрифтах Windows нет.
+        self.flag = QLabel()
+        self.flag.hide()
         self.subtitle = QLabel()
         self.metrics = QLabel()
         self.metrics.setObjectName("statusMetrics")
         self.button = QPushButton()
         self.button.clicked.connect(self.action_clicked)
 
+        name = QHBoxLayout()
+        name.setSpacing(6)
+        name.addWidget(self.flag)
+        name.addWidget(self.subtitle, 1)
         texts = QVBoxLayout()
         texts.setSpacing(2)
         for label in (self.title, self.subtitle, self.metrics):
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-            texts.addWidget(label)
+        texts.addWidget(self.title)
+        texts.addLayout(name)
+        texts.addWidget(self.metrics)
 
         self._tools = QHBoxLayout()
         layout = QHBoxLayout(self)
@@ -68,7 +79,12 @@ class StatusCard(QFrame):
 
     def update_view(self, view: StatusView) -> None:
         self.title.setText(view.title)
-        self.subtitle.setText(view.subtitle)
+        icon, name = flagged(view.subtitle)
+        self.flag.setVisible(icon is not None)
+        if icon is not None:
+            self.flag.setPixmap(icon.pixmap(FLAG_SIZE, FLAG_SIZE))
+        self.subtitle.setText(name)
+        self.subtitle.setToolTip(view.subtitle)
         self.subtitle.setVisible(bool(view.subtitle))
         self.metrics.setText(view.metrics)
         self.metrics.setVisible(bool(view.metrics))

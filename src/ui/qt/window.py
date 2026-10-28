@@ -33,6 +33,7 @@ from src.ui.logic.geometry import MIN_HEIGHT, MIN_WIDTH, Geometry, format_geomet
 from src.ui.logic.monitoring_view import monitoring_view
 from src.ui.logic.profiles_view import SortKey, build_profile_rows
 from src.ui.logic.status import ConnectionState, status_view
+from src.ui.logic.subscriptions_view import build_subscription_rows
 from src.ui.qt.models import (
     GROUP,
     NAME_COLUMN,
@@ -40,6 +41,7 @@ from src.ui.qt.models import (
     SORT_KEYS,
     ProfileTreeModel,
 )
+from src.ui.qt.widgets.diagnostics import DiagnosticsPanel
 from src.ui.qt.widgets.status_card import StatusCard
 from src.ui.qt.widgets.toast import Toast
 
@@ -58,6 +60,35 @@ MAIN_MENU = (
     ("shortcuts", "Сочетания клавиш"),
     ("about", "О программе"),
     ("quit", "Выход"),
+)
+
+# Меню кнопки «Добавить» внизу окна.
+ADD_MENU = (
+    ("add-profile", "Профиль по ссылке…"),
+    ("add-profile-from-clipboard", "Профиль из буфера обмена"),
+    ("add-subscription", "Подписка…"),
+    ("add-group", "Группа…"),
+)
+
+# Меню строк дерева: (действие, подпись); None — разделитель. Как в GTK
+# (src/ui/pages/profiles.py), у подписки ещё «Обновить подписку»: списка
+# подписок на главном экране Qt нет.
+PROFILE_MENU = (
+    ("connect-profile", "Подключить"),
+    ("profile-routing", "VPN и маршруты…"),
+    ("test-profile", "Тест задержки"),
+    None,
+    ("edit-profile", "Редактировать"),
+    ("delete-profile", "Удалить"),
+)
+GROUP_MENU = (
+    ("toggle-group", ""),  # подпись зависит от того, раскрыта ли группа
+    ("update-subscription", "Обновить подписку"),
+    ("test-group", "Тест задержки"),
+    ("keep-working", "Оставить рабочие…"),
+    None,
+    ("edit-group", "Редактировать"),
+    ("delete-group", "Удалить"),
 )
 
 
@@ -115,7 +146,7 @@ class MainWindow(QMainWindow):
         self.monitoring_button = QToolButton()
         self.monitoring_button.setText("Мониторинг")
         self.monitoring_button.setCheckable(True)
-        self.monitoring_button.setChecked(True)
+        self.monitoring_button.setChecked(self._context.config.monitoring_panel)
         self.status_card.add_tool(self.monitoring_button)
         self.menu_button = QToolButton()
         self.menu_button.setText("☰")
@@ -153,6 +184,8 @@ class MainWindow(QMainWindow):
         self.tree.header().setSectionResizeMode(NAME_COLUMN, self.tree.header().ResizeMode.Stretch)
         self.tree.header().sectionClicked.connect(self._on_header_clicked)
         self.tree.activated.connect(self._on_activated)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._on_context_menu)
         self.tree.collapsed.connect(lambda index: self._remember_collapsed(index, True))
         self.tree.expanded.connect(lambda index: self._remember_collapsed(index, False))
         layout.addWidget(self.tree, 1)
@@ -166,6 +199,14 @@ class MainWindow(QMainWindow):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(lambda _text: self.refresh_pages())
         bottom.addWidget(self.search, 1)
+        self.add_button = QToolButton()
+        self.add_button.setText("Добавить")
+        self.add_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.add_menu = QMenu(self.add_button)
+        for name, label in ADD_MENU:
+            self.add_menu.addAction(label).triggered.connect(self._app.actions[name].trigger)
+        self.add_button.setMenu(self.add_menu)
+        bottom.addWidget(self.add_button)
         layout.addLayout(bottom)
 
         self.setCentralWidget(central)
@@ -184,10 +225,14 @@ class MainWindow(QMainWindow):
         self.check_button = QPushButton("Проверить сейчас")
         self.check_button.clicked.connect(self._on_check_now)
         column.addWidget(self.check_button)
-        column.addStretch(1)
+        self.diagnostics = DiagnosticsPanel(
+            dispatch=self._app.loop.dispatch, show_dialog=self._app.show_dialog
+        )
+        column.addWidget(self.diagnostics, 1)
         self.monitoring_dock.setWidget(body)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitoring_dock)
-        self.monitoring_button.toggled.connect(self.monitoring_dock.setVisible)
+        self.monitoring_dock.setVisible(self._context.config.monitoring_panel)
+        self.monitoring_button.toggled.connect(self._on_monitoring_toggled)
         self.monitoring_dock.visibilityChanged.connect(self._on_dock_visibility)
 
     # --- состояние ---
@@ -233,7 +278,11 @@ class MainWindow(QMainWindow):
             ascending=self._ascending,
             active_profile_id=state.started_profile_id if state.is_running else -1,
         )
-        self.model.set_rows(rows, self._ping_progress)
+        details = {
+            row.group_id: (row.details_text, row.expired)
+            for row in build_subscription_rows(groups, {})
+        }
+        self.model.set_rows(rows, self._ping_progress, details)
         for position in range(self.model.rowCount()):
             index = self.model.index(position, NAME_COLUMN)
             group_id = self.model.target(index)[1]
@@ -350,10 +399,53 @@ class MainWindow(QMainWindow):
             monitor.check_now()
         self.refresh_monitoring()
 
+    def _on_monitoring_toggled(self, visible: bool) -> None:
+        self.monitoring_dock.setVisible(visible)
+        # Видимость запоминается вместе с геометрией окна.
+        self._context.config.monitoring_panel = visible
+
     def _on_dock_visibility(self, visible: bool) -> None:
         # Свёрнутое окно прячет и панель: кнопка следит только за явным закрытием.
         if not self.isMinimized() and self.isVisible():
             self.monitoring_button.setChecked(visible)
+        self.diagnostics.set_active(visible and self.isVisible())
+
+    def toggle_group(self, group_id: int) -> None:
+        index = self.model.group_index(group_id)
+        if index.isValid():
+            self.tree.setExpanded(index, not self.tree.isExpanded(index))
+
+    def context_menu(self, index) -> QMenu:
+        """Меню строки; пункты зовут действия приложения с id строки."""
+        menu = QMenu(self)
+        target = self.model.target(index)
+        if target is None:
+            return menu
+        kind, row_id = target
+        entries = PROFILE_MENU if kind == PROFILE else GROUP_MENU
+        group = self._context.profiles.get_group(row_id) if kind == GROUP else None
+        for entry in entries:
+            if entry is None:
+                menu.addSeparator()
+                continue
+            name, label = entry
+            if name == "toggle-group":
+                expanded = self.tree.isExpanded(self.model.index(index.row(), NAME_COLUMN))
+                label = "Свернуть группу" if expanded else "Развернуть группу"
+            if name == "update-subscription" and not getattr(group, "is_subscription", False):
+                continue
+            action = menu.addAction(label)
+            action.triggered.connect(
+                lambda _checked=False, n=name: self._app.activate_action(n, row_id)
+            )
+        return menu
+
+    def _on_context_menu(self, point) -> None:
+        index = self.tree.indexAt(point)
+        if not index.isValid():
+            return
+        self.tree.setCurrentIndex(index)
+        self.context_menu(index).exec(self.tree.viewport().mapToGlobal(point))
 
     def _on_proxy_state_changed(self, _state) -> None:
         # Состояние меняет поток подключения; виджеты — только из главного.
@@ -373,13 +465,15 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
+        self.diagnostics.set_active(self.monitoring_dock.isVisible())
 
     def closeEvent(self, event) -> None:
         """С треем окно прячется, без него закрытие завершает приложение."""
         self.save_geometry()
-        if self._app.tray is not None:
+        if self._app.tray is not None and self._context.config.close_to_tray:
             event.ignore()
             self.hide()
+            self.diagnostics.set_active(False)
             return
         event.accept()
         self._app.quit()
@@ -387,6 +481,7 @@ class MainWindow(QMainWindow):
     def detach(self) -> None:
         """Перестать слушать состояние прокси, как `MainWindow.detach()` в GTK."""
         self._context.proxy_state.remove_listener(self._on_proxy_state_changed)
+        self.diagnostics.set_active(False)
 
     def save_geometry(self) -> None:
         size = self.normalGeometry().size() if self.isMaximized() else self.size()
