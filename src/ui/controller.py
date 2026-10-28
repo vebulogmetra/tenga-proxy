@@ -287,6 +287,142 @@ class AppController:
         """Install the object starting and stopping the proxy."""
         self._connection_service = service
 
+    def _ensure_connection_service(self):
+        if self._connection_service is None:
+            from src.core.connection import ConnectionService
+
+            self._connection_service = ConnectionService(self.context)
+        return self._connection_service
+
+    def connection_busy(self) -> bool:
+        return self.connection_thread is not None and self.connection_thread.is_alive()
+
+    def connect_profile(self, profile_id: int) -> None:
+        """Start the proxy for one profile in the background."""
+        if self.latency_runner is not None and self.latency_runner.is_busy:
+            self.toast("Дождитесь завершения проверки задержки")
+            return
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is None:
+            self.toast("Профиль не найден")
+            return
+
+        if self.connection_busy():
+            # Два одновременных запуска оставили бы висящий процесс xray.
+            self.toast("Подключение уже выполняется")
+            return
+
+        self._shell.show_connecting(profile.name)
+        # Промежуточное состояние живёт только в UI: в proxy_state его нет,
+        # и сам по себе трей о нём не узнает.
+        self._shell.set_tray_state(ConnectionState.CONNECTING, profile.name)
+
+        service = self._ensure_connection_service()
+        self.connection_thread = run_in_background(
+            lambda: service.connect(profile_id),
+            on_done=lambda result: self._on_connection_done(result, profile_id, profile.name),
+            on_error=self._on_connection_failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-connect",
+        )
+
+    def disconnect_proxy(self) -> None:
+        """Stop the proxy in the background."""
+        if self.connection_busy():
+            self.toast("Подключение уже выполняется")
+            return
+
+        service = self._ensure_connection_service()
+        self.connection_thread = run_in_background(
+            service.disconnect,
+            on_done=lambda result: self._on_disconnection_done(result),
+            on_error=self._on_connection_failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-disconnect",
+        )
+
+    def connect_selected(self) -> None:
+        profile_id = self._shell.selected_profile_id()
+        if profile_id is None:
+            # Трей и кнопка в окне без выделения подключают последний профиль.
+            last = self.context.profiles.last_used_profile()
+            profile_id = None if last is None else last.id
+        if profile_id is None:
+            self.toast("Выберите профиль в списке")
+            return
+        self.connect_profile(profile_id)
+
+    def toggle_connection(self) -> None:
+        if self.context.proxy_state.is_running:
+            self.disconnect_proxy()
+            return
+        self.connect_selected()
+
+    def reconnect_current(self) -> None:
+        state = self.context.proxy_state
+        if state.is_running:
+            self.connect_profile(state.started_profile_id)
+
+    def set_profile_activation_handler(self, handler: Callable[[int], None]) -> None:
+        """Install what happens when a profile row is activated."""
+        self._profile_activation_handler = handler
+
+    def select_profile(self, profile_id: int) -> None:
+        """Connect to a profile activated on the profiles page."""
+        if self._profile_activation_handler is not None:
+            self._profile_activation_handler(profile_id)
+            return
+        self.connect_profile(profile_id)
+
+    def _on_connection_done(self, result, profile_id: int, profile_name: str) -> None:
+        if result.ok:
+            self.context.profiles.mark_used(profile_id)
+            self._save_profiles()
+            self.toast(f"Подключено: {profile_name}")
+        else:
+            self.toast(f"Не удалось подключиться: {result.error}")
+            self._shell.show_error(result.error)
+            self._shell.set_tray_state(ConnectionState.ERROR, "")
+
+        self._refresh_window()
+
+    def _on_disconnection_done(self, result) -> None:
+        if result.ok:
+            self.toast("Отключено")
+        else:
+            self.toast(f"Не удалось отключиться: {result.error}")
+        self._refresh_window()
+
+    def _on_connection_failed(self, error: BaseException) -> None:
+        self.toast(f"Ошибка подключения: {error}")
+        self._shell.show_error(str(error))
+        self._shell.set_tray_state(ConnectionState.ERROR, "")
+        self._refresh_window()
+
+    def _refresh_window(self) -> None:
+        self._shell.refresh_status()
+        self._shell.refresh_pages()
+
+    # --- failover ---
+
+    def watch_monitor(self) -> None:
+        """Hand the monitor's verdicts to the failover controller.
+
+        Контроллер сам смотрит в настройки и при выключенном автопереключении
+        ничего не делает, поэтому подписка ставится безусловно.
+        """
+        monitor = self.context.monitor
+        if monitor is None:
+            return
+
+        self._failover = FailoverController(
+            self.context,
+            switch_to=self.connect_profile,
+            notify=self.notify_user,
+            network_available=self._network_available,
+        )
+        monitor.set_on_status_changed(self._failover.handle_status)
+
     # --- подписки (задача 5) ---
 
     # --- замер задержки (задача 6) ---

@@ -256,3 +256,141 @@ def test_shutdown_stops_the_connection_service(made):
     controller.shutdown()
 
     assert stopped == [None]
+
+
+# --- подключение ---
+
+
+class FakeService:
+    def __init__(self, calls, *, ok=True, error=""):
+        from src.core.connection import ConnectionResult
+
+        self._calls = calls
+        self._result = ConnectionResult(ok, error)
+
+    def connect(self, profile_id):
+        self._calls.append(("connect", profile_id))
+        return self._result
+
+    def disconnect(self):
+        self._calls.append(("disconnect",))
+        return self._result
+
+    def shutdown(self, thread):
+        self._calls.append(("shutdown",))
+
+
+def _wait(controller):
+    if controller.connection_thread is not None:
+        controller.connection_thread.join(5)
+
+
+def test_connect_profile_runs_the_service_and_marks_the_profile_used(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_profile(entry.id)
+    _wait(controller)
+
+    assert calls == [("connect", entry.id)]
+    assert ("show_connecting", entry.name) in shell.calls
+    assert shell.tray[0] == (ConnectionState.CONNECTING, entry.name)
+    assert shell.last_toast == f"Подключено: {entry.name}"
+    assert controller.context.profiles.last_used_profile().id == entry.id
+    assert shell.count("refresh_status") >= 1 and shell.count("refresh_pages") >= 1
+
+
+def test_failed_connection_shows_the_error_everywhere(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    controller.set_connection_service(FakeService([], ok=False, error="нет ядра"))
+
+    controller.connect_profile(entry.id)
+    _wait(controller)
+
+    assert shell.last_toast == "Не удалось подключиться: нет ядра"
+    assert ("show_error", "нет ядра") in shell.calls
+    assert shell.tray[-1] == (ConnectionState.ERROR, "")
+
+
+def test_connect_unknown_profile_only_toasts(made):
+    controller, shell, _ = made
+
+    controller.connect_profile(123)
+
+    assert shell.last_toast == "Профиль не найден"
+    assert controller.connection_thread is None
+
+
+def test_connect_selected_falls_back_to_the_last_used_profile(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    controller.context.profiles.mark_used(entry.id)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    shell.selected = None
+
+    controller.connect_selected()
+    _wait(controller)
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_connect_selected_without_any_profile_asks_to_pick_one(made):
+    controller, shell, _ = made
+
+    controller.connect_selected()
+
+    assert shell.last_toast == "Выберите профиль в списке"
+
+
+def test_toggle_disconnects_a_running_proxy(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    controller.context.proxy_state.set_running(entry.id)
+
+    controller.toggle_connection()
+    _wait(controller)
+
+    assert calls == [("disconnect",)]
+    assert shell.last_toast == "Отключено"
+
+
+def test_select_profile_prefers_the_installed_handler(made):
+    controller, _shell, _ = made
+    seen = []
+    controller.set_profile_activation_handler(seen.append)
+
+    controller.select_profile(5)
+
+    assert seen == [5]
+
+
+def test_reconnect_current_restarts_the_running_profile(made):
+    controller, _shell, _ = made
+    entry = add_profile(controller)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    controller.context.proxy_state.set_running(entry.id)
+
+    controller.reconnect_current()
+    _wait(controller)
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_watch_monitor_hands_failover_to_the_monitor(made):
+    from unittest.mock import MagicMock
+
+    controller, _shell, _ = made
+    monitor = MagicMock()
+    controller.context.set_monitor(monitor)
+
+    controller.watch_monitor()
+
+    monitor.set_on_status_changed.assert_called_once()
+    assert controller._failover is not None
