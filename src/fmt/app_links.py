@@ -20,6 +20,9 @@ class AppLink:
     url: str = ""
     name: str = ""
     routing: RoutingSettings | None = None
+    # Провайдер просил пускать мимо списков напрямую; не применяется.
+    direct_default: bool = False
+    # Убирается вместе с текстом окна в application.py.
     warnings: tuple[str, ...] = ()
 
 
@@ -69,13 +72,11 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
     # Happ GlobalProxy describes the catch-all, not whether explicit lists
     # should be discarded. Desktop CUSTOM also keeps the proxy as catch-all.
     routing.mode = RoutingMode.CUSTOM
-    warnings = (
-        ()
-        if global_proxy
-        else (
-            "Режим «только выбранное через прокси» не поддерживается: вне списков трафик останется через прокси.",
-        )
-    )
+    name = fields.get("name", "")
+    if not isinstance(name, str):
+        raise ValueError("Некорректное имя профиля маршрутизации")
+    # Тот же фильтр, что у имени подписки выше: строка придёт в окно как текст.
+    name = "".join(c for c in name if ord(c) >= 32 and ord(c) != 127)[:64]
     for destination in ("direct", "proxy", "block"):
         entries = []
         for suffix in ("sites", "ip"):
@@ -91,4 +92,4 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
             for value in values:
                 entries.extend(parse_host_list(value))
         setattr(routing, destination + "_list", list(dict.fromkeys(entries)))
-    return AppLink("routing", routing=routing, warnings=warnings)
+    return AppLink("routing", name=name, routing=routing, direct_default=not global_proxy)

@@ -43,6 +43,7 @@ def test_global_proxy_flag_does_not_disable_imported_direct_lists():
     link = parse_app_link("veblock://routing/add/" + payload)
     assert link.routing.mode == "custom"
     assert link.routing.direct_list == ["example.org"]
+    assert link.direct_default is False
 
 
 def test_happ_rules_keep_exact_domains_idn_and_compressed_ipv6():
@@ -62,3 +63,24 @@ def test_happ_rules_keep_exact_domains_idn_and_compressed_ipv6():
         "2001:db8::1",
         "2a00:1450::/32",
     ]
+
+
+def _routing(fields: dict) -> str:
+    return "happ://routing/add/" + base64.urlsafe_b64encode(json.dumps(fields).encode()).decode()
+
+
+def test_routing_profile_name_is_cleaned_and_bounded():
+    link = parse_app_link(_routing({"Name": "RU\x07 direct" + "x" * 100}))
+    assert link.name == ("RU direct" + "x" * 100)[:64]
+
+
+def test_provider_direct_default_is_reported_not_applied():
+    link = parse_app_link(_routing({"GlobalProxy": False, "DirectSites": ["example.org"]}))
+    assert link.direct_default is True
+    assert link.warnings == ()
+    assert link.routing.mode == "custom"
+
+
+def test_non_string_name_is_rejected():
+    with pytest.raises(ValueError, match="имя профиля"):
+        parse_app_link(_routing({"Name": 5}))
