@@ -826,4 +826,99 @@ class AppController:
         self._shell.refresh_pages()
         self.toast("Проверка задержки завершена")
 
-    # --- обновления и ссылки (задача 7) ---
+    # --- обновления и ссылки ---
+
+    def set_release_fetcher(self, fetch: Callable[[], object] | None) -> None:
+        """Install the function asking GitHub about core releases.
+
+        Без неё приложение в сеть за релизами не ходит: её ставит только
+        `run_app`, поэтому тесты и встраивание остаются без сетевых запросов.
+        """
+        self._release_fetcher = fetch
+
+    def refresh_core_releases_if_due(self) -> None:
+        """Remember the newest core releases, at most once in a few days.
+
+        Только запоминает: о новой версии говорит страница «О программе».
+        """
+        if not self.context.config.core_update_enabled:
+            return
+        fetch = self._release_fetcher
+        config = self.context.config
+        if fetch is None or not is_check_due(config, time.time()):
+            return
+        if self.core_update_thread is not None and self.core_update_thread.is_alive():
+            return
+
+        self.core_update_thread = run_in_background(
+            lambda: refresh_known_releases(config, now=time.time(), fetch=fetch),
+            on_done=lambda _releases: self.context.save_config(),
+            # Нет сети — спросим при следующем запуске.
+            on_error=lambda _error: None,
+            dispatch=self._loop.dispatch,
+            name="tenga-core-update",
+        )
+
+    def set_app_release_fetcher(self, fetcher) -> None:
+        self._app_release_fetcher = fetcher
+
+    def refresh_app_releases_if_due(self) -> None:
+        from src.core.app_update import CHECK_INTERVAL_SECONDS, check_app_update
+
+        context = self.context
+        config = context.config
+        if (
+            self._app_release_fetcher is None
+            or not config.app_update_enabled
+            or (self.app_update_thread and self.app_update_thread.is_alive())
+            or (
+                config.app_update_last_attempt
+                and time.time() - config.app_update_last_attempt < CHECK_INTERVAL_SECONDS
+            )
+        ):
+            return
+
+        def work():
+            return check_app_update(
+                config,
+                self._app_version(),
+                fetch=self._app_release_fetcher,
+            )
+
+        def done(release):
+            if release and config.app_update_notified != release.version:
+                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
+                config.app_update_notified = release.version
+            context.save_config()
+
+        self.app_update_thread = run_in_background(
+            work,
+            on_done=done,
+            on_error=lambda _error: context.save_config(),
+            dispatch=self._loop.dispatch,
+            name="tenga-app-update",
+        )
+
+    def import_app_link(self, raw: str) -> None:
+        from src.fmt.app_links import parse_app_link
+
+        try:
+            link = parse_app_link(raw, exceptions=self.context.config.sub_source_exceptions)
+        except ValueError as error:
+            self.toast(str(error))
+            return
+        if link.operation == "unsupported":
+            self.toast("VK-туннель пока не поддерживается в десктопной версии")
+        elif link.operation == "subscription":
+            self._shell.open_subscription_form(link.name, link.url)
+        else:
+            from src.ui.logic.routing_import import effective_routing, import_rows
+
+            config, config_dir = self.context.config, self.context.config_dir
+            rows = import_rows(
+                effective_routing(config.routing, config_dir),
+                link.routing,
+                name=link.name,
+                direct_default=link.direct_default,
+            )
+            self._shell.open_routing_import(rows, lambda: self.apply_routing_import(link.routing))

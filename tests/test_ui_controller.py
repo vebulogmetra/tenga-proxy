@@ -596,3 +596,87 @@ def test_keep_working_is_cancelled_without_network(tmp_path):
 
     assert shell.confirms == []
     assert shell.last_toast.startswith("Фильтрация отменена")
+
+
+# --- обновления и ссылки ---
+
+
+def test_app_update_is_notified_once(tmp_path):
+    from tests.test_core_app_update import RELEASE
+
+    context = AppContext(config_dir=tmp_path)
+    shell = FakeShell()
+    controller = AppController(context, shell, ImmediateLoop(), app_version=lambda: "0.16.2")
+    calls = []
+    controller.set_app_release_fetcher(lambda: calls.append(True) or [RELEASE])
+
+    controller.refresh_app_releases_if_due()
+    controller.app_update_thread.join(5)
+    controller.refresh_app_releases_if_due()
+
+    assert context.config.app_update_notified == "v0.17.0"
+    assert shell.last_toast == "Доступна версия v0.17.0. Откройте настройки → О программе"
+    assert calls == [True]
+
+
+def test_app_update_is_skipped_without_a_fetcher(made):
+    controller, _shell, _ = made
+
+    controller.refresh_app_releases_if_due()
+
+    assert controller.app_update_thread is None
+
+
+def test_core_releases_are_refreshed_when_due(made, monkeypatch):
+    controller, _shell, _ = made
+    monkeypatch.setattr("src.ui.controller.is_check_due", lambda _config, _now: True)
+    seen = []
+    monkeypatch.setattr(
+        "src.ui.controller.refresh_known_releases",
+        lambda _config, **kwargs: seen.append(kwargs["fetch"]()) or None,
+    )
+    controller.set_release_fetcher(lambda: ["r"])
+
+    controller.refresh_core_releases_if_due()
+    controller.core_update_thread.join(5)
+
+    assert seen == [["r"]]
+
+
+def test_subscription_link_opens_the_form_prefilled(made):
+    from urllib.parse import quote
+
+    controller, shell, _ = made
+
+    controller.import_app_link(
+        "veblock://add/" + quote("https://example.com/sub", safe="") + "#Example"
+    )
+
+    assert shell.forms == [("subscription", "Example", "https://example.com/sub")]
+
+
+def test_routing_link_asks_for_confirmation_then_applies(made):
+    import base64
+    import json
+
+    controller, shell, _ = made
+    payload = base64.urlsafe_b64encode(
+        json.dumps({"DirectSites": ["example.org"], "GlobalProxy": False}).encode()
+    ).decode()
+
+    controller.import_app_link("happ://routing/add/" + payload)
+
+    kind, rows, on_confirm = shell.forms[-1]
+    assert kind == "routing-import" and rows
+    on_confirm()
+    assert "example.org" in controller.context.config.routing.direct_list
+    assert shell.toasts[-1] == ("Маршрутизация импортирована", "Вернуть", "app.restore-routing")
+    assert shell.enabled["restore-routing"] is True
+
+
+def test_broken_link_only_toasts(made):
+    controller, shell, _ = made
+
+    controller.import_app_link("veblock://add/\x01")
+
+    assert shell.last_toast and shell.forms == []
