@@ -48,6 +48,13 @@ jobs:
       - name: Tray tests
         run: make test-tray
 
+      # Qt-интерфейс Windows: платформа offscreen, без дисплея. Библиотеки —
+      # то, что грузят платформенный плагин и QtGui из PySide6.
+      - name: Qt tests
+        run: |
+          sudo apt-get install -y --no-install-recommends libegl1 libgl1 libfontconfig1 libxkbcommon0 libdbus-1-3
+          make test-qt
+
       # deb-пакет работает на системном Python: requests и urllib3 — версий
       # Ubuntu 24.04, а не из uv.lock.
       - name: Tests on Ubuntu's requests

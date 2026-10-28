@@ -1,4 +1,4 @@
-.PHONY: install dev-install run cli gui test test-gtk test-tray lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
+.PHONY: install dev-install run cli gui test test-gtk test-tray test-qt lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
 
 # Переменные
 PYTHON := uv run python
@@ -117,6 +117,13 @@ TRAY_TESTS := $(wildcard tests/test_ui_tray_*.py)
 
 test-tray:
 	uv run pytest -m "" $(TRAY_TESTS) -p no:cacheprovider --no-cov
+
+# Тесты Qt-интерфейса (Windows): без дисплея, платформа offscreen. PySide6 —
+# из группы windows; без неё тесты пропускаются, а не падают.
+QT_TESTS := $(wildcard tests/test_ui_qt_*.py)
+
+test-qt:
+	QT_QPA_PLATFORM=offscreen uv run --extra windows --extra dev pytest -m qt $(QT_TESTS) -p no:cacheprovider --no-cov
 
 # Utilities
 clean:
