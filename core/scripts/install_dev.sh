@@ -17,6 +17,13 @@ case "$(uname -s)" in
     *) XRAY_OS="linux"; XRAY_BIN="xray" ;;
 esac
 
+# Windows: оболочка MSYS2 UCRT64 — прежняя GTK-сборка (уходит вместе с ней),
+# любая другая (Git Bash) — интерфейс Qt на обычном Python и uv.
+WINDOWS_MSYS2=0
+if [ "$XRAY_OS" = "windows" ] && [ "${MSYSTEM:-}" = "UCRT64" ]; then
+    WINDOWS_MSYS2=1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -89,10 +96,11 @@ check_os() {
             exit 1
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            if [ "${MSYSTEM:-}" != "UCRT64" ]; then
-                warning "Ожидается оболочка MSYS2 UCRT64, сейчас: ${MSYSTEM:-не MSYS2}"
+            if [ "$WINDOWS_MSYS2" = "1" ]; then
+                success "Система: Windows (MSYS2 UCRT64, интерфейс GTK)"
+            else
+                success "Система: Windows (${MSYSTEM:-bash}, интерфейс Qt)"
             fi
-            success "Система: Windows (MSYS2 ${MSYSTEM:-})"
             return 0
             ;;
         *)
@@ -148,7 +156,8 @@ from gi.repository import Gtk, Adw; import requests" 2>/dev/null; then
 # System deps
 install_system_deps() {
     if [ "$XRAY_OS" = "windows" ]; then
-        install_windows_deps
+        # Вне MSYS2 системных пакетов нет: Python с python.org и uv.
+        [ "$WINDOWS_MSYS2" = "1" ] && install_windows_deps
         return 0
     fi
     info "Проверка системных зависимостей..."
@@ -220,7 +229,7 @@ install_system_deps() {
 }
 
 install_python_deps() {
-    if [ "$XRAY_OS" = "windows" ]; then
+    if [ "$WINDOWS_MSYS2" = "1" ]; then
         # uv поставил бы PyGObject из PyPI, а его колесо без GTK не работает.
         info "Python-зависимости на Windows приходят пакетами MSYS2, uv не нужен"
         return 0
@@ -229,6 +238,12 @@ install_python_deps() {
     
     if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
         error "Файл pyproject.toml не найден!"
+        exit 1
+    fi
+
+    if [ "$XRAY_OS" = "windows" ] && ! check_command uv; then
+        error "uv не найден. Установите в PowerShell:"
+        error "  powershell -ExecutionPolicy ByPass -c \"irm https://astral.sh/uv/install.ps1 | iex\""
         exit 1
     fi
 
@@ -248,8 +263,13 @@ install_python_deps() {
     fi
 
     info "Установка зависимостей через uv..."
-    
-    if ! uv sync; then
+
+    # На Windows интерфейс — PySide6 из группы windows; GTK там не ставится.
+    local extras=()
+    if [ "$XRAY_OS" = "windows" ]; then
+        extras=(--extra windows --extra dev)
+    fi
+    if ! uv sync "${extras[@]}"; then
         error "Не удалось установить зависимости через uv"
         exit 1
     fi
@@ -271,6 +291,25 @@ check_xray() {
     fi
     
     return 1
+}
+
+# Распаковать архив, не трогая существующие файлы (unzip -n). В Git Bash
+# unzip нет — тот же отбор делает Python из окружения проекта.
+extract_new() {
+    if check_command unzip; then
+        unzip -q -n "$1"
+        return
+    fi
+    uv run --no-sync python - "$1" <<'PY'
+import os
+import sys
+import zipfile
+
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for member in archive.infolist():
+        if not os.path.exists(member.filename):
+            archive.extract(member)
+PY
 }
 
 download_xray() {
@@ -330,7 +369,7 @@ download_xray() {
     fi
 
     # -n: геобазы в core/bin лежат в git, архив их не перезаписывает.
-    if ! unzip -q -n xray.zip; then
+    if ! extract_new xray.zip; then
         error "Ошибка при распаковке архива"
         rm -f xray.zip
         cd "$PROJECT_ROOT"
