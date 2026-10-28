@@ -423,7 +423,183 @@ class AppController:
         )
         monitor.set_on_status_changed(self._failover.handle_status)
 
-    # --- подписки (задача 5) ---
+    # --- подписки ---
+
+    def set_subscription_updater(self, updater: Callable[[int, str], int]) -> None:
+        """Install the function refreshing one subscription group."""
+        self._subscription_updater = updater
+
+    def add_subscription(self, name: str, url: str):
+        """Create a subscription group and fetch it right away."""
+        try:
+            group = self.context.profiles.find_subscription_group(
+                url, exceptions=self.context.config.sub_source_exceptions
+            )
+        except RuntimeError as error:
+            self.toast(str(error))
+            return None
+        if group is not None:
+            self.context.profiles.current_group_id = group.id
+            self._shell.refresh_pages()
+            self.update_subscription(group.id)
+            return group
+        group = self.context.profiles.add_group(name, is_subscription=True)
+        group.subscription_url = url
+        self._save_profiles()
+        self._shell.refresh_pages()
+        self.update_subscription(group.id)
+        return group
+
+    def update_subscription(self, group_id: int) -> None:
+        """Refresh one subscription group in the background."""
+        if self._subscription_busy or (
+            self.latency_runner is not None and self.latency_runner.is_busy
+        ):
+            self.toast("Обновление подписок или проверка задержки уже выполняется")
+            return
+        group = self.context.profiles.get_group(group_id)
+        if group is None or not group.subscription_url:
+            self.toast("У подписки нет адреса")
+            return
+
+        updater = self._subscription_updater or self.default_subscription_updater
+        url = group.subscription_url
+
+        def work() -> int:
+            try:
+                return updater(group_id, url)
+            except Exception:
+                self._propose_fallback_url(group_id, url)
+                raise
+
+        self._subscription_busy = True
+        self.toast(f"Обновляю: {group.name}")
+        self.subscriptions_thread = run_in_background(
+            work,
+            on_done=self._on_subscriptions_updated,
+            on_error=self._on_subscriptions_failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-subscription",
+        )
+
+    def default_subscription_updater(self, group_id: int, url: str) -> int:
+        from src.sub.route import local_proxy_url
+        from src.sub.updater import SubscriptionUpdater
+        from src.sub.url_change import REASON_NEW_URL, propose_url_change
+
+        context = self.context
+        updater = SubscriptionUpdater(
+            config=context.config,
+            profiles=context.profiles,
+            proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
+        )
+        beans = updater.update(url, group_id)
+
+        proposal = propose_url_change(group_id, url, updater.new_url, REASON_NEW_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
+        return len(beans)
+
+    def _propose_fallback_url(self, group_id: int, url: str) -> None:
+        """Queue the provider's fallback address after a failed update."""
+        from src.sub.url_change import REASON_FALLBACK_URL, propose_url_change
+
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            return
+        proposal = propose_url_change(group_id, url, group.sub_fallback_url, REASON_FALLBACK_URL)
+        if proposal is not None:
+            self._url_proposals.append(proposal)
+
+    def _offer_url_change(self) -> None:
+        """Ask about one queued address change; the rest come back with the next update."""
+        if not self._url_proposals:
+            return
+        proposal = self._url_proposals[0]
+        self._url_proposals.clear()
+
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None or not self._shell.has_window():
+            return
+
+        heading, body = describe_url_change(group.name, group.subscription_url, proposal)
+        self._shell.confirm(
+            CONFIRM_URL_CHANGE, heading, body, lambda: self._apply_url_change(proposal)
+        )
+
+    def _apply_url_change(self, proposal) -> None:
+        """Switch the subscription to the confirmed address and refresh it."""
+        group = self.context.profiles.get_group(proposal.group_id)
+        if group is None:
+            return
+        try:
+            collision = self.context.profiles.find_subscription_group(
+                proposal.new_url, exceptions=self.context.config.sub_source_exceptions
+            )
+        except RuntimeError as error:
+            self.toast(str(error))
+            return
+        if collision is not None and collision.id != group.id:
+            self.toast("Этот адрес уже используется другой подпиской")
+            return
+        self.update_group(proposal.group_id, name=group.name, url=proposal.new_url)
+        self.update_subscription(proposal.group_id)
+
+    def refresh_subscriptions(self) -> None:
+        if self._subscription_busy or (
+            self.latency_runner is not None and self.latency_runner.is_busy
+        ):
+            self.toast("Обновление подписок или проверка задержки уже выполняется")
+            return
+        groups = [
+            group
+            for group in self.context.profiles.groups.values()
+            if group.is_subscription and group.subscription_url
+        ]
+        if not groups:
+            self.toast("Подписок нет")
+            return
+
+        updater = self._subscription_updater or self.default_subscription_updater
+        targets = [(group.id, group.subscription_url) for group in groups]
+
+        def work() -> int:
+            total = 0
+            for group_id, url in targets:
+                try:
+                    total += updater(group_id, url)
+                except Exception as e:
+                    logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
+                    self._propose_fallback_url(group_id, url)
+            return total
+
+        self._subscription_busy = True
+        self.toast(f"Обновляю подписки: {len(targets)}")
+        self.subscriptions_thread = run_in_background(
+            work,
+            on_done=self._on_subscriptions_updated,
+            on_error=self._on_subscriptions_failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-subscriptions",
+        )
+
+    def _on_subscriptions_updated(self, total: int) -> None:
+        self._subscription_busy = False
+        try:
+            self.context.save_profiles()
+        except Exception as e:
+            logger.warning("Could not persist updated subscriptions: %s", e)
+
+        self._shell.refresh_pages()
+        self.toast(f"Обновлено профилей: {total}")
+        self._offer_url_change()
+
+    def _on_subscriptions_failed(self, error: BaseException) -> None:
+        self._subscription_busy = False
+        sent = self.context.config.sub_send_device_info
+        reason = describe_update_error(error, device_info_sent=sent)
+        self.toast(f"Не удалось обновить подписки: {reason}")
+        self._offer_url_change()
 
     # --- замер задержки (задача 6) ---
 

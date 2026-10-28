@@ -394,3 +394,114 @@ def test_watch_monitor_hands_failover_to_the_monitor(made):
 
     monitor.set_on_status_changed.assert_called_once()
     assert controller._failover is not None
+
+
+# --- подписки ---
+
+
+def _wait_subscriptions(controller):
+    if controller.subscriptions_thread is not None:
+        controller.subscriptions_thread.join(5)
+
+
+def test_add_subscription_creates_the_group_and_updates_it(made):
+    controller, shell, _ = made
+    updated = []
+    controller.set_subscription_updater(lambda gid, url: updated.append((gid, url)) or 3)
+
+    group = controller.add_subscription("Demo", "https://sub.example/list")
+    _wait_subscriptions(controller)
+
+    assert group.is_subscription and group.subscription_url == "https://sub.example/list"
+    assert updated == [(group.id, "https://sub.example/list")]
+    assert shell.last_toast == "Обновлено профилей: 3"
+
+
+def test_update_subscription_without_url_toasts(made):
+    controller, shell, _ = made
+    group = controller.add_group("Обычная")
+
+    controller.update_subscription(group.id)
+
+    assert shell.last_toast == "У подписки нет адреса"
+    assert controller.subscriptions_thread is None
+
+
+def test_failed_update_reports_the_reason(made):
+    controller, shell, _ = made
+
+    def failing(_gid, _url):
+        raise RuntimeError("boom")
+
+    controller.set_subscription_updater(failing)
+    controller.add_subscription("Demo", "https://sub.example/list")
+    _wait_subscriptions(controller)
+
+    assert shell.last_toast.startswith("Не удалось обновить подписки: ")
+    assert controller._subscription_busy is False
+
+
+def test_failed_update_offers_the_providers_fallback_url(made):
+    controller, shell, _ = made
+    group = controller.add_group("Demo")
+    group.subscription_url = "https://sub.example/list"
+    group.is_subscription = True
+    group.sub_fallback_url = "https://backup.example/sub"
+
+    def failing(_gid, _url):
+        raise RuntimeError("boom")
+
+    controller.set_subscription_updater(failing)
+    controller.update_subscription(group.id)
+    _wait_subscriptions(controller)
+
+    assert shell.confirms[-1].kind == CONFIRM_URL_CHANGE
+    assert "https://backup.example/sub" in shell.confirms[-1].body
+
+
+def test_confirmed_url_change_switches_the_group_and_refreshes(made):
+    controller, shell, _ = made
+    group = controller.add_group("Demo")
+    group.subscription_url = "https://sub.example/list"
+    group.is_subscription = True
+    group.sub_fallback_url = "https://backup.example/sub"
+    seen = []
+
+    def updater(_gid, url):
+        seen.append(url)
+        if url.startswith("https://sub."):
+            raise RuntimeError("boom")
+        return 1
+
+    controller.set_subscription_updater(updater)
+    controller.update_subscription(group.id)
+    _wait_subscriptions(controller)
+    shell.confirms[-1].on_confirm()
+    _wait_subscriptions(controller)
+
+    assert controller.context.profiles.get_group(group.id).subscription_url == (
+        "https://backup.example/sub"
+    )
+    assert seen == ["https://sub.example/list", "https://backup.example/sub"]
+
+
+def test_refresh_subscriptions_without_any_toasts(made):
+    controller, shell, _ = made
+
+    controller.refresh_subscriptions()
+
+    assert shell.last_toast == "Подписок нет"
+
+
+def test_refresh_subscriptions_sums_the_groups(made):
+    controller, shell, _ = made
+    controller.set_subscription_updater(lambda _gid, _url: 2)
+    for name in ("A", "B"):
+        group = controller.add_group(name)
+        group.is_subscription = True
+        group.subscription_url = f"https://{name}.example/sub"
+
+    controller.refresh_subscriptions()
+    _wait_subscriptions(controller)
+
+    assert shell.last_toast == "Обновлено профилей: 4"
