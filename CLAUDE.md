@@ -96,6 +96,7 @@ src/
 │   ├── context.py     # AppContext - центральное состояние приложения
 │   ├── xray_manager.py # Управление процессом xray-core
 │   ├── monitor.py     # Мониторинг соединения и статистики
+│   ├── main_loop.py   # MainLoop: главный цикл как зависимость (GLib, тестовый)
 │   └── logging_utils.py # Настройка логирования
 ├── fmt/           # Парсинг share links и подписок
 │   ├── base.py        # ProxyBean - базовый класс для всех протоколов
@@ -112,6 +113,7 @@ src/
 │   └── config.py      # Настройки (routing, VPN, DNS)
 ├── ui/            # GTK4 + libadwaita интерфейс
 │   ├── application.py # TengaApplication - Adw.Application, действия, трей
+│   ├── controller.py  # AppController - оркестровка без GTK, протокол Shell
 │   ├── window.py      # MainWindow - Adw.ApplicationWindow
 │   ├── pages/         # Страницы: профили, подписки, мониторинг
 │   ├── widgets/       # Виджеты (статус-карточка)
@@ -146,6 +148,23 @@ core/              # Директория конфигурации (в dev ре�
 - Хранит ссылки на ProfileStore, XrayManager, ConnectionMonitor
 - Доступен через `get_context()` или `init_context()`
 - Используется для координации между компонентами
+
+**AppController (`src/ui/controller.py`)** - оркестровка приложения без GTK:
+- Подключение, профили и группы, подписки и смена адреса, замер задержки,
+  failover, проверка обновлений, импорт ссылок приложения
+- С интерфейсом говорит через протокол `Shell` (тосты, уведомления,
+  обновление окна, подтверждения, формы), с главным потоком — через
+  `MainLoop` из `src/core/main_loop.py` (`GLibLoop` в GTK, `ImmediateLoop`
+  в тестах)
+- `TengaApplication` — тонкая оболочка: `Gio.SimpleAction`, окно, трей,
+  слот диалога, `_GtkShell`; публичные методы приложения — делегаты
+- Тестируется обычным pytest с подменной оболочкой (`tests/test_ui_controller.py`)
+
+**MainLoop (`src/core/main_loop.py`)** - главный цикл как зависимость:
+`dispatch` (один раз в главном потоке), `schedule` (таймер, повтор пока
+True), `cancel`. `ConnectionMonitor` и `AppController` получают его
+параметром; GLib импортируется лениво при каждом вызове, чтобы подмены
+в тестах действовали.
 
 **ProxyBean Hierarchy (`src/fmt/base.py`)** - иерархия классов для протоколов:
 - `ProxyBean` - абстрактный базовый класс

@@ -128,6 +128,15 @@ The `AppContext` class manages all main dependencies and application state:
 - `proxy_state` - proxy state
 - `monitor` - connection monitoring
 
+### Application Controller
+
+`AppController` (`src/ui/controller.py`) holds the GTK-free orchestration:
+connecting, profiles and groups, subscriptions, latency tests, failover,
+update checks and app link import. It talks to the interface through the
+`Shell` protocol and to the main thread through `MainLoop`
+(`src/core/main_loop.py`). `TengaApplication` implements `Shell` and
+delegates to the controller; controller tests run without a display.
+
 ### Profile Management
 
 The `src.db.profiles` module manages profiles and groups:

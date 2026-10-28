@@ -51,11 +51,16 @@ GTK без изменения поведения. Ядро, хранилище, 
 
 ## Границы
 
-**Без изменений**: `src/core`, `src/db`, `src/fmt`, `src/sub`, `src/sys`
+**Без изменений**: `src/core` (кроме монитора, см. ниже), `src/db`, `src/fmt`, `src/sub`, `src/sys`
 (включая `windows/activation.py`, `windows/single_instance.py`,
 `windows/service_client.py`), `src/winsvc`, `src/ui/logic`,
 `src/ui/tray/menu.py`, `src/ui/tray/dbusmenu.py` (модель меню),
 `src/ui/tray/controller.py`, GTK-виджеты и поведение на Linux.
+
+**Уточнение по итогам фазы 1:** `src/core/monitor.py` вызывал GLib напрямую
+(`idle_add`, `timeout_add`, `source_remove`). Главный цикл вынесен в
+`src/core/main_loop.py` и передаётся монитору параметром; поведение в GTK
+прежнее. Остальной `src/core` без изменений.
 
 **Появляется**: `src/ui/controller.py` (общая оркестровка) и фронтенд
 `src/ui/qt/`. `gui.py` выбирает фронтенд: на Windows — Qt, на Linux — GTK;
