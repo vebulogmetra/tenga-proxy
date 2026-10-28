@@ -281,7 +281,7 @@ class AppController:
             "restore-routing", self.context.config.routing_backup is not None
         )
 
-    # --- подключение (задача 4) ---
+    # --- подключение ---
 
     def set_connection_service(self, service) -> None:
         """Install the object starting and stopping the proxy."""

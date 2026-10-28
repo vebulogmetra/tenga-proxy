@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import signal
-import time
 from typing import TYPE_CHECKING
 
 import gi
@@ -16,18 +15,12 @@ from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.core import platform_info
 from src.core.context import AppContext, get_context
-from src.core.core_update import fetch_releases, is_check_due, refresh_known_releases
-from src.core.failover import FailoverController
-from src.ui.logic.async_utils import run_in_background
-from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
+from src.core.core_update import fetch_releases
+from src.core.main_loop import GLibLoop
+from src.ui.controller import CONFIRM_URL_CHANGE, AppController, resume_monitoring
 from src.ui.logic.profiles_view import SortKey
-from src.ui.logic.status import ConnectionState
-from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version, core_version
 from src.ui.window import APP_ICON, MainWindow, apply_theme, load_css, load_icons
-
-# Шаг склейки перерисовок на время замера задержки.
-LATENCY_REFRESH_INTERVAL_MS = 150
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -58,6 +51,110 @@ _ACCELS: dict[str, list[str]] = {
 }
 
 
+class _GtkShell:
+    """`Shell` контроллера поверх `TengaApplication`: окно, трей, диалоги, действия.
+
+    Все обращения к окну идут через `app._window` в момент вызова: окно
+    создаётся при активации и исчезает в `reset_for_tests`.
+    """
+
+    def __init__(self, app: TengaApplication) -> None:
+        self._app = app
+
+    def _window(self):
+        return self._app._window
+
+    def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
+        self._app.toast(text, button=button, action=action)
+
+    def notify(self, text: str) -> None:
+        self._app.last_notification_for_test = text
+        notification = Gio.Notification.new("Veblock")
+        notification.set_body(text)
+        self._app.send_notification(FAILOVER_NOTIFICATION_ID, notification)
+
+    def has_window(self) -> bool:
+        return self._window() is not None
+
+    def refresh_status(self) -> None:
+        window = self._window()
+        if window is not None:
+            window.refresh_status()
+
+    def refresh_pages(self) -> None:
+        window = self._window()
+        if window is not None:
+            window.refresh_pages()
+
+    def show_connecting(self, profile_name: str) -> None:
+        window = self._window()
+        if window is not None:
+            window.show_connecting(profile_name)
+
+    def show_error(self, message: str) -> None:
+        window = self._window()
+        if window is not None:
+            window.show_error(message)
+
+    def selected_profile_id(self) -> int | None:
+        window = self._window()
+        if window is None:
+            return None
+        return window.profiles_page.get_selected_profile_id()
+
+    def sort_by_ping(self) -> None:
+        window = self._window()
+        if window is not None:
+            window.profiles_page.set_sort(SortKey.PING, ascending=True)
+
+    def set_ping_progress(self, progress) -> None:
+        window = self._window()
+        if window is not None:
+            window.profiles_page.set_ping_progress(progress)
+
+    def update_group_progress(self, group_id: int) -> None:
+        window = self._window()
+        if window is not None:
+            window.profiles_page.update_group_progress(group_id)
+
+    def set_tray_state(self, state, profile_name: str) -> None:
+        if self._app.tray is not None:
+            self._app.tray.set_state(state, profile_name)
+
+    def set_action_enabled(self, name: str, enabled: bool) -> None:
+        action = self._app.lookup_action(name)
+        if action is not None:
+            action.set_enabled(enabled)
+
+    def confirm(self, kind, heading, body, on_confirm, *, confirm_label=None) -> None:
+        from src.ui.dialogs.confirm import (
+            build_delete_confirmation,
+            build_url_change_confirmation,
+        )
+
+        if kind == CONFIRM_URL_CHANGE:
+            dialog = build_url_change_confirmation(heading, body, on_confirm)
+        else:
+            dialog = build_delete_confirmation(
+                heading, body, on_confirm, confirm_label=confirm_label or "Удалить"
+            )
+        self._app.present_dialog(dialog)
+
+    def open_subscription_form(self, name: str, url: str) -> None:
+        from src.ui.dialogs.subscription import SubscriptionDialog
+
+        dialog = SubscriptionDialog()
+        dialog.name_row.set_text(name)
+        dialog.url_row.set_text(url)
+        dialog.connect("subscription-ready", lambda _d, n, u: self._app.add_subscription(n, u))
+        self._app.present_dialog(dialog)
+
+    def open_routing_import(self, rows, on_confirm) -> None:
+        from src.ui.dialogs.routing_import import RoutingImportDialog
+
+        self._app.present_dialog(RoutingImportDialog(rows, on_confirm))
+
+
 class TengaApplication(Adw.Application):
     """Application object owning the window, global actions and signals."""
 
@@ -85,27 +182,20 @@ class TengaApplication(Adw.Application):
         self._with_tray = with_tray
         self._signal_source_ids: list[int] = []
         self._window: MainWindow | None = None
-        self._latency_runner: LatencyRunner | None = None
-        self._latency_refresh_id: int | None = None
-        self._latency_probe: Callable[[int], int] | None = None
-        self._ping_progress: PingProgress | None = None
-        self._subscription_updater: Callable[[int, str], int] | None = None
-        self._subscriptions_thread = None
-        self._subscription_busy = False
-        # Предложения сменить адрес подписки: копятся в фоновом потоке,
-        # показываются в главном, по одному и только с подтверждением.
-        self._url_proposals: list = []
-        self._profile_activation_handler: Callable[[int], None] | None = None
-        self._connection_service = None
-        self._connection_thread = None
         self._dialog = None
-        self._failover: FailoverController | None = None
-        self._release_fetcher: Callable[[], object] | None = None
-        self._core_update_thread = None
-        self._app_update_thread = None
-        self._app_release_fetcher = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
+        self.controller = self._make_controller()
+
+    def _make_controller(self) -> AppController:
+        return AppController(
+            self.context,
+            _GtkShell(self),
+            GLibLoop(),
+            network_available=_network_available,
+            # Лямбда, а не ссылка: тесты подменяют `app_version` в этом модуле.
+            app_version=lambda: app_version(),
+        )
 
     # Жизненный цикл
 
@@ -126,167 +216,13 @@ class TengaApplication(Adw.Application):
             self._window = MainWindow(application=self, context=self.context)
         self._window.present()
         self.resume_monitoring()
-        self._refresh_core_releases_if_due()
-        self._refresh_app_releases_if_due()
-
-    def set_app_release_fetcher(self, fetcher) -> None:
-        self._app_release_fetcher = fetcher
-
-    def _refresh_app_releases_if_due(self) -> None:
-        from src.core.app_update import CHECK_INTERVAL_SECONDS, check_app_update
-
-        context = self.context
-        config = context.config
-        if (
-            self._app_release_fetcher is None
-            or not config.app_update_enabled
-            or (self._app_update_thread and self._app_update_thread.is_alive())
-            or (
-                config.app_update_last_attempt
-                and time.time() - config.app_update_last_attempt < CHECK_INTERVAL_SECONDS
-            )
-        ):
-            return
-
-        def work():
-            return check_app_update(
-                config,
-                app_version(),
-                fetch=self._app_release_fetcher,
-            )
-
-        def done(release):
-            if release and config.app_update_notified != release.version:
-                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
-                config.app_update_notified = release.version
-            context.save_config()
-
-        self._app_update_thread = run_in_background(
-            work,
-            on_done=done,
-            on_error=lambda _error: context.save_config(),
-            name="tenga-app-update",
-        )
+        self.controller.refresh_core_releases_if_due()
+        self.controller.refresh_app_releases_if_due()
 
     def do_open(self, files, _n_files, _hint) -> None:
         self.activate()
         for source in files:
             self.import_app_link(source.get_uri())
-
-    def import_app_link(self, raw: str) -> None:
-        from src.fmt.app_links import parse_app_link
-        from src.ui.dialogs.subscription import SubscriptionDialog
-
-        try:
-            link = parse_app_link(raw, exceptions=self.context.config.sub_source_exceptions)
-        except ValueError as error:
-            self.toast(str(error))
-            return
-        if link.operation == "unsupported":
-            self.toast("VK-туннель пока не поддерживается в десктопной версии")
-        elif link.operation == "subscription":
-            dialog = SubscriptionDialog()
-            dialog.name_row.set_text(link.name)
-            dialog.url_row.set_text(link.url)
-            dialog.connect(
-                "subscription-ready", lambda _d, name, url: self.add_subscription(name, url)
-            )
-            self.present_dialog(dialog)
-        else:
-            from src.ui.dialogs.routing_import import RoutingImportDialog
-            from src.ui.logic.routing_import import effective_routing, import_rows
-
-            config, config_dir = self.context.config, self.context.config_dir
-            rows = import_rows(
-                effective_routing(config.routing, config_dir),
-                link.routing,
-                name=link.name,
-                direct_default=link.direct_default,
-            )
-            self.present_dialog(
-                RoutingImportDialog(rows, lambda: self._apply_routing_import(link.routing))
-            )
-
-    def resume_monitoring(self) -> None:
-        """Start watching a proxy that is already running.
-
-        Наблюдение запускает подключение, но приложение может открыться при
-        уже поднятом прокси — тогда проверки не шли бы вовсе, и страница
-        мониторинга показывала бы «Недоступен» при работающем соединении.
-        """
-        monitor = self.context.monitor
-        if monitor is None or not self.context.proxy_state.is_running:
-            return
-        monitor.start()
-
-    def set_release_fetcher(self, fetch: Callable[[], object] | None) -> None:
-        """Install the function asking GitHub about core releases.
-
-        Без неё приложение в сеть за релизами не ходит: её ставит только
-        `run_app`, поэтому тесты и встраивание остаются без сетевых запросов.
-        """
-        self._release_fetcher = fetch
-
-    def _refresh_core_releases_if_due(self) -> None:
-        if not self.context.config.core_update_enabled:
-            return
-        """Remember the newest core releases, at most once in a few days.
-
-        Только запоминает: о новой версии говорит страница «О программе».
-        """
-        fetch = self._release_fetcher
-        config = self.context.config
-        if fetch is None or not is_check_due(config, time.time()):
-            return
-        if self._core_update_thread is not None and self._core_update_thread.is_alive():
-            return
-
-        self._core_update_thread = run_in_background(
-            lambda: refresh_known_releases(config, now=time.time(), fetch=fetch),
-            on_done=lambda _releases: self.context.save_config(),
-            # Нет сети — спросим при следующем запуске.
-            on_error=lambda _error: None,
-            name="tenga-core-update",
-        )
-
-    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
-        if self._core_update_thread is not None:
-            self._core_update_thread.join(timeout)
-
-        context = GLib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
-
-    def watch_monitor(self) -> None:
-        """Hand the monitor's verdicts to the failover controller.
-
-        Контроллер сам смотрит в настройки и при выключенном автопереключении
-        ничего не делает, поэтому подписка ставится безусловно.
-        """
-        monitor = self.context.monitor
-        if monitor is None:
-            return
-
-        self._failover = FailoverController(
-            self.context,
-            switch_to=self.connect_profile,
-            notify=self.notify_user,
-            network_available=_network_available,
-        )
-        monitor.set_on_status_changed(self._failover.handle_status)
-
-    def notify_user(self, text: str) -> None:
-        """Tell the user something they must not miss.
-
-        Тост виден только в открытом окне, а приложение обычно свёрнуто в
-        трей — поэтому сообщение дублируется уведомлением рабочего стола.
-        """
-        self.last_notification_for_test = text
-        self.toast(text)
-
-        notification = Gio.Notification.new("Veblock")
-        notification.set_body(text)
-        self.send_notification(FAILOVER_NOTIFICATION_ID, notification)
 
     def do_shutdown(self) -> None:
         # Выход по SIGTERM не эмитирует close-request, поэтому геометрия
@@ -296,8 +232,7 @@ class TengaApplication(Adw.Application):
 
         # Ядро гасится до снятия блокировки: иначе следующий экземпляр
         # запустится, пока этот ещё держит TUN-интерфейс.
-        if self._connection_service is not None:
-            self._connection_service.shutdown(self._connection_thread)
+        self.controller.shutdown()
 
         self.stop_tray()
 
@@ -314,16 +249,19 @@ class TengaApplication(Adw.Application):
     # Действия
 
     def _register_actions(self) -> None:
+        # Лямбды, а не связанные методы: `reset_for_tests` создаёт новый
+        # контроллер, и действия должны разыменовывать `self.controller`
+        # в момент вызова, иначе кликали бы в контроллер прежнего контекста.
         handlers: dict[str, Callable[[], None]] = {
-            "connect": self._connect_selected,
-            "disconnect": self.disconnect_proxy,
-            "toggle-connection": self._toggle_connection,
+            "connect": lambda: self.controller.connect_selected(),
+            "disconnect": lambda: self.controller.disconnect_proxy(),
+            "toggle-connection": lambda: self.controller.toggle_connection(),
             "add-profile": self._open_add_profile,
             "add-profile-from-clipboard": self._add_profile_from_clipboard,
             "add-subscription": self._open_add_subscription,
             "add-group": self._open_add_group,
-            "refresh-subscriptions": self._refresh_subscriptions,
-            "test-latency": self._test_latency,
+            "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
+            "test-latency": lambda: self.controller.test_latency(),
             "search": self._toggle_search,
             "settings": self._open_settings,
             "about": self._open_about,
@@ -331,20 +269,20 @@ class TengaApplication(Adw.Application):
             "quit": self.quit,
             "hide-window": self._hide_window,
             "activate-window": self._activate_window,
-            "restore-routing": self.restore_routing,
+            "restore-routing": lambda: self.controller.restore_routing(),
         }
 
         for name, handler in handlers.items():
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _action, _param, fn=handler: fn())
             self.add_action(action)
-        self._sync_restore_routing()
+        self.controller.sync_restore_routing()
 
         # Действие с параметром: трей адресует конкретный профиль числом, как
         # это делают строчные действия окна.
         connect_profile = Gio.SimpleAction.new("connect-profile", GLib.VariantType.new("i"))
         connect_profile.connect(
-            "activate", lambda _action, param: self.connect_profile(param.get_int32())
+            "activate", lambda _action, param: self.controller.connect_profile(param.get_int32())
         )
         self.add_action(connect_profile)
 
@@ -375,266 +313,99 @@ class TengaApplication(Adw.Application):
         self.tray.stop()
         self.tray = None
 
-    # Подключение
+    # Делегаты контроллера: их зовут окно, трей, run_app и тесты
+
+    def set_app_release_fetcher(self, fetcher) -> None:
+        self.controller.set_app_release_fetcher(fetcher)
+
+    def set_release_fetcher(self, fetch) -> None:
+        self.controller.set_release_fetcher(fetch)
+
+    def import_app_link(self, raw: str) -> None:
+        self.controller.import_app_link(raw)
+
+    def resume_monitoring(self) -> None:
+        # Функция модуля, а не метод контроллера: тест монитора зовёт этот
+        # метод на SimpleNamespace, у которого есть только `context`.
+        resume_monitoring(self.context)
+
+    def watch_monitor(self) -> None:
+        self.controller.watch_monitor()
+
+    def notify_user(self, text: str) -> None:
+        self.controller.notify_user(text)
 
     def set_connection_service(self, service) -> None:
-        """Install the object starting and stopping the proxy."""
-        self._connection_service = service
-
-    def _ensure_connection_service(self):
-        if self._connection_service is None:
-            from src.core.connection import ConnectionService
-
-            self._connection_service = ConnectionService(self.context)
-        return self._connection_service
-
-    def _connection_busy(self) -> bool:
-        return self._connection_thread is not None and self._connection_thread.is_alive()
+        self.controller.set_connection_service(service)
 
     def connect_profile(self, profile_id: int) -> None:
-        """Start the proxy for one profile in the background."""
-        if self._latency_runner is not None and self._latency_runner.is_busy:
-            self.toast("Дождитесь завершения проверки задержки")
-            return
-        profile = self.context.profiles.get_profile(profile_id)
-        if profile is None:
-            self.toast("Профиль не найден")
-            return
-
-        if self._connection_busy():
-            # Два одновременных запуска оставили бы висящий процесс xray.
-            self.toast("Подключение уже выполняется")
-            return
-
-        if self._window is not None:
-            self._window.show_connecting(profile.name)
-        if self.tray is not None:
-            # Промежуточное состояние живёт только в UI: в proxy_state его нет,
-            # и сам по себе трей о нём не узнает.
-            self.tray.set_state(ConnectionState.CONNECTING, profile.name)
-
-        service = self._ensure_connection_service()
-        self._connection_thread = run_in_background(
-            lambda: service.connect(profile_id),
-            on_done=lambda result: self._on_connection_done(result, profile_id, profile.name),
-            on_error=self._on_connection_failed,
-            name="tenga-connect",
-        )
+        self.controller.connect_profile(profile_id)
 
     def disconnect_proxy(self) -> None:
-        """Stop the proxy in the background."""
-        if self._connection_busy():
-            self.toast("Подключение уже выполняется")
-            return
-
-        service = self._ensure_connection_service()
-        self._connection_thread = run_in_background(
-            service.disconnect,
-            on_done=lambda result: self._on_disconnection_done(result),
-            on_error=self._on_connection_failed,
-            name="tenga-disconnect",
-        )
-
-    def _connect_selected(self) -> None:
-        profile_id = self._selected_profile_id()
-        if profile_id is None:
-            # Трей и кнопка в окне без выделения подключают последний профиль.
-            last = self.context.profiles.last_used_profile()
-            profile_id = None if last is None else last.id
-        if profile_id is None:
-            self.toast("Выберите профиль в списке")
-            return
-        self.connect_profile(profile_id)
-
-    def _toggle_connection(self) -> None:
-        if self.context.proxy_state.is_running:
-            self.disconnect_proxy()
-            return
-        self._connect_selected()
-
-    def _selected_profile_id(self) -> int | None:
-        if self._window is None:
-            return None
-        return self._window.profiles_page.get_selected_profile_id()
-
-    def _on_connection_done(self, result, profile_id: int, profile_name: str) -> None:
-        if result.ok:
-            self.context.profiles.mark_used(profile_id)
-            self._save_profiles()
-            self.toast(f"Подключено: {profile_name}")
-        else:
-            self.toast(f"Не удалось подключиться: {result.error}")
-            if self._window is not None:
-                self._window.show_error(result.error)
-            if self.tray is not None:
-                self.tray.set_state(ConnectionState.ERROR, "")
-
-        self._refresh_window()
-
-    def _on_disconnection_done(self, result) -> None:
-        if result.ok:
-            self.toast("Отключено")
-        else:
-            self.toast(f"Не удалось отключиться: {result.error}")
-        self._refresh_window()
-
-    def _on_connection_failed(self, error: BaseException) -> None:
-        self.toast(f"Ошибка подключения: {error}")
-        if self._window is not None:
-            self._window.show_error(str(error))
-        if self.tray is not None:
-            self.tray.set_state(ConnectionState.ERROR, "")
-        self._refresh_window()
-
-    def _refresh_window(self) -> None:
-        if self._window is not None:
-            self._window.refresh_status()
-            self._window.refresh_pages()
-
-    # Изменение данных
+        self.controller.disconnect_proxy()
 
     def add_profile_from_bean(self, bean, group_id: int | None = None):
-        """Store a parsed profile and persist it."""
-        entry = self.context.profiles.add_profile(bean, group_id=group_id)
-        self._save_profiles()
-        self._refresh_pages()
-        self.toast(f"Профиль добавлен: {entry.name}")
-        return entry
+        return self.controller.add_profile_from_bean(bean, group_id=group_id)
 
     def delete_profile(self, profile_id: int) -> None:
-        """Remove one profile."""
-        profile = self.context.profiles.get_profile(profile_id)
-        if profile is None:
-            self.toast("Профиль не найден")
-            return
-
-        name = profile.name
-        self.context.profiles.remove_profile(profile_id)
-        self._save_profiles()
-        self._refresh_pages()
-        self.toast(f"Профиль удалён: {name}")
+        self.controller.delete_profile(profile_id)
 
     def add_subscription(self, name: str, url: str):
-        """Create a subscription group and fetch it right away."""
-        try:
-            group = self.context.profiles.find_subscription_group(
-                url, exceptions=self.context.config.sub_source_exceptions
-            )
-        except RuntimeError as error:
-            self.toast(str(error))
-            return None
-        if group is not None:
-            self.context.profiles.current_group_id = group.id
-            self._refresh_pages()
-            self.update_subscription(group.id)
-            return group
-        group = self.context.profiles.add_group(name, is_subscription=True)
-        group.subscription_url = url
-        self._save_profiles()
-        self._refresh_pages()
-        self.update_subscription(group.id)
-        return group
+        return self.controller.add_subscription(name, url)
 
     def add_group(self, name: str):
-        """Create a plain group."""
-        group = self.context.profiles.add_group(name)
-        self._save_profiles()
-        self._refresh_pages()
-        self.toast(f"Группа добавлена: {name}")
-        return group
+        return self.controller.add_group(name)
 
     def update_group(self, group_id: int, *, name: str, url: str | None = None):
-        """Rename a group and optionally change its subscription address."""
-        group = self.context.profiles.get_group(group_id)
-        if group is None:
-            self.toast("Группа не найдена")
-            return None
-
-        group.name = name
-        if url is not None:
-            group.subscription_url = url
-        self._save_profiles()
-        self._refresh_pages()
-        return group
+        return self.controller.update_group(group_id, name=name, url=url)
 
     def delete_group(self, group_id: int) -> None:
-        """Remove a group together with its profiles."""
-        group = self.context.profiles.get_group(group_id)
-        if group is None:
-            self.toast("Группа не найдена")
-            return
-
-        name = group.name
-        self.context.profiles.remove_group(group_id)
-        self._save_profiles()
-        self._refresh_pages()
-        self.toast(f"Удалено: {name}")
+        self.controller.delete_group(group_id)
 
     def save_profiles(self) -> None:
-        """Persist the profile store after an external edit."""
-        self._save_profiles()
-        self._refresh_pages()
-        if self._window is not None:
-            self._window.refresh_status()
+        self.controller.save_profiles()
 
     def apply_settings(self) -> bool:
-        """Persist settings; runtime changes await an explicit reconnect."""
-        try:
-            if not self.context.save_config():
-                raise OSError("Запись настроек не выполнена")
-        except Exception as error:
-            logger.warning("Could not persist settings: %s", error)
-            self.toast("Не удалось сохранить настройки")
-            return False
-        monitor = self.context.monitor
-        if monitor is not None and self.context.proxy_state.is_running:
-            monitor.stop()
-            monitor.start()
-        if self._window is not None:
-            self._window.refresh_status()
-        return True
-
-    def _apply_routing_import(self, routing) -> None:
-        from src.ui.logic.routing_import import apply_import
-
-        apply_import(self.context.config, routing, self.context.config_dir)
-        if self.apply_settings():
-            self._sync_restore_routing()
-            self.toast(
-                "Маршрутизация импортирована", button="Вернуть", action="app.restore-routing"
-            )
+        return self.controller.apply_settings()
 
     def restore_routing(self) -> None:
-        """Вернуть общую маршрутизацию до последнего импорта ссылкой."""
-        from src.ui.logic.routing_import import restore_backup
-
-        if not restore_backup(self.context.config):
-            return
-        if self.apply_settings():
-            self.toast("Маршрутизация до импорта возвращена")
-        self._sync_restore_routing()
-
-    def _sync_restore_routing(self) -> None:
-        action = self.lookup_action("restore-routing")
-        if action is not None:
-            action.set_enabled(self.context.config.routing_backup is not None)
+        self.controller.restore_routing()
 
     def reconnect_current(self) -> None:
-        state = self.context.proxy_state
-        if state.is_running:
-            self.connect_profile(state.started_profile_id)
+        self.controller.reconnect_current()
 
-    def _save_profiles(self) -> None:
-        try:
-            if not self.context.save_profiles():
-                raise OSError("Запись профилей не выполнена")
-        except Exception as e:
-            logger.warning("Could not persist profiles: %s", e)
-            self.toast("Не удалось сохранить профили")
+    def set_latency_probe(self, probe) -> None:
+        self.controller.set_latency_probe(probe)
 
-    def _refresh_pages(self) -> None:
-        if self._window is not None:
-            self._window.refresh_pages()
+    def set_subscription_updater(self, updater) -> None:
+        self.controller.set_subscription_updater(updater)
+
+    def set_profile_activation_handler(self, handler) -> None:
+        self.controller.set_profile_activation_handler(handler)
+
+    def select_profile(self, profile_id: int) -> None:
+        self.controller.select_profile(profile_id)
+
+    def update_subscription(self, group_id: int) -> None:
+        self.controller.update_subscription(group_id)
+
+    def keep_working_profiles(self, group_id: int) -> None:
+        self.controller.keep_working_profiles(group_id)
+
+    def test_latency_for(self, profile_id: int) -> None:
+        self.controller.test_latency_for(profile_id)
+
+    def test_latency_for_group(self, group_id: int) -> None:
+        self.controller.test_latency_for_group(group_id)
+
+    # Имена с подчёркиванием читают существующие тесты.
+
+    def _default_subscription_updater(self, group_id: int, url: str) -> int:
+        return self.controller.default_subscription_updater(group_id, url)
+
+    @property
+    def _app_update_thread(self):
+        return self.controller.app_update_thread
 
     # Диалоги
 
@@ -700,10 +471,6 @@ class TengaApplication(Adw.Application):
         dialog.connect("settings-saved", lambda _d: self.apply_settings())
         self.present_dialog(dialog)
 
-    def _save_and_apply(self, dialog) -> None:
-        if dialog.save() is not False:
-            self.apply_settings()
-
     def _open_about(self) -> None:
         core = core_version(getattr(self.context, "xray_manager", None))
         dialog = Adw.AboutDialog(
@@ -724,407 +491,7 @@ class TengaApplication(Adw.Application):
 
         self.present_dialog(ShortcutsDialog())
 
-    def wait_for_connection_for_test(self, timeout: float = 10.0) -> None:
-        if self._connection_thread is not None:
-            self._connection_thread.join(timeout)
-
-        context = GLib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
-
     # Действия страниц
-
-    def set_latency_probe(self, probe: Callable[[int], int]) -> None:
-        """Install the function measuring one profile's latency.
-
-        Проба передаётся снаружи: она живёт на уровне ядра и требует запуска
-        временного xray, а окно не должно знать об этом.
-        """
-        self._latency_probe = probe
-        self._latency_runner = LatencyRunner(probe)
-
-    def set_subscription_updater(self, updater: Callable[[int, str], int]) -> None:
-        """Install the function refreshing one subscription group."""
-        self._subscription_updater = updater
-
-    def set_profile_activation_handler(self, handler: Callable[[int], None]) -> None:
-        """Install what happens when a profile row is activated."""
-        self._profile_activation_handler = handler
-
-    def select_profile(self, profile_id: int) -> None:
-        """Connect to a profile activated on the profiles page."""
-        if self._profile_activation_handler is not None:
-            self._profile_activation_handler(profile_id)
-            return
-        self.connect_profile(profile_id)
-
-    def update_subscription(self, group_id: int) -> None:
-        """Refresh one subscription group in the background."""
-        if self._subscription_busy or (
-            self._latency_runner is not None and self._latency_runner.is_busy
-        ):
-            self.toast("Обновление подписок или проверка задержки уже выполняется")
-            return
-        group = self.context.profiles.get_group(group_id)
-        if group is None or not group.subscription_url:
-            self.toast("У подписки нет адреса")
-            return
-
-        updater = self._subscription_updater or self._default_subscription_updater
-        url = group.subscription_url
-
-        def work() -> int:
-            try:
-                return updater(group_id, url)
-            except Exception:
-                self._propose_fallback_url(group_id, url)
-                raise
-
-        self._subscription_busy = True
-        self.toast(f"Обновляю: {group.name}")
-        self._subscriptions_thread = run_in_background(
-            work,
-            on_done=self._on_subscriptions_updated,
-            on_error=self._on_subscriptions_failed,
-            name="tenga-subscription",
-        )
-
-    def _default_subscription_updater(self, group_id: int, url: str) -> int:
-        from src.sub.route import local_proxy_url
-        from src.sub.updater import SubscriptionUpdater
-        from src.sub.url_change import REASON_NEW_URL, propose_url_change
-
-        context = self.context
-        updater = SubscriptionUpdater(
-            config=context.config,
-            profiles=context.profiles,
-            proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
-        )
-        beans = updater.update(url, group_id)
-
-        proposal = propose_url_change(group_id, url, updater.new_url, REASON_NEW_URL)
-        if proposal is not None:
-            self._url_proposals.append(proposal)
-        return len(beans)
-
-    def _propose_fallback_url(self, group_id: int, url: str) -> None:
-        """Queue the provider's fallback address after a failed update."""
-        from src.sub.url_change import REASON_FALLBACK_URL, propose_url_change
-
-        group = self.context.profiles.get_group(group_id)
-        if group is None:
-            return
-        proposal = propose_url_change(group_id, url, group.sub_fallback_url, REASON_FALLBACK_URL)
-        if proposal is not None:
-            self._url_proposals.append(proposal)
-
-    def _offer_url_change(self) -> None:
-        """Ask about one queued address change; the rest come back with the next update."""
-        if not self._url_proposals:
-            return
-        proposal = self._url_proposals[0]
-        self._url_proposals.clear()
-
-        group = self.context.profiles.get_group(proposal.group_id)
-        if group is None or self._window is None:
-            return
-
-        from src.ui.dialogs.confirm import build_url_change_confirmation
-
-        heading, body = describe_url_change(group.name, group.subscription_url, proposal)
-        self.present_dialog(
-            build_url_change_confirmation(heading, body, lambda: self._apply_url_change(proposal))
-        )
-
-    def _apply_url_change(self, proposal) -> None:
-        """Switch the subscription to the confirmed address and refresh it."""
-        group = self.context.profiles.get_group(proposal.group_id)
-        if group is None:
-            return
-        try:
-            collision = self.context.profiles.find_subscription_group(
-                proposal.new_url, exceptions=self.context.config.sub_source_exceptions
-            )
-        except RuntimeError as error:
-            self.toast(str(error))
-            return
-        if collision is not None and collision.id != group.id:
-            self.toast("Этот адрес уже используется другой подпиской")
-            return
-        self.update_group(proposal.group_id, name=group.name, url=proposal.new_url)
-        self.update_subscription(proposal.group_id)
-
-    def _ensure_latency_runner(self) -> LatencyRunner:
-        if self._latency_runner is None:
-            if self._latency_probe is not None:
-                self._latency_runner = LatencyRunner(self._latency_probe)
-            else:
-                # Весь набор меряет один временный процесс ядра.
-                self._latency_runner = LatencyRunner(batch_probe=make_batch_probe(self.context))
-        return self._latency_runner
-
-    def _can_probe(self) -> bool:
-        from src.db.config import ProxyMode
-
-        state = self.context.proxy_state
-        if state.is_running and state.started_mode == ProxyMode.TUN:
-            self.toast(
-                "Замер при активном TUN недоступен: независимый маршрут не обеспечен. Отключите TUN для проверки."
-            )
-            return False
-        if self._subscription_busy:
-            self.toast("Дождитесь обновления подписок")
-            return False
-        return True
-
-    def keep_working_profiles(self, group_id: int) -> None:
-        from src.ui.dialogs.confirm import build_delete_confirmation
-        from src.ui.logic.latency import failed_profile_ids
-
-        if not self._can_probe():
-            return
-        store = self.context.profiles
-
-        def signature():
-            return [(p.id, p.bean.to_share_link()) for p in store.get_profiles_in_group(group_id)]
-
-        before = signature()
-        ids = [profile_id for profile_id, _link in before]
-        if not ids:
-            return
-        results = {}
-        runner = self._ensure_latency_runner()
-
-        def result(profile_id, value):
-            results[profile_id] = value
-            self._on_latency_result(profile_id, value)
-
-        def finished():
-            self._on_latency_done()
-            if (
-                signature() != before
-                or not runner.last_run_complete
-                or not Gio.NetworkMonitor.get_default().get_network_available()
-            ):
-                self.toast("Фильтрация отменена: неполный замер, нет сети или группа изменилась")
-                return
-            removable = failed_profile_ids(
-                ids, results, complete=True, active_id=self.context.proxy_state.started_profile_id
-            )
-            working = sum(value >= 0 for value in results.values())
-            if not removable:
-                self.toast(f"Рабочих: {working} из {len(ids)}. Профили не удалены")
-                return
-
-            def remove():
-                if signature() != before or self._subscription_busy or runner.is_busy:
-                    self.toast("Группа изменилась; повторите проверку")
-                    return
-                for profile_id in removable:
-                    if profile_id != self.context.proxy_state.started_profile_id:
-                        store.remove_profile(profile_id)
-                self.save_profiles()
-
-            self.present_dialog(
-                build_delete_confirmation(
-                    "Оставить рабочие профили?",
-                    f"Рабочих: {working} из {len(ids)}. Будет удалено: {len(removable)}. Активный профиль сохраняется.",
-                    remove,
-                    confirm_label="Оставить рабочие",
-                )
-            )
-
-        if not runner.run(ids, on_result=result, on_done=finished):
-            self.toast("Проверка задержки уже идёт")
-
-    def _test_latency(self) -> None:
-        if not self._can_probe():
-            return
-        profile_ids = list(self.context.profiles.profiles)
-        if not profile_ids:
-            self.toast("Нет профилей для проверки")
-            return
-
-        runner = self._ensure_latency_runner()
-        started = runner.run(
-            profile_ids,
-            on_result=self._on_latency_result,
-            on_done=self._on_latency_done,
-        )
-        if not started:
-            self.toast("Проверка задержки уже идёт")
-            return
-
-        by_group: dict[int, list[int]] = {}
-        for profile_id in profile_ids:
-            profile = self.context.profiles.get_profile(profile_id)
-            if profile is not None:
-                by_group.setdefault(profile.group_id, []).append(profile_id)
-        self._show_ping_progress(PingProgress(by_group))
-        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
-
-    def test_latency_for(self, profile_id: int) -> None:
-        """Measure the latency of one profile."""
-        if not self._can_probe():
-            return
-        if self.context.profiles.get_profile(profile_id) is None:
-            self.toast("Профиль не найден")
-            return
-
-        runner = self._ensure_latency_runner()
-        started = runner.run(
-            [profile_id],
-            on_result=self._on_latency_result,
-            on_done=self._on_latency_done,
-        )
-        if not started:
-            self.toast("Проверка задержки уже идёт")
-
-    def test_latency_for_group(self, group_id: int) -> None:
-        """Measure the latency of one group, ordering rows as results arrive."""
-        if not self._can_probe():
-            return
-        store = self.context.profiles
-        if store.get_group(group_id) is None:
-            self.toast("Группа не найдена")
-            return
-
-        profile_ids = [profile.id for profile in store.get_profiles_in_group(group_id)]
-        if not profile_ids:
-            self.toast("В группе нет профилей")
-            return
-
-        # Пинг группы — единственный случай, когда порядок строк говорит о
-        # результате: список пересортировывается по задержке, пока идёт замер.
-        if self._window is not None:
-            self._window.profiles_page.set_sort(SortKey.PING, ascending=True)
-
-        runner = self._ensure_latency_runner()
-        started = runner.run(
-            profile_ids,
-            on_result=self._on_latency_result_live,
-            on_done=self._on_latency_done,
-        )
-        if not started:
-            self.toast("Проверка задержки уже идёт")
-            return
-
-        self._show_ping_progress(PingProgress({group_id: profile_ids}))
-        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
-
-    def _show_ping_progress(self, progress: PingProgress | None) -> None:
-        """Hand the progress of a run to the group rows; None hides it."""
-        self._ping_progress = progress
-        if self._window is not None:
-            self._window.profiles_page.set_ping_progress(progress)
-
-    def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
-        profile = self.context.profiles.get_profile(profile_id)
-        if profile is not None:
-            profile.latency_ms = latency_ms
-
-        if self._ping_progress is None:
-            return
-        group_id = self._ping_progress.record(profile_id)
-        if group_id is not None and self._window is not None:
-            self._window.profiles_page.update_group_progress(group_id)
-
-    def _on_latency_result_live(self, profile_id: int, latency_ms: int) -> None:
-        """Store one result and schedule a re-sort of the list.
-
-        Перерисовка склеивается по таймеру: список должен пересортировываться
-        по ходу замера, но на группе в сотни профилей построчный refresh занял
-        бы секунды главного цикла и превратил бы обновление в рывки.
-        """
-        self._on_latency_result(profile_id, latency_ms)
-        self._schedule_latency_refresh()
-
-    def _schedule_latency_refresh(self) -> None:
-        if self._window is None or self._latency_refresh_id is not None:
-            return
-
-        def _redraw() -> bool:
-            self._latency_refresh_id = None
-            if self._window is not None:
-                self._window.refresh_pages()
-            return GLib.SOURCE_REMOVE
-
-        self._latency_refresh_id = GLib.timeout_add(LATENCY_REFRESH_INTERVAL_MS, _redraw)
-
-    def _cancel_latency_refresh(self) -> None:
-        if self._latency_refresh_id is not None:
-            GLib.source_remove(self._latency_refresh_id)
-            self._latency_refresh_id = None
-
-    def _on_latency_done(self) -> None:
-        # Итоговая перерисовка всё равно будет ниже: отложенная только
-        # продублировала бы её уже после сохранения.
-        self._cancel_latency_refresh()
-        self._show_ping_progress(None)
-        try:
-            self.context.save_profiles()
-        except Exception as e:
-            logger.warning("Could not persist latency results: %s", e)
-
-        if self._window is not None:
-            self._window.refresh_pages()
-        self.toast("Проверка задержки завершена")
-
-    def _refresh_subscriptions(self) -> None:
-        if self._subscription_busy or (
-            self._latency_runner is not None and self._latency_runner.is_busy
-        ):
-            self.toast("Обновление подписок или проверка задержки уже выполняется")
-            return
-        groups = [
-            group
-            for group in self.context.profiles.groups.values()
-            if group.is_subscription and group.subscription_url
-        ]
-        if not groups:
-            self.toast("Подписок нет")
-            return
-
-        updater = self._subscription_updater or self._default_subscription_updater
-        targets = [(group.id, group.subscription_url) for group in groups]
-
-        def work() -> int:
-            total = 0
-            for group_id, url in targets:
-                try:
-                    total += updater(group_id, url)
-                except Exception as e:
-                    logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
-                    self._propose_fallback_url(group_id, url)
-            return total
-
-        self._subscription_busy = True
-        self.toast(f"Обновляю подписки: {len(targets)}")
-        self._subscriptions_thread = run_in_background(
-            work,
-            on_done=self._on_subscriptions_updated,
-            on_error=self._on_subscriptions_failed,
-            name="tenga-subscriptions",
-        )
-
-    def _on_subscriptions_updated(self, total: int) -> None:
-        self._subscription_busy = False
-        try:
-            self.context.save_profiles()
-        except Exception as e:
-            logger.warning("Could not persist updated subscriptions: %s", e)
-
-        if self._window is not None:
-            self._window.refresh_pages()
-        self.toast(f"Обновлено профилей: {total}")
-        self._offer_url_change()
-
-    def _on_subscriptions_failed(self, error: BaseException) -> None:
-        self._subscription_busy = False
-        sent = self.context.config.sub_send_device_info
-        reason = describe_update_error(error, device_info_sent=sent)
-        self.toast(f"Не удалось обновить подписки: {reason}")
-        self._offer_url_change()
 
     def _toggle_search(self) -> None:
         if self._window is not None:
@@ -1133,22 +500,32 @@ class TengaApplication(Adw.Application):
     # Ожидание фоновых задач: только для тестов, в рабочем коде всё идёт
     # через главный цикл.
 
+    def wait_for_core_update_for_test(self, timeout: float = 10.0) -> None:
+        thread = self.controller.core_update_thread
+        if thread is not None:
+            thread.join(timeout)
+        self._drain_main_context()
+
+    def wait_for_connection_for_test(self, timeout: float = 10.0) -> None:
+        thread = self.controller.connection_thread
+        if thread is not None:
+            thread.join(timeout)
+        self._drain_main_context()
+
     def wait_for_latency_for_test(self, timeout: float = 10.0) -> None:
-        from gi.repository import GLib
-
-        if self._latency_runner is not None:
-            self._latency_runner.wait(timeout)
-
-        context = GLib.MainContext.default()
-        while context.pending():
-            context.iteration(False)
+        runner = self.controller.latency_runner
+        if runner is not None:
+            runner.wait(timeout)
+        self._drain_main_context()
 
     def wait_for_subscriptions_for_test(self, timeout: float = 10.0) -> None:
-        from gi.repository import GLib
+        thread = self.controller.subscriptions_thread
+        if thread is not None:
+            thread.join(timeout)
+        self._drain_main_context()
 
-        if self._subscriptions_thread is not None:
-            self._subscriptions_thread.join(timeout)
-
+    @staticmethod
+    def _drain_main_context() -> None:
         context = GLib.MainContext.default()
         while context.pending():
             context.iteration(False)
@@ -1196,25 +573,12 @@ class TengaApplication(Adw.Application):
             self._window = None
         if context is not None:
             self.context = context
-        self._latency_runner = None
-        self._latency_probe = None
-        self._subscription_updater = None
-        self._subscriptions_thread = None
-        self._subscription_busy = False
-        self._url_proposals = []
-        self._profile_activation_handler = None
-        self._connection_service = None
-        self._connection_thread = None
+        self.controller = self._make_controller()
         self._dialog = None
-        self._failover = None
-        self._release_fetcher = None
-        self._core_update_thread = None
-        self._app_update_thread = None
-        self._app_release_fetcher = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
         # Действие пережило бы смену контекста с состоянием прежнего.
-        self._sync_restore_routing()
+        self.controller.sync_restore_routing()
 
     def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
         """Show a message in the window, if there is one."""
