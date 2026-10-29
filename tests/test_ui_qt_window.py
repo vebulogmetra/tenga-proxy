@@ -12,7 +12,7 @@ from src.core.context import AppContext
 from src.fmt import parse_link
 from src.ui.qt.application import QtApplication
 from src.ui.qt.dialogs.profile import AddProfileDialog
-from src.ui.qt.models import ADDRESS_COLUMN, EXPIRED_COLOR
+from src.ui.qt.models import ADDRESS_COLUMN, EXPIRED_COLOR, NAME_COLUMN
 from tests.support.qt import process_events, wait_until
 
 pytestmark = pytest.mark.qt
@@ -139,7 +139,9 @@ def test_subscription_details_are_in_the_group_row(made):
     made.activate()
 
     row = made.window.model.group_index(group.id).row()
-    cell = made.window.model.item(row, ADDRESS_COLUMN)
+    cell = made.window.model.item(row, NAME_COLUMN)
+    assert made.window.model.item(row, ADDRESS_COLUMN).text() == ""
+    assert made.window.tree.isFirstColumnSpanned(row, cell.index().parent())
 
     assert " из " in cell.text()
     assert "истекла" in cell.text()
@@ -212,9 +214,13 @@ def test_journal_is_read_in_the_background(made, tmp_path):
 
 def test_journal_reads_only_while_visible(made, tmp_path):
     panel, _logs = _diagnostics(made, tmp_path)
+    assert not panel.active
+    made.window.show_diagnostics()
     assert panel.active
 
     made.window.monitoring_button.setChecked(False)
+    assert panel.active
+    made.window.diagnostics_window.close()
     assert not panel.active
 
 
@@ -239,3 +245,75 @@ def test_clear_asks_and_removes_the_files(made, tmp_path):
 
     # Открытые журналы обрезаются, а не удаляются: в них пишут обработчики.
     wait_until(lambda: (logs / "tenga_gui.log").read_text(encoding="utf-8") == "")
+
+
+@pytest.mark.parametrize("size", [(900, 600), (1180, 760), (1920, 1080)])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_layout_keeps_the_primary_action_compact(made, size, theme):
+    from src.ui.qt.theme import apply_theme
+
+    apply_theme(theme)
+    group = made.context.profiles.add_group("Тестовая подписка", is_subscription=True)
+    group.sub_user_info = "upload=0; download=1073741824; total=2147483648"
+    for number in range(12):
+        _profile(made, f"🇩🇪 Берлин — тестовый сервер {number}", group_id=group.id)
+    made.activate()
+    window = made.window
+    window.showNormal()
+    window.resize(*size)
+    process_events()
+    card = window.status_card
+    assert card.button.width() < 240
+    assert card.title.width() >= card.title.fontMetrics().horizontalAdvance(card.title.text())
+    assert card.button.geometry().right() < card.width()
+    assert not window.empty_label.isVisible()
+
+    # Optional local visual evidence, using synthetic profiles only.
+    import os
+    from pathlib import Path
+
+    if output := os.environ.get("VEBLOCK_QT_SCREENSHOTS"):
+        path = Path(output)
+        path.mkdir(parents=True, exist_ok=True)
+        assert window.grab().save(str(path / f"main-{theme}-{size[0]}.png"))
+
+
+def test_empty_search_has_an_explanation(made):
+    _profile(made)
+    made.activate()
+    made.window.search.setText("несуществующий сервер")
+    assert made.window.empty_label.isVisible()
+    assert "Ничего не найдено" in made.window.empty_label.text()
+    made.window.search.clear()
+    assert not made.window.empty_label.isVisible()
+
+
+def test_journal_wrap_is_optional(made):
+    from PySide6.QtWidgets import QPlainTextEdit
+
+    made.activate()
+    panel = made.window.diagnostics
+    assert panel.view.lineWrapMode() == QPlainTextEdit.LineWrapMode.NoWrap
+    panel.wrap_button.setChecked(True)
+    assert panel.view.lineWrapMode() == QPlainTextEdit.LineWrapMode.WidgetWidth
+
+
+def test_journal_refresh_preserves_reading_position(made, tmp_path, monkeypatch):
+    panel, _logs = _diagnostics(made, tmp_path)
+    made.window.show_diagnostics()
+    wait_until(lambda: not panel._busy)
+    panel.set_active(False)
+    panel.view.setPlainText("\n".join(f"Строка {i}" for i in range(200)))
+    bar = panel.view.verticalScrollBar()
+    bar.setValue(40)
+    position = bar.value()
+
+    def run(fn, on_done=None, on_error=None, *, name):
+        on_done("\n".join(f"Строка {i}" for i in range(220)))
+
+    monkeypatch.setattr(panel, "_run", run)
+    panel.refresh()
+    assert bar.value() == position
+    bar.setValue(bar.maximum())
+    panel.refresh()
+    assert bar.value() == bar.maximum()

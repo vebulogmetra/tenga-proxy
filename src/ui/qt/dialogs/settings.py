@@ -112,6 +112,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Настройки")
         self.setModal(True)
         self.resize(760, 560)
+        self.setMinimumSize(640, 440)
         self.setStyleSheet(FORM_STYLE)
         self._app = app
         self._context = app.context

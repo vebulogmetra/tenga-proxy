@@ -11,9 +11,11 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QModelIndex, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QDockWidget,
     QFormLayout,
     QFrame,
@@ -29,16 +31,19 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.logic.geometry import MIN_HEIGHT, MIN_WIDTH, Geometry, format_geometry, parse_geometry
+from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
 from src.ui.logic.monitoring_view import monitoring_view
 from src.ui.logic.profiles_view import SortKey, build_profile_rows
 from src.ui.logic.status import ConnectionState, status_view
 from src.ui.logic.subscriptions_view import build_subscription_rows
 from src.ui.qt.models import (
+    ADDRESS_COLUMN,
     GROUP,
     NAME_COLUMN,
+    PING_COLUMN,
     PROFILE,
     SORT_KEYS,
+    TYPE_COLUMN,
     ProfileTreeModel,
 )
 from src.ui.qt.widgets.diagnostics import DiagnosticsPanel
@@ -116,8 +121,10 @@ class MainWindow(QMainWindow):
         self._collapsed: set[int] = set()
 
         self.setWindowTitle("Veblock")
-        self.setMinimumSize(MIN_WIDTH, MIN_HEIGHT)
-        geometry = parse_geometry(getattr(context.config, "window_size", ""))
+        self.setMinimumSize(900, 540)
+        geometry = parse_geometry(
+            getattr(context.config, "window_size", ""), default=Geometry(1180, 760)
+        )
         self.resize(geometry.width, geometry.height)
         self._start_maximized = geometry.maximized
 
@@ -144,12 +151,18 @@ class MainWindow(QMainWindow):
             lambda: self._app.activate_action("toggle-connection")
         )
         self.monitoring_button = QToolButton()
+        self.monitoring_button.setObjectName("monitoringToggle")
         self.monitoring_button.setText("Мониторинг")
         self.monitoring_button.setCheckable(True)
         self.monitoring_button.setChecked(self._context.config.monitoring_panel)
         self.status_card.add_tool(self.monitoring_button)
         self.menu_button = QToolButton()
-        self.menu_button.setText("☰")
+        menu_icon = QIcon.fromTheme("application-menu")
+        if menu_icon.isNull():
+            self.menu_button.setText("Меню")
+        else:
+            self.menu_button.setIcon(menu_icon)
+        self.menu_button.setAccessibleName("Главное меню")
         self.menu_button.setToolTip("Главное меню")
         self.menu_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.main_menu = QMenu(self.menu_button)
@@ -159,6 +172,7 @@ class MainWindow(QMainWindow):
                 entry = self.main_menu.addAction(label)
                 entry.triggered.connect(action.trigger)
         self.menu_button.setMenu(self.main_menu)
+        self.main_menu.addAction("Журнал…", self.show_diagnostics)
         self.status_card.add_tool(self.menu_button)
         layout.addWidget(self.status_card)
 
@@ -177,11 +191,17 @@ class MainWindow(QMainWindow):
         self.tree.setModel(self.model)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setUniformRowHeights(True)
-        self.tree.setAlternatingRowColors(True)
+        self.tree.setAlternatingRowColors(False)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tree.setAllColumnsShowFocus(True)
+        self.tree.setIndentation(20)
         self.tree.header().setSectionsClickable(True)
         self.tree.header().setSortIndicatorShown(True)
         self.tree.header().setStretchLastSection(False)
         self.tree.header().setSectionResizeMode(NAME_COLUMN, self.tree.header().ResizeMode.Stretch)
+        self.tree.header().setMinimumSectionSize(80)
+        for column, width in ((TYPE_COLUMN, 135), (ADDRESS_COLUMN, 260), (PING_COLUMN, 100)):
+            self.tree.header().resizeSection(column, width)
         self.tree.header().sectionClicked.connect(self._on_header_clicked)
         self.tree.activated.connect(self._on_activated)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -189,6 +209,9 @@ class MainWindow(QMainWindow):
         self.tree.collapsed.connect(lambda index: self._remember_collapsed(index, True))
         self.tree.expanded.connect(lambda index: self._remember_collapsed(index, False))
         layout.addWidget(self.tree, 1)
+        self.empty_label = QLabel("Нет профилей. Добавьте профиль или подписку.")
+        self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.empty_label)
 
         self.toast_widget = Toast()
         layout.addWidget(self.toast_widget)
@@ -197,10 +220,11 @@ class MainWindow(QMainWindow):
         self.search = QLineEdit()
         self.search.setPlaceholderText("Поиск (Ctrl+F)")
         self.search.setClearButtonEnabled(True)
+        self.search.setAccessibleName("Поиск профилей")
         self.search.textChanged.connect(lambda _text: self.refresh_pages())
         bottom.addWidget(self.search, 1)
         self.add_button = QToolButton()
-        self.add_button.setText("Добавить")
+        self.add_button.setText("Добавить…")
         self.add_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.add_menu = QMenu(self.add_button)
         for name, label in ADD_MENU:
@@ -215,6 +239,7 @@ class MainWindow(QMainWindow):
     def _build_monitoring_dock(self) -> None:
         self.monitoring_dock = QDockWidget("Мониторинг", self)
         self.monitoring_dock.setObjectName("monitoringDock")
+        self.monitoring_dock.setMinimumWidth(240)
         self.monitoring_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable)
         body = QWidget()
         column = QVBoxLayout(body)
@@ -228,12 +253,25 @@ class MainWindow(QMainWindow):
         self.diagnostics = DiagnosticsPanel(
             dispatch=self._app.loop.dispatch, show_dialog=self._app.show_dialog
         )
-        column.addWidget(self.diagnostics, 1)
+        self.diagnostics_window = QDialog(self, Qt.WindowType.Window)
+        self.diagnostics_window.setWindowTitle("Журнал — Veblock")
+        self.diagnostics_window.resize(960, 600)
+        journal_layout = QVBoxLayout(self.diagnostics_window)
+        journal_layout.addWidget(self.diagnostics)
+        self.log_button = QPushButton("Открыть журнал…")
+        self.log_button.clicked.connect(self.show_diagnostics)
+        column.addWidget(self.log_button)
+        column.addStretch(1)
         self.monitoring_dock.setWidget(body)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.monitoring_dock)
         self.monitoring_dock.setVisible(self._context.config.monitoring_panel)
         self.monitoring_button.toggled.connect(self._on_monitoring_toggled)
         self.monitoring_dock.visibilityChanged.connect(self._on_dock_visibility)
+
+    def show_diagnostics(self) -> None:
+        self.diagnostics_window.show()
+        self.diagnostics_window.raise_()
+        self.diagnostics_window.activateWindow()
 
     # --- состояние ---
 
@@ -285,6 +323,7 @@ class MainWindow(QMainWindow):
         self.model.set_rows(rows, self._ping_progress, details)
         for position in range(self.model.rowCount()):
             index = self.model.index(position, NAME_COLUMN)
+            self.tree.setFirstColumnSpanned(position, QModelIndex(), True)
             group_id = self.model.target(index)[1]
             # Поиск раскрывает всё: совпадение в свёрнутой группе не видно.
             self.tree.setExpanded(
@@ -294,6 +333,13 @@ class MainWindow(QMainWindow):
             index = self.model.profile_index(selected)
             if index.isValid():
                 self.tree.setCurrentIndex(index)
+        has_profiles = any(row.children for row in rows)
+        self.empty_label.setVisible(not has_profiles)
+        self.empty_label.setText(
+            "Ничего не найдено. Измените запрос."
+            if self.search.text()
+            else "Нет профилей. Добавьте профиль или подписку."
+        )
         self.refresh_monitoring()
 
     def refresh_monitoring(self) -> None:
@@ -408,7 +454,6 @@ class MainWindow(QMainWindow):
         # Свёрнутое окно прячет и панель: кнопка следит только за явным закрытием.
         if not self.isMinimized() and self.isVisible():
             self.monitoring_button.setChecked(visible)
-        self.diagnostics.set_active(visible and self.isVisible())
 
     def toggle_group(self, group_id: int) -> None:
         index = self.model.group_index(group_id)
@@ -465,11 +510,11 @@ class MainWindow(QMainWindow):
             self.show()
         self.raise_()
         self.activateWindow()
-        self.diagnostics.set_active(self.monitoring_dock.isVisible())
 
     def closeEvent(self, event) -> None:
         """С треем окно прячется, без него закрытие завершает приложение."""
         self.save_geometry()
+        self.diagnostics_window.hide()
         if self._app.tray is not None and self._context.config.close_to_tray:
             event.ignore()
             self.hide()

@@ -11,11 +11,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QFontDatabase
+from PySide6.QtGui import QFont, QFontDatabase
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
+    QLabel,
     QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
@@ -67,7 +69,13 @@ class DiagnosticsPanel(QGroupBox):
         self.view.setReadOnly(True)
         # Строки журнала длинные: перенос растягивал бы панель на пол-экрана.
         self.view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.view.setFont(QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont))
+        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        families = set(QFontDatabase.families())
+        for family in ("Cascadia Mono", "Consolas"):
+            if family in families:
+                font = QFont(family, max(10, self.font().pointSize()))
+                break
+        self.view.setFont(font)
         self.view.setMinimumHeight(160)
         self.refresh_button = QPushButton("Обновить")
         self.refresh_button.clicked.connect(self.refresh)
@@ -77,15 +85,37 @@ class DiagnosticsPanel(QGroupBox):
         self.clear_button.clicked.connect(self.clear)
 
         buttons = QHBoxLayout()
+        self.wrap_button = QCheckBox("Перенос строк")
+        self.wrap_button.toggled.connect(
+            lambda checked: self.view.setLineWrapMode(
+                QPlainTextEdit.LineWrapMode.WidgetWidth
+                if checked
+                else QPlainTextEdit.LineWrapMode.NoWrap
+            )
+        )
+        buttons.addWidget(self.wrap_button)
+        buttons.addStretch(1)
         for button in (self.refresh_button, self.export_button, self.clear_button):
             buttons.addWidget(button)
         layout = QVBoxLayout(self)
+        self.status = QLabel()
+        self.status.setWordWrap(True)
+        self.status.hide()
+        layout.addWidget(self.status)
         layout.addWidget(self.view, 1)
         layout.addLayout(buttons)
 
         self._timer = QTimer(self)
         self._timer.setInterval(REFRESH_INTERVAL_MS)
         self._timer.timeout.connect(self.refresh)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.set_active(True)
+
+    def hideEvent(self, event) -> None:
+        self.set_active(False)
+        super().hideEvent(event)
 
     def _run(self, fn, on_done=None, on_error=None, *, name: str):
         def alive(callback):
@@ -117,15 +147,25 @@ class DiagnosticsPanel(QGroupBox):
 
         def done(text: str) -> None:
             self._busy = False
+            self.status.hide()
             # Прокрутка не прыгает вверх, если читатель смотрит конец журнала.
             bar = self.view.verticalScrollBar()
             at_end = bar.value() == bar.maximum()
+            position = bar.value()
+            horizontal = self.view.horizontalScrollBar().value()
+            if text == self.view.toPlainText():
+                return
             self.view.setPlainText(text)
             if at_end:
                 bar.setValue(bar.maximum())
+            else:
+                bar.setValue(position)
+            self.view.horizontalScrollBar().setValue(horizontal)
 
         def failed(_error) -> None:
             self._busy = False
+            self.status.setText("Не удалось прочитать журнал. Повторите обновление.")
+            self.status.show()
 
         self._run(lambda: read_diagnostics(self._log_dir()), done, failed, name="tenga-diag")
 

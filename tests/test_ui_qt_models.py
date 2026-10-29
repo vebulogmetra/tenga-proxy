@@ -42,9 +42,9 @@ def test_groups_hold_their_profiles(qapp):
     model.set_rows(_rows())
 
     group = model.item(0, 0)
-    assert group.text() == "Подписка"
+    assert group.text() == "Подписка  ·  Профилей: 2"
     assert group.rowCount() == 2
-    assert model.item(0, PING_COLUMN).text() == "2"
+    assert model.item(0, PING_COLUMN).text() == ""
     assert group.child(1, 0).text() == "Без флага"
     assert group.child(1, PING_COLUMN).text() == "—"
     assert group.child(0, TYPE_COLUMN).text() == "VLESS"
@@ -83,12 +83,13 @@ def test_group_progress_replaces_the_count(qapp):
     model = ProfileTreeModel()
     progress = PingProgress({1: [5, 6]})
     model.set_rows(_rows(), progress)
-    assert model.item(0, PING_COLUMN).text() == "0 / 2"
+    assert "Проверено: 0 / 2" in model.item(0, 0).text()
 
     progress.record(5)
     model.update_group_progress(1, progress)
 
-    assert model.item(0, PING_COLUMN).text() == "1 / 2"
+    assert "Проверено: 1 / 2" in model.item(0, 0).text()
+    assert model.item(0, PING_COLUMN).text() == ""
 
 
 def test_rebuild_drops_old_rows(qapp):
@@ -99,3 +100,13 @@ def test_rebuild_drops_old_rows(qapp):
 
     assert model.rowCount() == 0
     assert model.headerData(0, Qt.Orientation.Horizontal) == "Имя"
+
+
+def test_group_progress_keeps_subscription_details(qapp):
+    model = ProfileTreeModel()
+    progress = PingProgress({1: [5, 6]})
+    model.set_rows(_rows(), progress, {1: ("1 GB из 2 GB", False)})
+    progress.record(5)
+    model.update_group_progress(1, progress)
+    assert "1 GB из 2 GB" in model.item(0, 0).text()
+    assert "Проверено: 1 / 2" in model.item(0, 0).text()

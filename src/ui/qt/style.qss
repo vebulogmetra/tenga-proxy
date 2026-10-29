@@ -1,5 +1,5 @@
-/* Своей темы нет: цвета берутся из системной палитры (palette(...)).
-   Правила только для карточки, плашки и тоста — у них нет системного вида. */
+/* Системная палитра; локальные правила компоновки главного окна Qt.
+   Диалоги используют собственный FORM_STYLE, GTK эти правила не загружает. */
 
 #statusCard {
     border: 1px solid palette(mid);
@@ -29,3 +29,32 @@
     border: 1px solid palette(mid);
     border-radius: 6px;
 }
+
+#statusCard QPushButton {
+    min-height: 24px;
+    padding: 5px 16px;
+    border: 1px solid palette(mid);
+    border-radius: 6px;
+}
+#statusCard QPushButton[role="suggested-action"] {
+    background: palette(highlight);
+    color: palette(highlighted-text);
+}
+#statusCard QPushButton[role="destructive-action"] {
+    border-color: #d13438;
+}
+#statusCard QPushButton:hover { border: 1px solid palette(text); }
+#statusCard QPushButton:focus { border: 2px solid palette(text); }
+#statusCard QToolButton { padding: 6px 8px; }
+#monitoringToggle:checked {
+    background: palette(alternate-base);
+    color: palette(text);
+    border: 1px solid palette(mid);
+    border-radius: 4px;
+}
+QTreeView { border: 1px solid palette(mid); border-radius: 6px; }
+QTreeView::item { padding: 6px 4px; }
+QTreeView::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+QHeaderView::section { padding: 7px 4px; }
+QLineEdit { min-height: 26px; padding: 3px 8px; }
+QToolButton { min-height: 26px; padding: 3px 8px; }

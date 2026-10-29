@@ -24,6 +24,7 @@ SORT_KEYS = {NAME_COLUMN: SortKey.NAME, TYPE_COLUMN: SortKey.TYPE, PING_COLUMN: 
 
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1
 ID_ROLE = Qt.ItemDataRole.UserRole + 2
+DETAILS_ROLE = Qt.ItemDataRole.UserRole + 3
 GROUP, PROFILE = "group", "profile"
 
 # Истёкшая подписка: тот же красный, что у ошибок в карточке.
@@ -43,6 +44,13 @@ def group_count_text(row: GroupRow, progress: PingProgress | None) -> str:
         return str(row.count)
     done, total = state
     return f"{done} / {total}"
+
+
+def group_summary(row: GroupRow, progress: PingProgress | None, details: str) -> str:
+    summary = f"{row.title}  ·  Профилей: {row.count}"
+    if progress is not None and progress.state(row.group_id) is not None:
+        summary += f"  ·  Проверено: {group_count_text(row, progress)}"
+    return f"{summary}  ·  {details}" if details else summary
 
 
 class ProfileTreeModel(QStandardItemModel):
@@ -67,13 +75,13 @@ class ProfileTreeModel(QStandardItemModel):
     def _group_items(
         self, row: GroupRow, progress: PingProgress | None, details: str, expired: bool
     ) -> list[QStandardItem]:
-        name = _cell(row.title)
-        info = _cell(details)
-        info.setToolTip(details)
+        summary = group_summary(row, progress, details)
+        name = _cell(summary)
+        name.setToolTip(summary)
+        name.setData(details, DETAILS_ROLE)
         if expired:
-            # Серверов в истёкшей подписке обычно уже нет: видно сразу.
-            info.setForeground(QBrush(EXPIRED_COLOR))
-        cells = [name, _cell(""), info, _cell(group_count_text(row, progress))]
+            name.setForeground(QBrush(EXPIRED_COLOR))
+        cells = [name, _cell(""), _cell(""), _cell("")]
         for cell in cells:
             cell.setData(GROUP, KIND_ROLE)
             cell.setData(row.group_id, ID_ROLE)
@@ -96,6 +104,10 @@ class ProfileTreeModel(QStandardItemModel):
             _cell(row.address),
             _cell(ping_text(row.latency_ms)),
         ]
+        cells[ADDRESS_COLUMN].setToolTip(row.address)
+        cells[PING_COLUMN].setTextAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
         for cell in cells:
             cell.setData(PROFILE, KIND_ROLE)
             cell.setData(row.profile_id, ID_ROLE)
@@ -110,7 +122,10 @@ class ProfileTreeModel(QStandardItemModel):
         row = next((r for r in self._rows if r.group_id == group_id), None)
         if not index.isValid() or row is None:
             return
-        self.item(index.row(), PING_COLUMN).setText(group_count_text(row, progress))
+        item = self.item(index.row(), NAME_COLUMN)
+        summary = group_summary(row, progress, item.data(DETAILS_ROLE) or "")
+        item.setText(summary)
+        item.setToolTip(summary)
 
     def group_index(self, group_id: int) -> QModelIndex:
         for position in range(self.rowCount()):

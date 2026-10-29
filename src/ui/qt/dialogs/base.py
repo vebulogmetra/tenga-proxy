@@ -31,6 +31,8 @@ AUTOSAVE_DELAY_MS = 500
 
 # Свои правила только для ошибок: поле в обычном состоянии остаётся системным.
 FORM_STYLE = """
+QLineEdit, QComboBox, QSpinBox { min-height: 26px; }
+QPushButton { min-height: 26px; padding: 3px 12px; }
 QLabel[error="true"] { color: #d13438; }
 QLineEdit[error="true"], QPlainTextEdit[error="true"] { border: 1px solid #d13438; }
 """
@@ -98,6 +100,8 @@ class FormDialog(QDialog):
         self.setStyleSheet(FORM_STYLE)
 
         self.form = QFormLayout()
+        self.form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+        self.form.setVerticalSpacing(12)
         self.status = QLabel()
         self.status.setWordWrap(True)
         # Текст приходит из ссылок и от провайдеров: не разметка.
@@ -116,6 +120,8 @@ class FormDialog(QDialog):
         self.buttons.rejected.connect(self.reject)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(16)
         layout.addLayout(self.form)
         layout.addWidget(self.status)
         layout.addStretch(1)
@@ -127,6 +133,16 @@ class FormDialog(QDialog):
         self.status.setProperty("error", error)
         self.status.style().unpolish(self.status)
         self.status.style().polish(self.status)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        available = self.screen().availableGeometry()
+        self.resize(min(self.width(), available.width()), min(self.height(), available.height()))
+        frame = self.frameGeometry()
+        self.move(
+            max(available.left(), min(frame.left(), available.right() - frame.width() + 1)),
+            max(available.top(), min(frame.top(), available.bottom() - frame.height() + 1)),
+        )
 
     def _on_confirm(self) -> None:
         """Для наследников; по умолчанию просто закрывает форму."""
