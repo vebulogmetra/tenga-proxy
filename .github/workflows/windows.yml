@@ -16,30 +16,24 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
-        shell: msys2 {0}
+        # Git Bash: те же сценарии, что у разработчика на Windows.
+        shell: bash
     env:
       # install_dev.sh отвечает на свои вопросы по умолчанию.
       CI: "true"
       # Как в собранном exe (PYTHON_OPTIONS в spec): UTF-8 вместо cp1252.
       PYTHONUTF8: "1"
+      # uv берёт Python раннера, а не скачивает 3.11 из .python-version.
+      UV_PYTHON: "3.12"
+      UV_PYTHON_PREFERENCE: only-system
     steps:
       - uses: actions/checkout@v4
 
-      - uses: msys2/setup-msys2@v2
+      - uses: actions/setup-python@v5
         with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            git unzip
-            mingw-w64-ucrt-x86_64-python
-            mingw-w64-ucrt-x86_64-python-pip
-            mingw-w64-ucrt-x86_64-python-gobject
-            mingw-w64-ucrt-x86_64-gtk4
-            mingw-w64-ucrt-x86_64-libadwaita
-            mingw-w64-ucrt-x86_64-python-requests
-            mingw-w64-ucrt-x86_64-python-pytest
-            mingw-w64-ucrt-x86_64-python-pytest-cov
-            mingw-w64-ucrt-x86_64-python-pywin32
+          python-version: "3.12"
+
+      - uses: astral-sh/setup-uv@v5
 
       - name: Inno Setup
         shell: pwsh
@@ -48,48 +42,61 @@ jobs:
             choco install innosetup --no-progress -y
           }
 
-      - name: Python tools
-        run: |
-          python -m venv --system-site-packages .venv-win
-          . .venv-win/bin/activate
-          pip install pyinstaller pyinstaller-hooks-contrib
-
-      - name: xray-core
+      # uv sync --extra windows --extra dev, xray.exe, wintun.dll, геобазы.
+      - name: Environment
         run: bash core/scripts/install_dev.sh
 
       # Windows-код и общая логика: обязаны проходить.
       - name: Windows tests
         run: |
-          . .venv-win/bin/activate
-          python -m pytest -q --no-cov -p no:cacheprovider \
+          uv run pytest -q --no-cov -p no:cacheprovider \
             tests/test_core_platform_info.py tests/test_sys_facades.py \
-            tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
-            tests/test_packaging_version_info.py tests/test_cli_build.py \
+            tests/test_sys_windows_*.py tests/test_winsvc_*.py \
+            tests/test_packaging_*.py tests/test_cli_build.py \
             tests/test_sys_tun_access.py tests/test_core_net_journal.py \
             tests/test_ui_logic_platform_*.py tests/test_ui_platform_branches.py
 
-      - name: Windows UI tests
-        run: |
-          . .venv-win/bin/activate
-          python -m pytest -q --no-cov -p no:cacheprovider -m gtk \
-            tests/test_ui_styles.py tests/test_ui_pages_profiles.py \
-            tests/test_ui_pages_subscriptions.py tests/test_ui_pages_monitoring.py \
-            tests/test_ui_dialogs_group.py tests/test_ui_dialogs_add_profile.py \
-            tests/test_ui_dialogs_subscription.py tests/test_ui_dialogs_edit_profile.py \
-            tests/test_ui_dialogs_settings.py
+      # Интерфейс Windows: платформа offscreen, окна на рабочий стол не выходят.
+      - name: Qt UI tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest -q --no-cov -p no:cacheprovider -m qt tests/test_ui_qt_*.py
 
       # Весь набор: тесты Linux-реализаций здесь падать вправе, прогон
       # показывает, что ещё зависит от POSIX.
       - name: Full test suite (informational)
         continue-on-error: true
-        run: |
-          . .venv-win/bin/activate
-          python -m pytest -q -rfE --no-cov -p no:cacheprovider --continue-on-collection-errors
+        run: uv run pytest -q -rfE --no-cov -p no:cacheprovider --continue-on-collection-errors
 
       - name: Build installer
+        run: bash core/scripts/build_windows.sh
+
+      # Собранный GUI стартует: в оконном exe нет stdout, поэтому проверка —
+      # по журналу. Свой каталог настроек, чтобы не задеть ничего на раннере.
+      - name: Frozen GUI smoke
+        shell: pwsh
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: |
-          . .venv-win/bin/activate
-          bash core/scripts/build_windows.sh
+          $app = "dist\windows\tenga-proxy"
+          if (Test-Path "$app\_internal\gi") { throw "В сборку попал PyGObject" }
+          $size = (Get-ChildItem -Recurse $app | Measure-Object Length -Sum).Sum / 1MB
+          "Размер каталога: {0:N0} МБ" -f $size
+
+          $env:TENGA_CONFIG_DIR = Join-Path $env:RUNNER_TEMP "veblock-smoke"
+          $log = Join-Path $env:TENGA_CONFIG_DIR "logs\tenga_gui.log"
+          $proc = Start-Process "$app\tenga-proxy.exe" -ArgumentList "--no-tray" -PassThru
+          Start-Sleep -Seconds 10
+          $alive = -not $proc.HasExited
+          if ($alive) { Stop-Process -Id $proc.Id -Force }
+          Get-Content $log -ErrorAction SilentlyContinue
+          if (-not $alive) { throw "tenga-proxy.exe завершился сам, код $($proc.ExitCode)" }
+          if (-not (Select-String -Path $log -Pattern "Frontend: qt" -Quiet)) {
+            throw "В журнале нет «Frontend: qt»"
+          }
+          if (Select-String -Path $log -Pattern "Traceback" -Quiet) {
+            throw "В журнале исключение"
+          }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -101,7 +108,7 @@ jobs:
       - name: Tag matches version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
-          VERSION="$(python -c 'import runpy; print(runpy.run_path("packaging/windows/version_info.py")["project_version"]())')"
+          VERSION="$(uv run python -c 'import runpy; print(runpy.run_path("packaging/windows/version_info.py")["project_version"]())')"
           [ "v$VERSION" = "${{ github.ref_name }}" ] || { echo "Тег ${{ github.ref_name }} не совпадает с версией $VERSION"; exit 1; }
 
       - name: Attach installer to release
@@ -129,9 +136,7 @@ jobs:
         timeout-minutes: 5
         env:
           TENGA_SERVICE_TESTS: "1"
-        run: |
-          . .venv-win/bin/activate
-          python -m pytest tests/integration -m windows -p no:cacheprovider --no-cov -v
+        run: uv run pytest tests/integration -m windows -p no:cacheprovider --no-cov -v
 
       - name: Service log
         if: always()
