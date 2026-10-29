@@ -2,7 +2,6 @@
 
 Отличия текстов собраны в `platform_texts`. GTK-интерфейс работает только на
 Linux, Qt-интерфейс ОС не проверяет: Windows выбирает его в `gui.py`.
-Напрямую `IS_WINDOWS` читает только выбор трея.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ UI = Path(__file__).resolve().parents[1] / "src" / "ui"
 
 ALLOWED = {
     "logic/platform_texts.py",
-    "tray/controller.py",
 }
 
 

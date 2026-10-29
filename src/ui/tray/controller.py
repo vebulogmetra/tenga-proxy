@@ -32,13 +32,7 @@ def _default_dispatch(fn: Callable[..., object], *args: object) -> None:
 
 
 def _default_item():
-    """Панель Linux говорит по D-Bus (SNI), Windows — через Shell_NotifyIcon."""
-    from src.core import platform_info
-
-    if platform_info.IS_WINDOWS:
-        from src.ui.tray.win32 import item as win32_item
-
-        return win32_item.Win32TrayItem()
+    """Панель Linux говорит по D-Bus (SNI); Qt-интерфейс передаёт свой элемент."""
     from src.ui.tray.sni import StatusNotifierItem
 
     return StatusNotifierItem()

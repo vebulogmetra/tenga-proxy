@@ -57,9 +57,9 @@ stage_files() {
     rm -rf "$PKG_ROOT/$LIB_DIR/src/"*.egg-info
     cp "$PROJECT_ROOT/gui.py" "$PKG_ROOT/$LIB_DIR/"
     cp -r "$PROJECT_ROOT/assets" "$PKG_ROOT/$LIB_DIR/"
-    # Снимки экрана и исходники логотипа — для README, ICO и BMP — для Windows.
+    # Снимки экрана и исходники логотипа — для README, ICO — для Windows.
     rm -rf "$PKG_ROOT/$LIB_DIR/assets/"{screen-*.png,logo_inner.png,tenga-proxy.png,*.ico} \
-        "$PKG_ROOT/$LIB_DIR/assets/icons/win" "$PKG_ROOT/$LIB_DIR/assets/flags/win"
+        "$PKG_ROOT/$LIB_DIR/assets/icons/win"
 
     install -m 0755 "$PROJECT_ROOT/core/bin/xray" "$PKG_ROOT/$LIB_DIR/core/bin/xray"
     # Геобазы: без них правила geosite:/geoip: роняют запуск ядра.

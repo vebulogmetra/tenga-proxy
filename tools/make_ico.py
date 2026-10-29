@@ -23,9 +23,12 @@ from gi.repository import GdkPixbuf
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# Сборщик ICO лежит рядом со spec: им пользуются только инструменты сборки.
+sys.path.insert(0, str(ROOT / "packaging" / "windows"))
+
+from ico import build_ico
 
 from src.ui.tray.icons import ICON_CONNECTED, ICON_CONNECTING, ICON_DISCONNECTED
-from src.ui.tray.win32.ico import build_ico
 
 TEMPLATES = ROOT / "packaging" / "windows" / "icons"
 OUT_DIR = ROOT / "assets" / "icons" / "win"

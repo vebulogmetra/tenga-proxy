@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import importlib.util
 import struct
+from pathlib import Path
 
-from src.ui.tray.win32.ico import build_ico
+_PATH = Path(__file__).resolve().parents[1] / "packaging" / "windows" / "ico.py"
+_SPEC = importlib.util.spec_from_file_location("ico", _PATH)
+_ico = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_ico)
+build_ico = _ico.build_ico
 
 PNG_16 = b"\x89PNG\r\n\x1a\n" + b"a" * 20
 PNG_256 = b"\x89PNG\r\n\x1a\n" + b"b" * 30
