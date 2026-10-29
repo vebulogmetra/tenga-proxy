@@ -24,7 +24,7 @@ from src.ui.qt.dialogs.base import clipboard_text, open_url
 from src.ui.qt.dialogs.confirm import build_confirmation
 from src.ui.qt.dialogs.shortcuts import SHORTCUTS
 from src.ui.qt.dispatch import QtLoop
-from src.ui.qt.theme import apply_theme
+from src.ui.qt.theme import apply_theme, initialize_default_theme
 from src.ui.qt.window import MainWindow
 
 if TYPE_CHECKING:
@@ -166,6 +166,7 @@ class QtApplication:
         if self.qt is None:
             raise RuntimeError("QApplication must exist before QtApplication")
         self.context = context
+        initialize_default_theme(context)
         self.loop = QtLoop()
         self._lock = lock
         self._lock_path = lock_path
@@ -216,7 +217,7 @@ class QtApplication:
             action = QAction(name, self.qt)
             if name in SHORTCUTS:
                 action.setShortcut(QKeySequence(SHORTCUTS[name]))
-            action.triggered.connect(lambda _checked=False, fn=handler: fn())
+            action.triggered.connect(lambda _checked=False, n=name: self.activate_action(n))
             self.actions[name] = action
             self._handlers[name] = lambda _target, fn=handler: fn()
 
@@ -250,7 +251,19 @@ class QtApplication:
         if handler is None:
             logger.warning("Unknown action %s", name)
             return
+        connection_action = name in {
+            "connect",
+            "disconnect",
+            "toggle-connection",
+            "connect-profile",
+        }
+        if connection_action and self.window is not None:
+            if self.controller.connection_busy():
+                return
+            self.window.begin_operation(name, target)
         handler(target)
+        if connection_action and self.window is not None:
+            self.window.refresh_status()
 
     # --- окно и диалоги ---
 

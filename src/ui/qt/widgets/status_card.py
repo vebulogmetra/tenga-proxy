@@ -1,17 +1,15 @@
-"""Карточка состояния подключения: «Монолит», тексты и главная кнопка.
-
-Всё, что показывается, приходит готовым `StatusView` из
-`src/ui/logic/status.py` — тем же, что у GTK-карточки.
-"""
+"""Кликабельный монолит и пояснение его текущего действия."""
 
 from __future__ import annotations
 
 from functools import cache
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -24,13 +22,11 @@ from src.core.config import get_asset_path
 from src.ui.logic.status import StatusView
 from src.ui.qt.icons import flagged
 
-LOGO_SIZE = 48
+LOGO_SIZE = 108
 FLAG_SIZE = 16
 
 
 class ElidedLabel(QLabel):
-    """Keep the full profile name available while fitting the status card."""
-
     def setText(self, text: str) -> None:
         self._full_text = text
         self.setToolTip(text)
@@ -50,17 +46,20 @@ class ElidedLabel(QLabel):
 
 @cache
 def logo_pixmap(css_class: str) -> QPixmap:
-    """«Монолит» с ядром цвета состояния: `status-connected` → monolith-connected.png."""
-    state = css_class.removeprefix("status-")
-    pixmap = QPixmap(str(get_asset_path(f"icons/win/monolith-{state}.png")))
-    if pixmap.isNull():
-        return pixmap
-    return pixmap.scaled(
-        LOGO_SIZE,
-        LOGO_SIZE,
-        Qt.AspectRatioMode.KeepAspectRatio,
-        Qt.TransformationMode.SmoothTransformation,
-    )
+    source = get_asset_path("icons/win/monolith.svg").read_bytes()
+    color = {
+        "status-disconnected": b"#8a969d",
+        "status-error": b"#e07078",
+        "status-connecting": b"#a9b8c4",
+    }.get(css_class, b"#5ed3c7")
+    renderer = QSvgRenderer(source.replace(b"#5ed3c7", color))
+    pixmap = QPixmap(LOGO_SIZE * 4, LOGO_SIZE * 4)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    renderer.render(painter)
+    painter.end()
+    pixmap.setDevicePixelRatio(4)
+    return pixmap
 
 
 class StatusCard(QFrame):
@@ -69,72 +68,129 @@ class StatusCard(QFrame):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("statusCard")
-        self.logo = QLabel()
-        self.logo.setFixedSize(LOGO_SIZE, LOGO_SIZE)
+        self.compact = False
+        self.logo = QPushButton()
+        self.logo.setAutoDefault(True)
+        self.logo.setObjectName("monolithButton")
+        self.logo.setFixedSize(120, 120)
+        self.logo.clicked.connect(self.action_clicked)
         self.title = QLabel()
+        self.title.setWordWrap(True)
         self.title.setObjectName("statusTitle")
-        # Имя профиля с флагом картинкой: эмодзи-флагов в шрифтах Windows нет.
         self.flag = QLabel()
         self.flag.hide()
         self.subtitle = ElidedLabel()
         self.subtitle.setMinimumWidth(0)
         self.subtitle.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.metrics = QLabel()
-        self.metrics.setWordWrap(True)
         self.metrics.setObjectName("statusMetrics")
-        self.button = QPushButton()
-        self.button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-        self.button.setMinimumWidth(140)
-        self.button.clicked.connect(self.action_clicked)
-
-        name = QHBoxLayout()
+        self.metrics.setWordWrap(True)
+        self.mode = QLabel()
+        self.mode.setObjectName("statusMode")
+        self.health = QLabel()
+        self.health.setObjectName("healthSummary")
+        self.health.setWordWrap(True)
+        self.health.setTextFormat(Qt.TextFormat.PlainText)
+        self.instruction = QLabel()
+        self.instruction.setObjectName("connectionInstruction")
+        self.instruction.setWordWrap(True)
+        self.instruction.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.text_box = QWidget()
+        self.text_box.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.text_box.installEventFilter(self)
+        self._profile_name = ""
+        texts = QVBoxLayout(self.text_box)
+        texts.setContentsMargins(0, 0, 0, 0)
+        texts.setSpacing(3)
+        self.name_box = QWidget()
+        name = QHBoxLayout(self.name_box)
+        name.setContentsMargins(0, 0, 0, 0)
         name.setSpacing(6)
         name.addWidget(self.flag)
         name.addWidget(self.subtitle, 1)
-        texts = QVBoxLayout()
-        texts.setSpacing(2)
-        for label in (self.title, self.subtitle, self.metrics):
+        for label in (self.title, self.subtitle, self.metrics, self.mode):
             label.setTextFormat(Qt.TextFormat.PlainText)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         texts.addWidget(self.title)
-        texts.addLayout(name)
+        self.subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        texts.addWidget(self.name_box, alignment=Qt.AlignmentFlag.AlignHCenter)
+        texts.addWidget(self.mode)
         texts.addWidget(self.metrics)
-        text_box = QWidget()
-        texts.setContentsMargins(0, 0, 0, 0)
-        text_box.setLayout(texts)
-        text_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(20, 10, 20, 12)
+        self.grid.setSpacing(6)
+        self._arrange()
 
-        self._tools = QHBoxLayout()
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(16)
-        layout.addWidget(self.logo)
-        layout.addWidget(text_box, 1)
-        layout.addWidget(self.button)
-        layout.addLayout(self._tools)
+    def _fit_name(self) -> None:
+        width = self.subtitle.fontMetrics().horizontalAdvance(self._profile_name) + 4
+        if not self.flag.isHidden():
+            width += FLAG_SIZE + 6
+        self.name_box.setFixedWidth(min(max(0, self.text_box.width()), width))
 
-    def add_tool(self, widget: QWidget) -> None:
-        """Кнопки окна (панель мониторинга, меню) справа от главной."""
-        self._tools.addWidget(widget)
+    def eventFilter(self, watched, event) -> bool:
+        if watched is self.text_box and event.type() == QEvent.Type.Resize:
+            self._fit_name()
+        return super().eventFilter(watched, event)
 
-    def update_view(self, view: StatusView) -> None:
+    def set_compact(self, compact: bool) -> None:
+        if compact != self.compact:
+            self.compact = compact
+            self._arrange()
+
+    def _arrange(self) -> None:
+        for widget in (self.logo, self.text_box, self.instruction, self.health):
+            self.grid.removeWidget(widget)
+        for column in range(3):
+            self.grid.setColumnStretch(column, 1 if self.compact else 0)
+        if self.compact:
+            self.grid.setColumnStretch(1, 0)
+            self.logo.setFixedSize(104, 104)
+            self.grid.addWidget(self.text_box, 0, 0)
+            self.grid.addWidget(self.logo, 0, 1, alignment=Qt.AlignmentFlag.AlignCenter)
+            self.grid.addWidget(self.instruction, 0, 2)
+            self.grid.addWidget(self.health, 1, 0, 1, 3)
+        else:
+            self.logo.setFixedSize(120, 120)
+            self.grid.addWidget(self.logo, 0, 0, alignment=Qt.AlignmentFlag.AlignCenter)
+            self.grid.addWidget(self.text_box, 1, 0)
+            self.grid.addWidget(self.instruction, 2, 0)
+            self.grid.addWidget(self.health, 3, 0)
+        self.logo.setIconSize(self.logo.size() * 0.9)
+        self.health.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def update_view(self, view: StatusView, *, enabled: bool = True, mode: str = "") -> None:
         self.title.setText(view.title)
-        self.title.ensurePolished()
-        self.title.setMinimumWidth(self.title.fontMetrics().horizontalAdvance(view.title) + 4)
         icon, name = flagged(view.subtitle)
+        self._profile_name = name
         self.flag.setVisible(icon is not None)
         if icon is not None:
             self.flag.setPixmap(icon.pixmap(FLAG_SIZE, FLAG_SIZE))
         self.subtitle.setText(name)
         self.subtitle.setToolTip(view.subtitle)
+        self.name_box.setVisible(bool(view.subtitle))
         self.subtitle.setVisible(bool(view.subtitle))
+        self._fit_name()
         self.metrics.setText(view.metrics)
         self.metrics.setVisible(bool(view.metrics))
-        self.button.setText(view.button_label)
-        self.logo.setPixmap(logo_pixmap(view.css_class))
-        # Свойства читает style.qss: цвет заголовка и вид кнопки по состоянию.
+        self.mode.setText(mode)
+        self.mode.setVisible(bool(mode))
+        if view.css_class == "status-connecting":
+            instruction = view.title
+        elif not enabled:
+            instruction = "Сначала добавьте или выберите сервер"
+        elif view.css_class == "status-connected":
+            instruction = "Нажмите на логотип для отключения"
+        elif view.css_class == "status-error":
+            instruction = "Нажмите на логотип для повторного подключения"
+        else:
+            instruction = "Нажмите на логотип для подключения"
+        self.instruction.setText(instruction)
+        self.logo.setIcon(QIcon(logo_pixmap(view.css_class)))
+        self.logo.setEnabled(enabled)
+        self.logo.setAccessibleName(view.button_label)
+        self.logo.setToolTip(view.button_label)
         self.setProperty("state", view.css_class)
-        self.button.setProperty("role", view.button_class)
-        for widget in (self, self.title, self.button):
+        for widget in (self, self.title, self.logo):
             widget.style().unpolish(widget)
             widget.style().polish(widget)

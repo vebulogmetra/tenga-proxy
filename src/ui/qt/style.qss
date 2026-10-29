@@ -30,21 +30,15 @@
     border-radius: 6px;
 }
 
-#statusCard QPushButton {
-    min-height: 24px;
-    padding: 5px 16px;
-    border: 1px solid palette(mid);
-    border-radius: 6px;
-}
-#statusCard QPushButton[role="suggested-action"] {
-    background: palette(highlight);
-    color: palette(highlighted-text);
-}
-#statusCard QPushButton[role="destructive-action"] {
-    border-color: #d13438;
-}
-#statusCard QPushButton:hover { border: 1px solid palette(text); }
-#statusCard QPushButton:focus { border: 2px solid palette(text); }
+#monolithButton { background: transparent; border: 2px solid transparent; border-radius: 16px; padding: 0; }
+#monolithButton:hover { background: palette(alternate-base); border-color: palette(mid); }
+#monolithButton:focus { border-color: palette(highlight); }
+#monolithButton:pressed { background: palette(midlight); }
+#monolithButton:disabled { border-color: transparent; }
+#healthSummary, #statusMode { color: palette(text); }
+#healthSummary { padding: 2px 0; }
+#monitoringPanel { border-top: 1px solid palette(mid); }
+#brandLabel { font-size: 12pt; font-weight: 600; }
 #statusCard QToolButton { padding: 6px 8px; }
 #monitoringToggle:checked {
     background: palette(alternate-base);
@@ -53,6 +47,8 @@
     border-radius: 4px;
 }
 QTreeView { border: 1px solid palette(mid); border-radius: 6px; }
+#profileContainer { background: palette(base); border: 1px solid palette(mid); border-radius: 10px; }
+#profileContainer QTreeView { border: none; border-radius: 0; }
 QTreeView::item { padding: 6px 4px; }
 QTreeView::item:selected { background: palette(highlight); color: palette(highlighted-text); }
 QHeaderView::section { padding: 7px 4px; }

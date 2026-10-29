@@ -78,6 +78,7 @@ def test_group_menu_and_subscription_extra(made):
     _profile(made, group_id=subscription.id)
     made.activate()
     window = made.window
+    window.monitoring_button.setChecked(False)
 
     plain_menu = window.context_menu(window.model.group_index(plain.id))
     sub_menu = window.context_menu(window.model.group_index(subscription.id))
@@ -182,13 +183,13 @@ def test_monitoring_panel_visibility_is_remembered(made, qapp):
     made.activate()
     window = made.window
     assert not window.monitoring_button.isChecked()
-    assert window.monitoring_dock.isHidden()
+    assert window.monitoring_body.isHidden()
 
     window.monitoring_button.setChecked(True)
     window.save_geometry()
 
     assert made.context.config.monitoring_panel is True
-    assert not window.monitoring_dock.isHidden()
+    assert window.monitoring_body.isVisible()
 
 
 # --- журнал ---
@@ -259,13 +260,16 @@ def test_layout_keeps_the_primary_action_compact(made, size, theme):
         _profile(made, f"🇩🇪 Берлин — тестовый сервер {number}", group_id=group.id)
     made.activate()
     window = made.window
+    window.monitoring_button.setChecked(False)
+    profile = next(iter(made.context.profiles.profiles.values()))
+    window.tree.setCurrentIndex(window.model.profile_index(profile.id))
     window.showNormal()
     window.resize(*size)
     process_events()
     card = window.status_card
-    assert card.button.width() < 240
+    assert not hasattr(card, "button")
     assert card.title.width() >= card.title.fontMetrics().horizontalAdvance(card.title.text())
-    assert card.button.geometry().right() < card.width()
+    assert card.logo.geometry().right() < card.width()
     assert not window.empty_label.isVisible()
 
     # Optional local visual evidence, using synthetic profiles only.

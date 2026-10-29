@@ -25,6 +25,7 @@ SORT_KEYS = {NAME_COLUMN: SortKey.NAME, TYPE_COLUMN: SortKey.TYPE, PING_COLUMN: 
 KIND_ROLE = Qt.ItemDataRole.UserRole + 1
 ID_ROLE = Qt.ItemDataRole.UserRole + 2
 DETAILS_ROLE = Qt.ItemDataRole.UserRole + 3
+PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 4
 GROUP, PROFILE = "group", "profile"
 
 # Истёкшая подписка: тот же красный, что у ошибок в карточке.
@@ -79,6 +80,7 @@ class ProfileTreeModel(QStandardItemModel):
         name = _cell(summary)
         name.setToolTip(summary)
         name.setData(details, DETAILS_ROLE)
+        name.setData(progress.state(row.group_id) if progress is not None else None, PROGRESS_ROLE)
         if expired:
             name.setForeground(QBrush(EXPIRED_COLOR))
         cells = [name, _cell(""), _cell(""), _cell("")]
@@ -95,6 +97,8 @@ class ProfileTreeModel(QStandardItemModel):
     def _profile_items(self, row: ProfileRow) -> list[QStandardItem]:
         icon, title = flagged(row.title)
         name = _cell(title)
+        if row.is_active:
+            name.setText(f"{title}  ·  Подключён")
         name.setToolTip(row.title)
         if icon is not None:
             name.setIcon(icon)
@@ -126,6 +130,7 @@ class ProfileTreeModel(QStandardItemModel):
         summary = group_summary(row, progress, item.data(DETAILS_ROLE) or "")
         item.setText(summary)
         item.setToolTip(summary)
+        item.setData(progress.state(group_id) if progress is not None else None, PROGRESS_ROLE)
 
     def group_index(self, group_id: int) -> QModelIndex:
         for position in range(self.rowCount()):

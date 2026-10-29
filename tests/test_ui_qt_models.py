@@ -14,6 +14,7 @@ from src.ui.qt.models import (
     GROUP,
     PING_COLUMN,
     PROFILE,
+    PROGRESS_ROLE,
     TYPE_COLUMN,
     ProfileTreeModel,
 )
@@ -56,7 +57,7 @@ def test_flag_prefix_turns_into_an_icon(qapp):
 
     berlin = model.item(0, 0).child(0, 0)
 
-    assert berlin.text() == "Берлин"
+    assert berlin.text() == "Берлин  ·  Подключён"
     assert not berlin.icon().isNull()
     assert berlin.toolTip() == "🇩🇪 Берлин"
 
@@ -84,12 +85,16 @@ def test_group_progress_replaces_the_count(qapp):
     progress = PingProgress({1: [5, 6]})
     model.set_rows(_rows(), progress)
     assert "Проверено: 0 / 2" in model.item(0, 0).text()
+    assert model.item(0, 0).data(PROGRESS_ROLE) == (0, 2)
 
     progress.record(5)
     model.update_group_progress(1, progress)
 
     assert "Проверено: 1 / 2" in model.item(0, 0).text()
+    assert model.item(0, 0).data(PROGRESS_ROLE) == (1, 2)
     assert model.item(0, PING_COLUMN).text() == ""
+    model.update_group_progress(1, None)
+    assert model.item(0, 0).data(PROGRESS_ROLE) is None
 
 
 def test_rebuild_drops_old_rows(qapp):

@@ -29,9 +29,9 @@ def test_card_shows_the_connected_view(qapp):
     assert card.title.text() == "Подключено"
     assert card.subtitle.text() == "Проба"
     assert "SYSTEM" in card.metrics.text()
-    assert card.button.text() == "Отключить"
+    assert card.logo.accessibleName() == "Отключить"
+    assert card.instruction.text() == "Нажмите на логотип для отключения"
     assert card.property("state") == "status-connected"
-    assert card.button.property("role") == "destructive-action"
 
 
 def test_card_hides_empty_lines(qapp):
@@ -40,7 +40,7 @@ def test_card_hides_empty_lines(qapp):
     card.update_view(status_view(ConnectionState.DISCONNECTED))
 
     assert card.subtitle.isHidden() and card.metrics.isHidden()
-    assert card.button.text() == "Подключить"
+    assert card.instruction.text() == "Нажмите на логотип для подключения"
 
 
 def test_card_button_emits_action(qapp):
@@ -48,7 +48,7 @@ def test_card_button_emits_action(qapp):
     clicks = []
     card.action_clicked.connect(lambda: clicks.append(1))
 
-    card.button.click()
+    card.logo.click()
 
     assert clicks == [1]
 
