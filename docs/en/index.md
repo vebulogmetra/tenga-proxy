@@ -11,7 +11,7 @@
 - Automatic system proxy setup (GNOME/KDE)
 - Flexible traffic routing (through VLESS, VPN, or directly)
 - Profile management
-- System tray with notifications (GTK)
+- System tray with notifications
 - Monitoring via Stats API (statistics)
 
 ## Quick Start

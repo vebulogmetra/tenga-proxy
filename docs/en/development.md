@@ -198,33 +198,25 @@ python cli.py bump-version 1.0.0
 
 ### Environment
 
-MSYS2 UCRT64 is used instead of `uv`: PyGObject and GTK come from MSYS2
-packages, pip cannot build them. In the "MSYS2 UCRT64" shell:
+The Windows interface is Qt (PySide6); GTK is not used on Windows. You need
+Git for Windows (Git Bash), Python 3.12 from python.org and uv. In Git Bash:
 
 ```bash
-pacman -S --needed git unzip \
-  mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
-  mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
-  mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
-  mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
-  mingw-w64-ucrt-x86_64-python-pywin32
-
-# MSYS2 Python reads files as cp1252 by default
+# Python reads files as cp1252 by default
 export PYTHONUTF8=1
 
-bash core/scripts/install_dev.sh     # xray.exe, wintun.dll, geo databases
-python gui.py
-python -m pytest -q --no-cov
+bash core/scripts/install_dev.sh     # uv sync --extra windows --extra dev, xray.exe, wintun.dll, geo databases
+uv run python gui.py
+uv run pytest -q --no-cov
+QT_QPA_PLATFORM=offscreen uv run pytest -q --no-cov -m qt tests/test_ui_qt_*.py
 ```
 
 ### Building the installer
 
-Inno Setup 6 is required (`ISCC.exe`; the `ISCC` variable overrides the path):
+Inno Setup 6 is required (`ISCC.exe`; the `ISCC` variable overrides the path).
+The script installs PyInstaller itself (the `build` extra):
 
 ```bash
-python -m venv --system-site-packages .venv-win
-. .venv-win/bin/activate
-pip install pyinstaller pyinstaller-hooks-contrib
 bash core/scripts/build_windows.sh
 # → dist/windows/veblock-<version>-windows-x64-setup.exe
 ```
@@ -240,8 +232,8 @@ The build folder holds two executables: `tenga-proxy.exe` (GUI) and
   `src/sys/linux/`, Windows code in `src/sys/windows/`. Both implementations
   must export the same names and signatures; `tests/test_sys_facades.py`
   checks it.
-- UI differences: texts in `src/ui/logic/platform_texts.py`, layout in
-  `src/ui/logic/platform_layout.py`. Widgets do not check the OS themselves.
+- The only per-OS UI difference is texts in `src/ui/logic/platform_texts.py`:
+  GTK runs on Linux, Qt on Windows. Widgets do not check the OS themselves.
 - The network rollback journal (`src/core/net_journal.py`) is shared: the
   Windows service and the Linux TUN routes both write it. If the app crashes
   on Linux, the default route is restored on the next start.
@@ -252,8 +244,10 @@ The build folder holds two executables: `tenga-proxy.exe` (GUI) and
   journal, `netsh`/PowerShell commands, state and the pipe server.
 - On Windows `AppContext.xray_manager` is a `WindowsXrayManager`: a config with
   a TUN inbound is started by the service, everything else by the GUI itself.
-- `src/ui/tray/win32/` is the tray on top of `Shell_NotifyIcon`.
-- `packaging/windows/` holds the PyInstaller spec and the Inno Setup script.
+- The Windows tray is `QSystemTrayIcon` (`src/ui/qt/tray.py`) behind the same
+  `TrayController` as the Linux tray.
+- `packaging/windows/` holds the PyInstaller spec (Qt without unused modules,
+  no GTK), the Inno Setup script and `ico.py` for `tools/make_ico.py`.
 
 ### Tests
 
@@ -273,9 +267,10 @@ on your workstation: the routes capture the network during the test.
 and its installation on the runner; on a `v*` tag the package is attached to
 the release.
 
-`.github/workflows/windows.yml` on `windows-latest`: Windows-code tests, the
-full suite (informational), the installer build, installing the service from
-the build and the integration tests. On a `v*` tag the installer is attached
+`.github/workflows/windows.yml` on `windows-latest` in Git Bash with uv:
+Windows-code tests, Qt tests (offscreen), the full suite (informational), the
+installer build, a launch of the built `tenga-proxy.exe` with a log check,
+installing the service from the build and the integration tests. On a `v*` tag the installer is attached
 to the release; the tag must match the version in `src/__init__.py`.
 
 ## Debugging

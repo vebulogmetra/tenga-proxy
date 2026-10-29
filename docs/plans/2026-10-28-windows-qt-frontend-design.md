@@ -75,6 +75,15 @@ GTK без изменения поведения. Ядро, хранилище, 
   `2026-10-28-windows-qt-phase3-parity.md`; пресеты порядка правил и уровни
   журнала перенесены из GTK-диалогов в `src/ui/logic/`.
 
+**Уточнение по итогам фазы 4:**
+- `src/ui/logic/platform_layout.py` удалён целиком: все его функции были
+  Windows-ветками GTK; вместе с ним ушли `src/ui/widgets/name_label.py` и
+  обработка сигналов и pipe активации в `src/ui/application.py`;
+- `src/ui/tray/win32/ico.py` не удалён, а перенесён в
+  `packaging/windows/ico.py`: им `tools/make_ico.py` собирает `.ico`;
+- состав сборки проверяет `tests/test_packaging_spec.py`, CI Windows
+  запускает собранный exe и читает его журнал.
+
 **Появляется**: `src/ui/controller.py` (общая оркестровка) и фронтенд
 `src/ui/qt/`. `gui.py` выбирает фронтенд: на Windows — Qt, на Linux — GTK;
 флаг `--ui qt` запускает Qt-интерфейс на Linux для разработки (PySide6

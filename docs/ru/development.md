@@ -197,33 +197,25 @@ python cli.py bump-version 1.0.0
 
 ### Окружение
 
-Используется MSYS2 UCRT64, а не `uv`: PyGObject и GTK берутся из пакетов
-MSYS2, pip их не соберёт. В оболочке «MSYS2 UCRT64»:
+Интерфейс Windows — Qt (PySide6), GTK на Windows не используется. Нужны
+Git for Windows (Git Bash), Python 3.12 с python.org и uv. В Git Bash:
 
 ```bash
-pacman -S --needed git unzip \
-  mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
-  mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
-  mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
-  mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
-  mingw-w64-ucrt-x86_64-python-pywin32
-
-# Python MSYS2 по умолчанию читает файлы в cp1252
+# Python по умолчанию читает файлы в cp1252
 export PYTHONUTF8=1
 
-bash core/scripts/install_dev.sh     # xray.exe, wintun.dll, геобазы
-python gui.py
-python -m pytest -q --no-cov
+bash core/scripts/install_dev.sh     # uv sync --extra windows --extra dev, xray.exe, wintun.dll, геобазы
+uv run python gui.py
+uv run pytest -q --no-cov
+QT_QPA_PLATFORM=offscreen uv run pytest -q --no-cov -m qt tests/test_ui_qt_*.py
 ```
 
 ### Сборка установщика
 
-Нужен Inno Setup 6 (`ISCC.exe`; путь можно задать переменной `ISCC`):
+Нужен Inno Setup 6 (`ISCC.exe`; путь можно задать переменной `ISCC`).
+PyInstaller сценарий ставит сам (группа `build`):
 
 ```bash
-python -m venv --system-site-packages .venv-win
-. .venv-win/bin/activate
-pip install pyinstaller pyinstaller-hooks-contrib
 bash core/scripts/build_windows.sh
 # → dist/windows/veblock-<версия>-windows-x64-setup.exe
 ```
@@ -237,8 +229,8 @@ bash core/scripts/build_windows.sh
   `src/core/platform_info.py` при импорте фасада, код для Linux лежит в
   `src/sys/linux/`, для Windows — в `src/sys/windows/`. Имена и сигнатуры
   двух реализаций обязаны совпадать — это проверяет `tests/test_sys_facades.py`.
-- Отличия интерфейса: тексты — `src/ui/logic/platform_texts.py`, компоновка —
-  `src/ui/logic/platform_layout.py`. Виджеты ОС напрямую не проверяют.
+- Отличия интерфейса по ОС — только тексты в `src/ui/logic/platform_texts.py`:
+  GTK работает на Linux, Qt — на Windows. Виджеты ОС напрямую не проверяют.
 - Журнал отката сети (`src/core/net_journal.py`) общий: его пишут служба
   Windows и маршруты TUN на Linux. После падения приложения на Linux
   маршрут по умолчанию возвращается при следующем запуске.
@@ -249,8 +241,10 @@ bash core/scripts/build_windows.sh
   отката, команды `netsh`/PowerShell, состояние и pipe-сервер.
 - На Windows `AppContext.xray_manager` — `WindowsXrayManager`: конфиг с
   TUN-inbound запускает служба, остальные — сам GUI.
-- `src/ui/tray/win32/` — трей через `Shell_NotifyIcon`.
-- `packaging/windows/` — spec PyInstaller и сценарий Inno Setup.
+- Трей Windows — `QSystemTrayIcon` (`src/ui/qt/tray.py`) за тем же
+  `TrayController`, что и трей Linux.
+- `packaging/windows/` — spec PyInstaller (Qt без неиспользуемых модулей,
+  без GTK), сценарий Inno Setup и `ico.py` для `tools/make_ico.py`.
 
 ### Тесты
 
@@ -271,9 +265,10 @@ NRPT, откат). Нужны установленная служба и пра�
 deb-пакета и его установка на раннере; по тегу `v*` пакет прикрепляется к
 релизу.
 
-`.github/workflows/windows.yml` на `windows-latest`: тесты Windows-кода,
-полный прогон (информационный), сборка установщика, установка службы из
-сборки и интеграционные тесты. По тегу `v*` установщик прикрепляется к
+`.github/workflows/windows.yml` на `windows-latest` в Git Bash с uv: тесты
+Windows-кода, Qt-тесты (offscreen), полный прогон (информационный), сборка
+установщика, запуск собранного `tenga-proxy.exe` с проверкой журнала,
+установка службы из сборки и интеграционные тесты. По тегу `v*` установщик прикрепляется к
 релизу; тег обязан совпадать с версией в `src/__init__.py`.
 
 ## Отладка

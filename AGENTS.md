@@ -9,11 +9,11 @@
 ## Проект и окружение
 
 Veblock (ранее Tenga Proxy) — прокси-клиент для Linux и Windows на Python
-3.11+ с xray-core, CLI и GUI на GTK 4 и libadwaita 1.5+. Протоколы: VLESS, Trojan, VMess,
+3.11+ с xray-core, CLI и GUI: GTK 4 и libadwaita 1.5+ на Linux, Qt (PySide6) на Windows. Протоколы: VLESS, Trojan, VMess,
 Shadowsocks, Hysteria2, SOCKS и HTTP. Режимы работы — TUN и системный
 прокси; VPN-интеграция зависит от ОС: NetworkManager на Linux, RAS и WireGuard на Windows.
 
-На Linux менеджер зависимостей — uv; на Windows используй MSYS2 UCRT64. PyGObject и Pycairo требуют системных библиотек.
+Менеджер зависимостей — uv на обеих ОС; на Windows — Git Bash и Python 3.12 с python.org. PyGObject и Pycairo на Linux требуют системных библиотек.
 Наличие Windows-окружения не позволяет автоматически проверить
 Linux GUI, D-Bus, TUN и сборку deb-пакета. Сообщай, какие проверки выполнены,
 какие недоступны; не выдавай пропущенные проверки за успешные.
@@ -91,7 +91,7 @@ Linux GUI, D-Bus, TUN и сборку deb-пакета. Сообщай, каки
   операции не должны блокировать главный цикл. Используй принятый механизм
   фоновых задач и доставки результатов из `src/ui/logic/async_utils.py`.
 - Меню, сочетания клавиш и трей используют общие Gio.SimpleAction приложения.
-- На Linux трей реализован через StatusNotifierItem и D-BusMenu на Gio; на Windows — через Shell_NotifyIcon в `src/ui/tray/win32/`.
+- На Linux трей реализован через StatusNotifierItem и D-BusMenu на Gio; на Windows — `QSystemTrayIcon` в `src/ui/qt/tray.py`, оба за `TrayController`.
   Не добавляй AppIndicator3 в процесс GTK 4: он связан с GTK 3.
 - Не обходи проверки безопасности конфигурации ради успешного подключения.
   Для изменений DNS, маршрутов, TUN и системного прокси проверяй обработку
@@ -177,9 +177,9 @@ Python: четыре пробела, длина строки 100, двойные
   Фасад выбирает реализацию при импорте, подмена `IS_WINDOWS` на него не
   действует. Новую функцию фасада добавляй в обе реализации: совпадение имён
   и сигнатур проверяет `tests/test_sys_facades.py`.
-- В `src/ui/` ОС напрямую не проверяют: тексты — `src/ui/logic/platform_texts.py`,
-  компоновка — `src/ui/logic/platform_layout.py`, функция на каждое отличие
-  с причиной. Допустимые места для `IS_WINDOWS` перечислены
+- В `src/ui/` ОС напрямую не проверяют: GTK-интерфейс работает только на
+  Linux, Qt — на Windows; тексты с отличиями по ОС —
+  `src/ui/logic/platform_texts.py`, функция на каждое отличие с причиной. Допустимые места для `IS_WINDOWS` перечислены
   в `tests/test_ui_platform_branches.py`.
 - TUN на Linux: права даёт `setcap` на xray в postinst пакета и помощник
   `/usr/libexec/tenga-proxy/tun-route-helper` через `sudo -n` (правило
@@ -192,30 +192,31 @@ Python: четыре пробела, длина строки 100, двойные
   проверка запросов, управление ядром, сетью и восстановлением состояния.
   GUI работает без повышения прав; служба устанавливается установщиком.
   Не ослабляй проверку команд, путей, конфигурации и прав доступа к pipe.
-- `src/ui/tray/win32/` — Windows-трей; не переноси зависимость D-Bus
-  в Windows-ветку исполнения. Единственный экземпляр и активация окна
+- `src/ui/qt/` — интерфейс Windows; он не импортирует `gi`, не переноси
+  туда зависимость GTK или D-Bus. Единственный экземпляр и активация окна
   на Windows используют платформенную реализацию.
 - `packaging/windows/` — PyInstaller spec, Inno Setup и сведения о версии.
   `.github/workflows/windows.yml` — фактическая последовательность CI
   Windows, `.github/workflows/linux.yml` — Linux: lint, pytest, `make test-gtk`,
   `make test-tray`, тесты на requests из Ubuntu, сборка и установка deb.
 
-На Windows Python, GTK, libadwaita, PyGObject, requests и pywin32 берутся
-из пакетов MSYS2 UCRT64. Не заменяй их обычным pip/uv-окружением без проверки
-совместимости. Подготовка: `bash core/scripts/install_dev.sh` в UCRT64.
+На Windows окружение — Git Bash, Python 3.12 с python.org и uv; MSYS2
+и GTK не используются. Подготовка: `bash core/scripts/install_dev.sh`
+(`uv sync --extra windows --extra dev`, xray.exe, wintun.dll).
 Сборка: `bash core/scripts/build_windows.sh` с PyInstaller и Inno Setup;
 результат — `dist/windows/veblock-<версия>-windows-x64-setup.exe`.
-CLI build выбирает скрипт по ОС; таблица команд uv выше относится к Linux.
+CLI build выбирает скрипт по ОС.
 
-В подготовленном MSYS2-окружении запускай Windows-набор как в CI:
+Windows-набор и Qt-тесты как в CI:
 
 ```bash
-python -m pytest -q --no-cov -p no:cacheprovider \
+uv run pytest -q --no-cov -p no:cacheprovider \
   tests/test_core_platform_info.py tests/test_sys_facades.py \
-  tests/test_sys_windows_*.py tests/test_ui_tray_win32_*.py tests/test_winsvc_*.py \
-  tests/test_packaging_version_info.py tests/test_cli_build.py \
+  tests/test_sys_windows_*.py tests/test_winsvc_*.py \
+  tests/test_packaging_*.py tests/test_cli_build.py \
   tests/test_sys_tun_access.py tests/test_core_net_journal.py \
   tests/test_ui_logic_platform_*.py tests/test_ui_platform_branches.py
+QT_QPA_PLATFORM=offscreen uv run pytest -q --no-cov -p no:cacheprovider -m qt tests/test_ui_qt_*.py
 ```
 
 Тесты `tests/integration/` с маркером windows требуют настоящей Windows

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Veblock (ранее Tenga Proxy) - это клиент прокси для Linux и Windows с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GTK GUI интерфейс с системным треем.
+Veblock (ранее Tenga Proxy) - это клиент прокси для Linux и Windows с backend xray-core. Поддерживает протоколы VLESS, Trojan, VMess, Shadowsocks, SOCKS и HTTP. Имеет CLI и GUI с системным треем: GTK 4 на Linux, Qt (PySide6) на Windows.
 
 ## Common Commands
 
@@ -114,7 +114,7 @@ src/
 │   ├── profiles.py    # ProfileEntry, ProfileStore - управление профилями
 │   ├── data_store.py  # Низкоуровневое хранилище (JSON файлы)
 │   └── config.py      # Настройки (routing, VPN, DNS)
-├── ui/            # GTK4 + libadwaita интерфейс
+├── ui/            # GTK4 + libadwaita интерфейс (Linux)
 │   ├── application.py # TengaApplication - Adw.Application, действия, трей
 │   ├── controller.py  # AppController - оркестровка без GTK, протокол Shell
 │   ├── qt/            # Интерфейс PySide6 (Windows; на Linux — gui.py --ui qt)
@@ -122,7 +122,7 @@ src/
 │   ├── pages/         # Страницы: профили, подписки, мониторинг
 │   ├── widgets/       # Виджеты (статус-карточка)
 │   ├── dialogs/       # Диалоги на Adw.Dialog / Adw.PreferencesDialog
-│   ├── tray/          # StatusNotifierItem + com.canonical.dbusmenu; win32/ — трей Windows
+│   ├── tray/          # TrayController; StatusNotifierItem + com.canonical.dbusmenu
 │   ├── logic/         # Логика без GTK: форматирование, задержка, формы
 │   └── models/        # Модели и фильтры списков
 ├── sys/           # Системные функции: фасады, реализация выбирается по ОС
@@ -194,9 +194,10 @@ True), `cancel`. `ConnectionMonitor` и `AppController` получают его
 `tests/test_sys_facades.py`. Windows-модули импортируются и на Linux
 (pywin32, winreg и ctypes — лениво), поэтому тестируются обычным pytest.
 
-**Отличия UI по ОС** - тексты в `src/ui/logic/platform_texts.py`, компоновка
-в `src/ui/logic/platform_layout.py`. Виджеты `IS_WINDOWS` не читают; где это
-допустимо, перечисляет `tests/test_ui_platform_branches.py`.
+**Отличия UI по ОС** - GTK работает на Linux, Qt на Windows; общие для обоих
+тексты с отличиями по ОС — в `src/ui/logic/platform_texts.py`. Виджеты
+`IS_WINDOWS` не читают; где это допустимо, перечисляет
+`tests/test_ui_platform_branches.py`.
 
 **TUN на Linux** - xray получает `cap_net_admin` через `setcap` в postinst
 deb-пакета, маршрут по умолчанию переключает помощник
@@ -340,10 +341,9 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   win32 пропускаются. `tests/integration/` — служба на живой Windows (нужны
   установленная служба, права администратора и `TENGA_SERVICE_TESTS=1`);
   запускается в CI
-- Windows-разработка — Git Bash, CPython с python.org и uv
+- Windows-разработка — Git Bash, CPython 3.12 с python.org и uv
   (`bash core/scripts/install_dev.sh` ставит `--extra windows --extra dev`).
-  MSYS2 UCRT64 нужна только прежней GTK-сборке и CI до фазы 4
-  (`docs/plans/2026-10-28-windows-qt-frontend-design.md`)
+  MSYS2 и GTK на Windows не используются
 
 ### Code Style
 - Линтер: ruff
@@ -366,9 +366,13 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
 - Dev зависимости: pytest, ruff, coverage
 
 ### Windows Building
-- `bash core/scripts/build_windows.sh` в MSYS2: PyInstaller onedir
-  (`tenga-proxy.exe` и `tenga-proxy-svc.exe`), затем Inno Setup
-- CI `.github/workflows/windows.yml`: тесты, сборка установщика, установка
+- `bash core/scripts/build_windows.sh` в Git Bash: `uv run` с группами
+  `windows` и `build`, PyInstaller onedir (`tenga-proxy.exe` с Qt и
+  `tenga-proxy-svc.exe` без интерфейса), затем Inno Setup
+- Что попадает в сборку, проверяет `tests/test_packaging_spec.py` (нет `gi`,
+  есть `style.qss` и QtNetwork, служба без Qt)
+- CI `.github/workflows/windows.yml` (Git Bash, setup-python, uv): тесты
+  Windows-кода и Qt, сборка установщика, запуск собранного exe, установка
   службы и интеграционные тесты; по тегу `v*` установщик уходит в релиз
 
 ### deb Building

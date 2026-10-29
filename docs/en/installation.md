@@ -158,7 +158,7 @@ Download `veblock-<version>-windows-x64-setup.exe` from the
 it. Windows 10 or 11 (x64) is required; the installer asks for administrator
 rights (UAC). The wizard can add a desktop shortcut and start the app at sign-in.
 
-GTK, libadwaita, xray-core and the wintun driver are bundled; nothing else
+The Qt libraries, xray-core and the wintun driver are bundled; nothing else
 needs to be installed.
 
 Autostart and the `veblock://`, `wingeon://` links are registered under
