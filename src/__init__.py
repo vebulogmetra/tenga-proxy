@@ -1,4 +1,4 @@
-__version__ = "0.20.0"
+__version__ = "0.21.0"
 __app_name__ = "Veblock"
 __app_description__ = (
     "Клиент прокси с бекэндом <a href='https://github.com/XTLS/Xray-core'>xray-core</a>"
