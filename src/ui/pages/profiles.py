@@ -90,6 +90,8 @@ class ProfilesPage(Gtk.Box):
         # Второй аргумент — признак группы: набор пунктов меню у группы и у
         # профиля разный, а по одному идентификатору их не различить.
         "profile-context": (GObject.SignalFlags.RUN_FIRST, None, (int, bool)),
+        # Выделение задаёт цель кнопки «Подключить» в карточке статуса.
+        "selection-changed": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self) -> None:
@@ -98,6 +100,7 @@ class ProfilesPage(Gtk.Box):
         self._groups: Mapping[int, Any] = {}
         self._profiles: Mapping[int, Iterable[Any]] = {}
         self._query = ""
+        self._rebuilding = False
         self._sort_key = SortKey.NAME
         self._ascending = True
         self._active_profile_id = -1
@@ -436,6 +439,9 @@ class ProfilesPage(Gtk.Box):
         # SingleSelection перескакивает на группу. «Подключить» берёт профиль
         # из выделения, поэтому без переноса оно после отключения пустело.
         selected_id = self.get_selected_profile_id()
+        # splice и перенос выделения дёргают его по нескольку раз: наружу
+        # уходит одно уведомление после перестройки.
+        self._rebuilding = True
 
         self._rows = build_profile_rows(
             self._groups,
@@ -460,14 +466,23 @@ class ProfilesPage(Gtk.Box):
                 autoexpand=False,
                 create_func=self._children_of,
             )
-            self.column_view.set_model(Gtk.SingleSelection(model=self._tree_model))
+            selection = Gtk.SingleSelection(model=self._tree_model)
+            selection.connect("selection-changed", self._on_selection_changed)
+            self.column_view.set_model(selection)
         else:
             self._root_store.splice(0, self._root_store.get_n_items(), items)
 
         self._restore_expanded(expanded)
         if selected_id is not None:
             self.select_profile(selected_id)
+        self._rebuilding = False
+        if self.get_selected_profile_id() != selected_id:
+            self.emit("selection-changed")
         self._stack.set_visible_child_name("list" if self._rows else "empty")
+
+    def _on_selection_changed(self, *_args) -> None:
+        if not self._rebuilding:
+            self.emit("selection-changed")
 
     def _preserve_scroll(self, rebuild: Callable[[], None]) -> None:
         """Run a model rebuild without moving the visible part of the list.

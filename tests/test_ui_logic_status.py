@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from src.ui.logic.status import ConnectionState, metrics_text, status_view
+from src.ui.logic.status import (
+    ConnectionPresentation,
+    ConnectionState,
+    metrics_text,
+    status_view,
+)
 
 
 def test_disconnected_offers_connect():
@@ -20,7 +25,23 @@ def test_connecting_shows_spinner_and_keeps_profile_name():
     assert view.title == "Подключение…"
     assert view.subtitle == "Польша"
     assert view.show_spinner is True
-    assert view.button_label == "Отменить"
+
+
+def test_connecting_does_not_offer_a_cancel_it_cannot_do():
+    # Контроллер не прерывает начатое подключение: кнопка «Отменить» лишь
+    # показала бы тост «Подключение уже выполняется».
+    view = status_view(ConnectionState.CONNECTING, profile_name="Польша")
+    assert view.button_label == "Подключение…"
+    assert view.action_enabled is False
+
+
+def test_only_connecting_disables_the_action():
+    for state in (
+        ConnectionState.DISCONNECTED,
+        ConnectionState.CONNECTED,
+        ConnectionState.ERROR,
+    ):
+        assert status_view(state).action_enabled is True
 
 
 def test_connected_shows_profile_and_destructive_button():
@@ -91,3 +112,79 @@ def test_connecting_and_error_keep_their_themed_icons():
     # Спиннер и предупреждение сообщают состояние точнее, чем логотип.
     for state in (ConnectionState.CONNECTING, ConnectionState.ERROR):
         assert status_view(state).use_logo is False
+
+
+# --- ConnectionPresentation ---
+
+
+def _resolve(presentation, **overrides):
+    values = {
+        "running": False,
+        "active_id": None,
+        "busy": False,
+        "profile_name": "",
+        "mode": "",
+        "upload": 0,
+        "download": 0,
+        "latency": None,
+    }
+    values.update(overrides)
+    return presentation.resolve(**values)
+
+
+def test_disconnected_names_the_profile_the_button_would_connect():
+    view = _resolve(ConnectionPresentation(), profile_name="Польша")
+    assert view.title == "Отключено"
+    assert view.subtitle == "Польша"
+
+
+def test_an_error_survives_an_unrelated_refresh():
+    presentation = ConnectionPresentation()
+    presentation.fail("xray-core не запустился", (False, None))
+
+    _resolve(presentation)
+    view = _resolve(presentation)
+
+    assert view.title == "Ошибка"
+    assert view.subtitle == "xray-core не запустился"
+    assert view.button_label == "Повторить"
+
+
+def test_an_error_is_cleared_when_the_connection_comes_up():
+    presentation = ConnectionPresentation()
+    presentation.fail("xray-core не запустился", (False, None))
+
+    assert _resolve(presentation, running=True, active_id=3).title == "Подключено"
+    assert _resolve(presentation).title == "Отключено"
+
+
+def test_a_new_attempt_clears_the_previous_error():
+    presentation = ConnectionPresentation()
+    presentation.fail("xray-core не запустился", (False, None))
+    presentation.begin("connect", "Польша")
+
+    view = _resolve(presentation, busy=True)
+
+    assert view.title == "Подключение…"
+    assert view.subtitle == "Польша"
+    assert view.action_enabled is False
+
+
+def test_a_busy_running_session_without_a_connect_is_disconnecting():
+    # GTK не сообщает о начале отключения: занятый поток при работающем
+    # прокси и без начатого подключения — это отключение.
+    view = _resolve(ConnectionPresentation(), busy=True, running=True, profile_name="Польша")
+
+    assert view.title == "Отключение…"
+    assert view.button_label == "Отключение…"
+    assert view.action_enabled is False
+
+
+def test_a_switch_is_shown_as_connecting():
+    presentation = ConnectionPresentation()
+    presentation.begin("connect", "Германия")
+
+    view = _resolve(presentation, busy=True, running=True, profile_name="Польша")
+
+    assert view.title == "Подключение…"
+    assert view.subtitle == "Германия"

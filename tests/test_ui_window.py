@@ -281,6 +281,51 @@ def test_connecting_shows_the_intermediate_state(window):
     assert "Альфа" in window.status_card.get_subtitle()
 
 
+def test_a_connection_error_survives_the_status_refresh(window, adw_app):
+    # Контроллер после show_error сразу перерисовывает окно.
+    adw_app.context.proxy_state.is_running = False
+    window.show_error("xray-core не запустился")
+    window.refresh_status()
+
+    assert window.status_card.get_title() == "Ошибка"
+    assert window.status_card.get_subtitle() == "xray-core не запустился"
+    assert window.status_card.get_button_label() == "Повторить"
+
+
+def test_disconnected_card_names_the_last_used_profile(window, adw_app):
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    entry = store.parse_and_add_link(
+        "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба",
+        group_id=group.id,
+    )
+    store.mark_used(entry.id)
+    adw_app.context.proxy_state.is_running = False
+    window.refresh_pages()
+    window.refresh_status()
+
+    assert window.status_card.get_title() == "Отключено"
+    assert window.status_card.get_subtitle() == "Проба"
+
+
+def test_disconnected_card_follows_the_selected_profile(window, adw_app):
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    for name in ("Первый", "Второй"):
+        store.parse_and_add_link(
+            f"vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#{name}",
+            group_id=group.id,
+        )
+    adw_app.context.proxy_state.is_running = False
+    window.refresh_pages()
+    window.profiles_page.expand_all()
+
+    second = next(p for p in store.profiles.values() if p.name == "Второй")
+    window.profiles_page.select_profile(second.id)
+
+    assert window.status_card.get_subtitle() == "Второй"
+
+
 def test_toggle_group_expands_and_collapses(window, adw_app):
     from gi.repository import GLib
 

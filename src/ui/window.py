@@ -23,7 +23,7 @@ from src.ui.logic.geometry import (
     parse_geometry,
 )
 from src.ui.logic.monitoring_view import monitoring_view
-from src.ui.logic.status import ConnectionState, status_view
+from src.ui.logic.status import ConnectionPresentation, ConnectionState, status_view
 from src.ui.pages.monitoring import MonitoringPage
 from src.ui.pages.profiles import ProfilesPage
 from src.ui.pages.subscriptions import SubscriptionsPage
@@ -104,6 +104,7 @@ class MainWindow(Adw.ApplicationWindow):
         super().__init__(application=application, title="Veblock")
         self.set_icon_name(APP_ICON)
         self._context = context
+        self._presentation = ConnectionPresentation()
 
         geometry = parse_geometry(getattr(context.config, "window_size", ""))
         self.set_default_size(geometry.width, geometry.height)
@@ -170,6 +171,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.monitoring_page = MonitoringPage()
         self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
         self.profiles_page.connect("profile-activated", self._on_profile_activated)
+        self.profiles_page.connect("selection-changed", lambda _page: self.refresh_status())
         self.subscriptions_page.connect("subscription-activated", self._on_subscription_edit)
         self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
@@ -545,33 +547,47 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_monitoring()
 
     def refresh_status(self) -> None:
+        """Redraw the status card from the current proxy state."""
         from src.ui.logic.settings_state import pending_settings
 
         self.pending_banner.set_revealed(pending_settings(self._context))
-        """Redraw the status card from the current proxy state."""
         state = self._context.proxy_state
+        store = self._context.profiles
         if state.is_running:
-            profile = self._context.profiles.get_profile(state.started_profile_id)
-            view = status_view(
-                ConnectionState.CONNECTED,
-                profile_name=profile.name if profile else "",
-                latency_ms=getattr(profile, "latency_ms", None) if profile else None,
-                upload_bytes=state.upload_bytes,
-                download_bytes=state.download_bytes,
-                mode=state.started_mode.upper(),
-            )
+            profile = store.get_profile(state.started_profile_id)
         else:
-            view = status_view(ConnectionState.DISCONNECTED)
-
+            # Тот же порядок, что у connect_selected(): выделение, иначе последний.
+            selected_id = self.profiles_page.get_selected_profile_id()
+            profile = store.get_profile(selected_id) if selected_id is not None else None
+            profile = profile or store.last_used_profile()
+        app = self.get_application()
+        controller = getattr(app, "controller", None)
+        view = self._presentation.resolve(
+            running=state.is_running,
+            active_id=state.started_profile_id,
+            busy=controller is not None and controller.connection_busy(),
+            profile_name=profile.name if profile else "",
+            mode=state.started_mode.upper(),
+            upload=state.upload_bytes,
+            download=state.download_bytes,
+            latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
+        )
         self.status_card.update(view)
 
     def show_connecting(self, profile_name: str = "") -> None:
         """Put the card into the intermediate state while xray-core starts."""
+        # Контроллер зовёт это до запуска потока, connection_busy() ещё False,
+        # поэтому карточка рисуется напрямую, а не через refresh_status().
+        self._presentation.begin("connect", profile_name)
         self.status_card.update(status_view(ConnectionState.CONNECTING, profile_name=profile_name))
 
     def show_error(self, message: str) -> None:
-        """Show a connection failure on the card."""
-        self.status_card.update(status_view(ConnectionState.ERROR, error=message))
+        """Show a connection failure; it stays until the next attempt or state change."""
+        state = self._context.proxy_state
+        self._presentation.fail(
+            message, (state.is_running, state.started_profile_id if state.is_running else None)
+        )
+        self.refresh_status()
 
     def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
         """Show a transient message over the content, optionally with an undo-like button."""

@@ -38,9 +38,9 @@ def _connection_entry(state: ConnectionState) -> MenuItem:
     if state is ConnectionState.CONNECTED:
         return MenuItem("Отключить", action="app.disconnect")
     if state is ConnectionState.CONNECTING:
-        # Ни «Подключить», ни «Отключить» во время подключения не имеют
-        # смысла: единственное осмысленное действие — прервать.
-        return MenuItem("Отменить", action="app.disconnect")
+        # Начатое подключение контроллер не прерывает, поэтому пункт только
+        # сообщает о нём: «Отменить» лишь показал бы тост «уже выполняется».
+        return MenuItem("Подключение…", enabled=False)
     return MenuItem("Подключить", action="app.connect")
 
 

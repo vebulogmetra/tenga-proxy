@@ -77,10 +77,13 @@ def test_the_disconnect_entry_triggers_the_application_action():
     assert _find(items, "Отключить").action == "app.disconnect"
 
 
-def test_connecting_offers_to_cancel():
+def test_connecting_does_not_offer_a_cancel_it_cannot_do():
     items = build_menu(ConnectionState.CONNECTING, [], profile_name="Работа")
 
-    assert _find(items, "Отменить") is not None
+    assert _find(items, "Отменить") is None
+    entry = _find(items, "Подключение…")
+    assert entry is not None
+    assert entry.enabled is False
 
 
 def test_the_profiles_submenu_lists_the_profiles():

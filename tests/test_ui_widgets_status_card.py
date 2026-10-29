@@ -73,6 +73,16 @@ def test_spinner_visible_only_while_connecting(card):
     assert card.is_spinning() is False
 
 
+def test_button_is_insensitive_while_connecting(card):
+    from src.ui.logic.status import ConnectionState
+
+    card.update(_view(ConnectionState.CONNECTING, profile_name="X"))
+    assert card.action_button.get_sensitive() is False
+
+    card.update(_view(ConnectionState.ERROR, error="сбой"))
+    assert card.action_button.get_sensitive() is True
+
+
 def test_metrics_row_hidden_when_empty(card):
     from src.ui.logic.status import ConnectionState
 

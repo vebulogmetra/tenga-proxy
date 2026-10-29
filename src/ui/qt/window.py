@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
 from src.ui.logic.monitoring_view import monitoring_view
 from src.ui.logic.profiles_view import SortKey, build_profile_rows
-from src.ui.logic.status import ConnectionState, status_view
+from src.ui.logic.status import ConnectionPresentation, ConnectionState, status_view
 from src.ui.logic.subscriptions_view import build_subscription_rows
 from src.ui.qt.icons import flagged
 from src.ui.qt.models import (
@@ -47,7 +47,6 @@ from src.ui.qt.models import (
     TYPE_COLUMN,
     ProfileTreeModel,
 )
-from src.ui.qt.view_state import ConnectionPresentation
 from src.ui.qt.widgets.diagnostics import DiagnosticsPanel
 from src.ui.qt.widgets.profile_delegate import ProfileDelegate
 from src.ui.qt.widgets.status_card import StatusCard

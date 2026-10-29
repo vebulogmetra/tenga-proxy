@@ -130,6 +130,7 @@ class StatusCard(Gtk.Box):
         self.add_css_class(view.css_class)
 
         self.action_button.set_label(view.button_label)
+        self.action_button.set_sensitive(view.action_enabled)
         for css_class in _BUTTON_CLASSES:
             self.action_button.remove_css_class(css_class)
         self.action_button.add_css_class(view.button_class)
