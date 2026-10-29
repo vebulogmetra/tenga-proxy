@@ -306,11 +306,11 @@ Expected: 5 passed.
 
 **Step 5 (необязательно, около 3 минут): сборка Qt-варианта на Linux**
 
-Так проверяется, что PyInstaller принимает spec. Временная копия spec берёт Linux-`xray` и не берёт `wintun`, иконку и сведения о версии. Нужен `core/bin/xray` (`python cli.py setup-dev`). Сборка — в scratchpad, не в `dist/`:
+Так проверяется, что PyInstaller принимает spec. Копия spec лежит вне репозитория, поэтому `ROOT` в ней задан абсолютным путём. Она берёт Linux-`xray` и не берёт `wintun`, иконку и сведения о версии. Нужен `core/bin/xray` (`python cli.py setup-dev`). Сборка — в scratchpad, не в `dist/`:
 
 ```bash
 S=<scratchpad>
-sed -e 's/"xray.exe"/"xray"/' -e '/wintun/d' -e '/icon=/d' -e '/version=/d' \
+sed -e "s|^ROOT = .*|ROOT = Path(\"$PWD\")|" -e 's/"xray.exe"/"xray"/' -e '/wintun/d' -e '/icon=/d' -e '/version=/d' \
     -e 's/hiddenimports=\["win32timezone", "servicemanager"\]/hiddenimports=[]/' \
     packaging/windows/tenga-proxy.spec > $S/linux-probe.spec
 uv run --extra windows --extra build pyinstaller --noconfirm \
