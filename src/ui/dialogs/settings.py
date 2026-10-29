@@ -19,7 +19,7 @@ from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
 from src.sys import tun_access
-from src.ui.logic import platform_layout, platform_texts
+from src.ui.logic import platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.routing_form import current_catalog, geo_summary
@@ -188,13 +188,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         logs.add(self.log_level_row)
 
     def _build_monitoring_page(self) -> None:
-        if platform_layout.monitoring_on_general_settings_page():
-            page = self._general_page
-        else:
-            page = Adw.PreferencesPage(
-                title="Мониторинг", icon_name="utilities-system-monitor-symbolic"
-            )
-            self.add(page)
+        page = Adw.PreferencesPage(
+            title="Мониторинг", icon_name="utilities-system-monitor-symbolic"
+        )
+        self.add(page)
 
         group = Adw.PreferencesGroup(
             title="Проверка соединения",

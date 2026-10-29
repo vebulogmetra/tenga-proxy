@@ -12,7 +12,6 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GObject, Gtk, Pango
 
-from src.ui.logic import platform_layout
 from src.ui.logic.subscriptions_view import (
     EMPTY_RESPONSE_HINT,
     EMPTY_RESPONSE_TEXT,
@@ -105,8 +104,6 @@ class SubscriptionsPage(Gtk.Box):
         action_row = Adw.ActionRow()
         action_row.set_use_markup(False)
         action_row.set_title(row.name)
-        if platform_layout.compact_subscription_rows():
-            action_row.set_title_lines(2)
         action_row.set_subtitle(row.url)
         action_row.set_subtitle_lines(1)
         action_row.set_activatable(True)
@@ -121,18 +118,10 @@ class SubscriptionsPage(Gtk.Box):
         meta = Gtk.Label(label=f"{row.profile_count} · {row.updated_text}", xalign=1.0)
         meta.add_css_class("dim-label")
         meta.add_css_class("caption")
-        if platform_layout.compact_subscription_rows():
-            meta.set_max_width_chars(18)
-            meta.set_ellipsize(Pango.EllipsizeMode.END)
-            meta.set_tooltip_text(meta.get_text())
         meta_box.append(meta)
         if row.details_text:
             details = Gtk.Label(label=row.details_text, xalign=1.0)
             details.add_css_class("caption")
-            if platform_layout.compact_subscription_rows():
-                details.set_max_width_chars(18)
-                details.set_ellipsize(Pango.EllipsizeMode.END)
-                details.set_tooltip_text(row.details_text)
             # Истёкшую подписку видно сразу: серверов в ней обычно уже нет.
             details.add_css_class("error" if row.expired else "dim-label")
             meta_box.append(details)
@@ -143,9 +132,6 @@ class SubscriptionsPage(Gtk.Box):
             empty.add_css_class("caption")
             empty.add_css_class("error")
             empty.set_tooltip_text(EMPTY_RESPONSE_HINT)
-            if platform_layout.compact_subscription_rows():
-                empty.set_max_width_chars(18)
-                empty.set_ellipsize(Pango.EllipsizeMode.END)
             meta_box.append(empty)
             self._empty_labels[row.group_id] = empty
         action_row.add_suffix(meta_box)

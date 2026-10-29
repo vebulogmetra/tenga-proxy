@@ -9,7 +9,6 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, GObject, Gtk, Pango
 
-from src.ui.logic import platform_layout
 from src.ui.logic.monitoring_view import (
     CLASS_DIM,
     CLASS_ERROR,
@@ -66,17 +65,7 @@ class MonitoringPage(Adw.PreferencesPage):
         scroll = Gtk.ScrolledWindow(min_content_height=160, max_content_height=260)
         scroll.set_child(self.log_view)
         group.add(scroll)
-        if platform_layout.wrapping_action_buttons():
-            buttons = Gtk.FlowBox(
-                selection_mode=Gtk.SelectionMode.NONE,
-                min_children_per_line=1,
-                max_children_per_line=3,
-                column_spacing=8,
-                row_spacing=8,
-            )
-            buttons.add_css_class("diagnostic-actions")
-        else:
-            buttons = Gtk.Box(spacing=8)
+        buttons = Gtk.Box(spacing=8)
         for label, callback in (
             ("Обновить журнал", self.refresh_diagnostics),
             ("Экспортировать", self._export_diagnostics),

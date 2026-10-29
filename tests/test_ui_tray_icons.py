@@ -60,5 +60,5 @@ def test_the_icons_differ_from_each_other():
 
 @pytest.mark.parametrize("state", list(ConnectionState))
 def test_windows_status_card_has_a_monolith_per_state(state):
-    # Имена совпадают с MONOLITH_ASSETS карточки: виджет без дисплея не импортировать.
+    # Картинки карточки Qt-интерфейса (src/ui/qt/widgets/status_card.py).
     assert (icons_directory() / "win" / f"monolith-{state.value}.png").is_file()

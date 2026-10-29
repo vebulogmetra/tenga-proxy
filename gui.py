@@ -78,7 +78,7 @@ def gtk_install_hint() -> str:
     from src.core import platform_info
 
     if platform_info.IS_WINDOWS:
-        return "Среда GTK входит в установщик: переустановите Veblock."
+        return "Интерфейс GTK на Windows не поддерживается: запустите Veblock без --ui gtk."
     return "Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1"
 
 
@@ -247,14 +247,14 @@ def main() -> int:
         options = {
             "config_dir": args.config_dir,
             "lock": single_instance if holds_lock else None,
-            "lock_path": lock_file,
             "with_tray": not args.no_tray,
             "uris": args.uris,
         }
         if FRONTEND == "qt":
             from src.ui.qt.application import run_app
 
-            return run_app(**options, accept_activation=IS_WINDOWS)
+            # Pipe активации второго запуска — только на Windows.
+            return run_app(**options, lock_path=lock_file, accept_activation=IS_WINDOWS)
         from src.ui.application import run_app
 
         return run_app(**options)

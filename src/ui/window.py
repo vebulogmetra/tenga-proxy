@@ -14,7 +14,6 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from src.core.config import get_asset_path
-from src.ui.logic import platform_layout
 from src.ui.logic.appearance import normalize_theme
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
@@ -55,16 +54,15 @@ def load_css() -> None:
     if display is None:
         return
 
-    for name in platform_layout.stylesheets():
-        path = Path(__file__).with_name(name)
-        if not path.exists():
-            logger.warning("Stylesheet not found: %s", path)
-            continue
-        provider = Gtk.CssProvider()
-        provider.load_from_path(str(path))
-        Gtk.StyleContext.add_provider_for_display(
-            display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
-        )
+    path = Path(__file__).with_name("style.css")
+    if not path.exists():
+        logger.warning("Stylesheet not found: %s", path)
+        return
+    provider = Gtk.CssProvider()
+    provider.load_from_path(str(path))
+    Gtk.StyleContext.add_provider_for_display(
+        display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+    )
 
 
 def apply_theme(theme: str | None) -> None:
@@ -126,12 +124,8 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_ui(self) -> None:
         self.toast_overlay = Adw.ToastOverlay()
         toolbar = Adw.ToolbarView()
-        if platform_layout.toasts_above_navigation():
-            # Панели вне overlay: уведомления не закрывают нижние вкладки.
-            self.set_content(toolbar)
-        else:
-            self.set_content(self.toast_overlay)
-            self.toast_overlay.set_child(toolbar)
+        self.set_content(self.toast_overlay)
+        self.toast_overlay.set_child(toolbar)
 
         self.view_stack = Adw.ViewStack()
         self._add_pages()
@@ -168,11 +162,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.view_stack.set_vexpand(True)
         content.append(self.view_stack)
-        if platform_layout.toasts_above_navigation():
-            self.toast_overlay.set_child(content)
-            toolbar.set_content(self.toast_overlay)
-        else:
-            toolbar.set_content(content)
+        toolbar.set_content(content)
 
     def _add_pages(self) -> None:
         self.profiles_page = ProfilesPage()

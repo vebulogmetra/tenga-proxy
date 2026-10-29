@@ -20,7 +20,6 @@ from src.ui.logic.profiles_view import (
     build_profile_rows,
     ping_text,
 )
-from src.ui.widgets.name_label import name_label
 
 _ACTIVE_CLASS = "profile-active"
 _GROUP_CLASS = "profile-group"
@@ -336,7 +335,7 @@ class ProfilesPage(Gtk.Box):
         icon = Gtk.Image()
         box.append(icon)
 
-        label = name_label(xalign=0.0)
+        label = Gtk.Label(xalign=0.0)
         label.set_ellipsize(Pango.EllipsizeMode.END)
         label.set_hexpand(True)
         box.append(label)

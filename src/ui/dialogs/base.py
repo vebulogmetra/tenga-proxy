@@ -9,8 +9,6 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gdk, Gtk
 
-from src.ui.logic import platform_layout
-
 DEFAULT_WIDTH = 520
 
 
@@ -49,11 +47,7 @@ class FormDialog(Adw.Dialog):
         self._toolbar.add_top_bar(header)
 
         self.page = Adw.PreferencesPage()
-        if platform_layout.adaptive_dialog_width():
-            self.set_follows_content_size(False)
-            self.set_content_width(560)
-        else:
-            self.page.set_size_request(DEFAULT_WIDTH, -1)
+        self.page.set_size_request(DEFAULT_WIDTH, -1)
         self._toolbar.set_content(self.page)
 
     def set_content_widget(self, widget: Gtk.Widget) -> None:
