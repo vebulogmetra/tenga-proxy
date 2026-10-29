@@ -17,13 +17,6 @@ case "$(uname -s)" in
     *) XRAY_OS="linux"; XRAY_BIN="xray" ;;
 esac
 
-# Windows: оболочка MSYS2 UCRT64 — прежняя GTK-сборка (уходит вместе с ней),
-# любая другая (Git Bash) — интерфейс Qt на обычном Python и uv.
-WINDOWS_MSYS2=0
-if [ "$XRAY_OS" = "windows" ] && [ "${MSYSTEM:-}" = "UCRT64" ]; then
-    WINDOWS_MSYS2=1
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
@@ -96,11 +89,7 @@ check_os() {
             exit 1
             ;;
         MINGW*|MSYS*|CYGWIN*)
-            if [ "$WINDOWS_MSYS2" = "1" ]; then
-                success "Система: Windows (MSYS2 UCRT64, интерфейс GTK)"
-            else
-                success "Система: Windows (${MSYSTEM:-bash}, интерфейс Qt)"
-            fi
+            success "Система: Windows (${MSYSTEM:-bash}, интерфейс Qt)"
             return 0
             ;;
         *)
@@ -113,7 +102,7 @@ check_os() {
 
 
 check_root() {
-    # В MSYS2 EUID не означает администратора: проверка только для Linux.
+    # В Git Bash EUID не означает администратора: проверка только для Linux.
     if [ "$XRAY_OS" = "linux" ] && [ "$EUID" -eq 0 ]; then
         error "Не запускайте скрипт от имени root!"
         error "Скрипт сам запросит sudo при необходимости."
@@ -129,35 +118,10 @@ check_command() {
     return 0
 }
 
-# Windows: GTK, PyGObject и requests берутся из пакетов MSYS2, а не из pip.
-MSYS2_PACKAGES="git unzip mingw-w64-ucrt-x86_64-python mingw-w64-ucrt-x86_64-python-pip \
-mingw-w64-ucrt-x86_64-python-gobject mingw-w64-ucrt-x86_64-gtk4 \
-mingw-w64-ucrt-x86_64-libadwaita mingw-w64-ucrt-x86_64-python-requests \
-mingw-w64-ucrt-x86_64-python-pytest mingw-w64-ucrt-x86_64-python-pytest-cov \
-mingw-w64-ucrt-x86_64-python-pywin32"
-
-install_windows_deps() {
-    info "Проверка пакетов MSYS2..."
-    if python -c "import gi; gi.require_version('Gtk', '4.0'); gi.require_version('Adw', '1'); \
-from gi.repository import Gtk, Adw; import requests" 2>/dev/null; then
-        success "GTK 4, libadwaita и requests доступны из Python"
-        return 0
-    fi
-    info "Нужны пакеты MSYS2: $MSYS2_PACKAGES"
-    if ! confirm "Установить их через pacman? (y/n): " "y"; then
-        error "Установите вручную: pacman -S --needed $MSYS2_PACKAGES"
-        exit 1
-    fi
-    # shellcheck disable=SC2086
-    pacman -S --needed --noconfirm $MSYS2_PACKAGES
-    success "Пакеты MSYS2 установлены"
-}
-
 # System deps
 install_system_deps() {
     if [ "$XRAY_OS" = "windows" ]; then
-        # Вне MSYS2 системных пакетов нет: Python с python.org и uv.
-        [ "$WINDOWS_MSYS2" = "1" ] && install_windows_deps
+        # Системных пакетов нет: Python и зависимости ставит uv.
         return 0
     fi
     info "Проверка системных зависимостей..."
@@ -229,11 +193,6 @@ install_system_deps() {
 }
 
 install_python_deps() {
-    if [ "$WINDOWS_MSYS2" = "1" ]; then
-        # uv поставил бы PyGObject из PyPI, а его колесо без GTK не работает.
-        info "Python-зависимости на Windows приходят пакетами MSYS2, uv не нужен"
-        return 0
-    fi
     info "Проверка Python зависимостей..."
     
     if [ ! -f "$PROJECT_ROOT/pyproject.toml" ]; then
