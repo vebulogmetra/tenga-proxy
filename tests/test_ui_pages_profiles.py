@@ -161,6 +161,21 @@ def test_profile_rows_carry_no_count(gtk_ready, data):
     assert leaf.count_text == ""
 
 
+def test_the_active_profile_carries_a_text_badge(gtk_ready, data):
+    # Цвет — не единственный признак: метка видна и на фоне выделения.
+    from src.ui.logic.profiles_view import build_profile_rows
+    from src.ui.pages.profiles import RowItem
+
+    groups, profiles = data
+    rows = build_profile_rows(groups, profiles, active_profile_id=3)
+    group = next(row for row in rows if row.group_id == 2)
+    other = next(row for row in rows if row.group_id == 1)
+
+    assert RowItem(group.children[0]).suffix_text == "Подключён"
+    assert RowItem(group).suffix_text == "1"
+    assert RowItem(other.children[0]).suffix_text == ""
+
+
 def test_a_context_click_on_a_profile_reports_it(page, data):
     page.set_data(*data)
     page.expand_all()

@@ -133,6 +133,21 @@ def status_view(
     )
 
 
+def health_text(*, running: bool, checked: bool, proxy_ok: bool, last_check: str) -> str:
+    """Describe the monitor's check of the running session.
+
+    «Подключено» на карточке значит только, что сессия запущена; работает ли
+    соединение, говорит эта строка, и только по данным монитора.
+    """
+    if not running:
+        return ""
+    if not checked:
+        return "Проверка соединения ещё не выполнена"
+    if not proxy_ok:
+        return "Прокси запущен, соединение не прошло проверку"
+    return f"Последняя проверка соединения: {last_check}"
+
+
 @dataclass
 class ConnectionPresentation:
     """Connection state as the card shows it, between controller events.
@@ -146,6 +161,20 @@ class ConnectionPresentation:
     target_name: str = ""
     error: str = ""
     error_snapshot: tuple[bool, int | None] | None = None
+    check_session: tuple[bool, int | None] | None = None
+    check_baseline: float = 0.0
+
+    def check_done(self, *, running: bool, active_id: int | None, last_check_time: float) -> bool:
+        """Tell whether the monitor checked the current session.
+
+        Время проверки, бывшее на момент начала сессии, относится к прошлому
+        подключению и проверкой этой сессии не считается.
+        """
+        session = (running, active_id)
+        if self.check_session != session:
+            self.check_session = session
+            self.check_baseline = last_check_time
+        return bool(last_check_time and last_check_time > self.check_baseline)
 
     def begin(self, operation: str, target_name: str = "") -> None:
         self.operation = operation

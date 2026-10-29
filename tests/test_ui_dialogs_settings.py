@@ -367,7 +367,7 @@ def test_geo_update_error_restores_button_and_shows_plain_text(gtk_ready, monkey
     assert dialog.geo_row.get_subtitle() == "Не обновлены: ошибка <download> & записи"
 
 
-# --- обновление ядра на странице «О программе» ---
+# --- обновление ядра на странице «Версия» ---
 
 
 def make_about_dialog(config=None, *, core="26.9.9"):

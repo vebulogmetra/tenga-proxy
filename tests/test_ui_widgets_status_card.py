@@ -83,6 +83,33 @@ def test_button_is_insensitive_while_connecting(card):
     assert card.action_button.get_sensitive() is True
 
 
+def test_switch_button_names_its_target(card):
+    card.set_switch_target("Германия", enabled=True)
+    assert card.switch_button.get_visible() is True
+    assert card.switch_button.get_label() == "Переключить на «Германия»"
+
+    card.set_switch_target("", enabled=True)
+    assert card.switch_button.get_visible() is False
+
+
+def test_switch_button_emits_its_own_signal(card):
+    seen = []
+    card.connect("switch-clicked", lambda _card: seen.append("switch"))
+    card.connect("action-clicked", lambda _card: seen.append("action"))
+    card.set_switch_target("Германия", enabled=True)
+
+    card.switch_button.emit("clicked")
+
+    assert seen == ["switch"]
+
+
+def test_health_row_hidden_when_empty(card):
+    card.set_health("")
+    assert card.get_health() == ""
+    card.set_health("Проверка соединения ещё не выполнена")
+    assert card.get_health() == "Проверка соединения ещё не выполнена"
+
+
 def test_metrics_row_hidden_when_empty(card):
     from src.ui.logic.status import ConnectionState
 

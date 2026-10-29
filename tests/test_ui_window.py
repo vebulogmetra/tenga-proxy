@@ -326,6 +326,56 @@ def test_disconnected_card_follows_the_selected_profile(window, adw_app):
     assert window.status_card.get_subtitle() == "Второй"
 
 
+def _two_profiles(adw_app):
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    for name in ("Первый", "Второй"):
+        store.parse_and_add_link(
+            f"vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#{name}",
+            group_id=group.id,
+        )
+    by_name = {p.name: p for p in store.profiles.values()}
+    return by_name["Первый"], by_name["Второй"]
+
+
+def test_selecting_another_profile_offers_an_explicit_switch(window, adw_app):
+    first, second = _two_profiles(adw_app)
+    adw_app.context.proxy_state.is_running = True
+    adw_app.context.proxy_state.started_profile_id = first.id
+    window.refresh_pages()
+    window.profiles_page.expand_all()
+
+    window.profiles_page.select_profile(second.id)
+    assert window.status_card.switch_button.get_visible() is True
+    assert window.status_card.get_subtitle() == "Первый"
+
+    window.profiles_page.select_profile(first.id)
+    assert window.status_card.switch_button.get_visible() is False
+
+
+def test_the_switch_connects_the_selected_profile(window, adw_app, monkeypatch):
+    first, second = _two_profiles(adw_app)
+    adw_app.context.proxy_state.is_running = True
+    adw_app.context.proxy_state.started_profile_id = first.id
+    window.refresh_pages()
+    window.profiles_page.expand_all()
+    window.profiles_page.select_profile(second.id)
+
+    connected = []
+    monkeypatch.setattr(adw_app.controller, "connect_profile", connected.append)
+    window.status_card.switch_button.emit("clicked")
+
+    assert connected == [second.id]
+
+
+def test_a_started_session_is_not_shown_as_checked(window, adw_app):
+    adw_app.context.proxy_state.is_running = True
+    window.refresh_status()
+
+    assert window.status_card.get_title() == "Подключено"
+    assert window.status_card.get_health() == "Проверка соединения ещё не выполнена"
+
+
 def test_toggle_group_expands_and_collapses(window, adw_app):
     from gi.repository import GLib
 

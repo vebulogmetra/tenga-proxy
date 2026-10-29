@@ -5,6 +5,7 @@ from __future__ import annotations
 from src.ui.logic.status import (
     ConnectionPresentation,
     ConnectionState,
+    health_text,
     metrics_text,
     status_view,
 )
@@ -188,3 +189,34 @@ def test_a_switch_is_shown_as_connecting():
 
     assert view.title == "Подключение…"
     assert view.subtitle == "Германия"
+
+
+# --- проверка соединения ---
+
+
+def test_health_is_silent_without_a_session():
+    assert health_text(running=False, checked=False, proxy_ok=False, last_check="—") == ""
+
+
+def test_a_started_session_is_not_called_checked():
+    # «Подключено» значит только «процесс запущен»: про проверку — отдельно.
+    text = health_text(running=True, checked=False, proxy_ok=True, last_check="12:00:00")
+    assert text == "Проверка соединения ещё не выполнена"
+
+
+def test_a_failed_check_is_named():
+    text = health_text(running=True, checked=True, proxy_ok=False, last_check="12:00:00")
+    assert text == "Прокси запущен, соединение не прошло проверку"
+
+
+def test_a_passed_check_shows_its_time():
+    text = health_text(running=True, checked=True, proxy_ok=True, last_check="12:00:00")
+    assert text == "Последняя проверка соединения: 12:00:00"
+
+
+def test_a_check_of_the_previous_session_does_not_count():
+    presentation = ConnectionPresentation()
+    assert presentation.check_done(running=True, active_id=1, last_check_time=100.0) is False
+    assert presentation.check_done(running=True, active_id=1, last_check_time=150.0) is True
+    # Новая сессия: прежняя проверка относится к другому подключению.
+    assert presentation.check_done(running=True, active_id=2, last_check_time=150.0) is False

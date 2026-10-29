@@ -59,6 +59,7 @@ class StatusCard(Gtk.Box):
 
     __gsignals__ = {
         "action-clicked": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "switch-clicked": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self) -> None:
@@ -98,7 +99,20 @@ class StatusCard(Gtk.Box):
         self._metrics.add_css_class("dim-label")
         text_box.append(self._metrics)
 
+        self._health = Gtk.Label(xalign=0.0, visible=False)
+        self._health.add_css_class("caption")
+        self._health.add_css_class("dim-label")
+        self._health.set_wrap(True)
+        text_box.append(self._health)
+
         self.append(text_box)
+
+        # Выделение другой строки соединение не меняет: переход на неё —
+        # отдельное явное действие, видимое только пока выбран не активный.
+        self.switch_button = Gtk.Button(visible=False)
+        self.switch_button.set_valign(Gtk.Align.CENTER)
+        self.switch_button.connect("clicked", lambda _button: self.emit("switch-clicked"))
+        self.append(self.switch_button)
 
         self.action_button = Gtk.Button()
         self.action_button.set_valign(Gtk.Align.CENTER)
@@ -135,6 +149,18 @@ class StatusCard(Gtk.Box):
             self.action_button.remove_css_class(css_class)
         self.action_button.add_css_class(view.button_class)
 
+    def set_switch_target(self, name: str, *, enabled: bool) -> None:
+        """Offer to switch to the named profile; an empty name hides the button."""
+        self.switch_button.set_visible(bool(name))
+        self.switch_button.set_label(f"Переключить на «{name}»" if name else "")
+        self.switch_button.set_tooltip_text(name or None)
+        self.switch_button.set_sensitive(enabled)
+
+    def set_health(self, text: str) -> None:
+        """Show the monitor's verdict on the running session; empty hides it."""
+        self._health.set_text(text)
+        self._health.set_visible(bool(text))
+
     def _set_icon(self, view: StatusView) -> None:
         """Show the logo where the view asks for it, else a themed icon."""
         if not view.use_logo or self._logo is None:
@@ -158,6 +184,9 @@ class StatusCard(Gtk.Box):
 
     def get_metrics(self) -> str:
         return self._metrics.get_text()
+
+    def get_health(self) -> str:
+        return self._health.get_text()
 
     def get_button_label(self) -> str:
         return self.action_button.get_label() or ""

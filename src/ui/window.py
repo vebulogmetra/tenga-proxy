@@ -22,8 +22,13 @@ from src.ui.logic.geometry import (
     format_geometry,
     parse_geometry,
 )
-from src.ui.logic.monitoring_view import monitoring_view
-from src.ui.logic.status import ConnectionPresentation, ConnectionState, status_view
+from src.ui.logic.monitoring_view import format_last_check, monitoring_view
+from src.ui.logic.status import (
+    ConnectionPresentation,
+    ConnectionState,
+    health_text,
+    status_view,
+)
 from src.ui.pages.monitoring import MonitoringPage
 from src.ui.pages.profiles import ProfilesPage
 from src.ui.pages.subscriptions import SubscriptionsPage
@@ -150,6 +155,7 @@ class MainWindow(Adw.ApplicationWindow):
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.status_card = StatusCard()
         self.status_card.connect("action-clicked", self._on_status_action)
+        self.status_card.connect("switch-clicked", self._on_switch_clicked)
         content.append(self.status_card)
         self.pending_banner = Adw.Banner(
             title="Изменения применятся после переподключения",
@@ -553,19 +559,20 @@ class MainWindow(Adw.ApplicationWindow):
         self.pending_banner.set_revealed(pending_settings(self._context))
         state = self._context.proxy_state
         store = self._context.profiles
+        selected_id = self.profiles_page.get_selected_profile_id()
+        selected = store.get_profile(selected_id) if selected_id is not None else None
         if state.is_running:
             profile = store.get_profile(state.started_profile_id)
         else:
             # Тот же порядок, что у connect_selected(): выделение, иначе последний.
-            selected_id = self.profiles_page.get_selected_profile_id()
-            profile = store.get_profile(selected_id) if selected_id is not None else None
-            profile = profile or store.last_used_profile()
+            profile = selected or store.last_used_profile()
         app = self.get_application()
         controller = getattr(app, "controller", None)
+        busy = controller is not None and controller.connection_busy()
         view = self._presentation.resolve(
             running=state.is_running,
             active_id=state.started_profile_id,
-            busy=controller is not None and controller.connection_busy(),
+            busy=busy,
             profile_name=profile.name if profile else "",
             mode=state.started_mode.upper(),
             upload=state.upload_bytes,
@@ -573,6 +580,29 @@ class MainWindow(Adw.ApplicationWindow):
             latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
         )
         self.status_card.update(view)
+
+        switch_to = (
+            selected.name
+            if selected is not None and state.is_running and selected.id != state.started_profile_id
+            else ""
+        )
+        self.status_card.set_switch_target(switch_to, enabled=not busy)
+
+        monitor = self._context.monitor
+        status = monitor.status if monitor is not None else _EmptyStatus()
+        checked = self._presentation.check_done(
+            running=state.is_running,
+            active_id=state.started_profile_id if state.is_running else None,
+            last_check_time=status.last_check_time,
+        )
+        self.status_card.set_health(
+            health_text(
+                running=state.is_running,
+                checked=checked,
+                proxy_ok=status.proxy_ok,
+                last_check=format_last_check(status.last_check_time),
+            )
+        )
 
     def show_connecting(self, profile_name: str = "") -> None:
         """Put the card into the intermediate state while xray-core starts."""
@@ -601,6 +631,12 @@ class MainWindow(Adw.ApplicationWindow):
         app = self.get_application()
         if app is not None:
             app.activate_action("toggle-connection", None)
+
+    def _on_switch_clicked(self, _card: StatusCard) -> None:
+        selected_id = self.profiles_page.get_selected_profile_id()
+        app = self.get_application()
+        if app is not None and selected_id is not None:
+            app.activate_action("connect-profile", GLib.Variant.new_int32(selected_id))
 
     def _on_proxy_state_changed(self, _state) -> None:
         from gi.repository import GLib

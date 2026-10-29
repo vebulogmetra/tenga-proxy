@@ -615,7 +615,7 @@ def test_app_update_is_notified_once(tmp_path):
     controller.refresh_app_releases_if_due()
 
     assert context.config.app_update_notified == "v0.17.0"
-    assert shell.last_toast == "Доступна версия v0.17.0. Откройте настройки → О программе"
+    assert shell.last_toast == "Доступна версия v0.17.0. Откройте настройки → Версия"
     assert calls == [True]
 
 

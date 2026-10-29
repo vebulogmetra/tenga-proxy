@@ -55,6 +55,13 @@ class RowItem(GObject.Object):
         return str(self.row.count) if isinstance(self.row, GroupRow) else ""
 
     @property
+    def suffix_text(self) -> str:
+        """Right-hand label of the name cell: group count or the active badge."""
+        if not self.is_group and self.row.is_active:
+            return "Подключён"
+        return self.count_text
+
+    @property
     def proxy_type(self) -> str:
         return "" if self.is_group else self.row.proxy_type.upper()
 
@@ -345,6 +352,7 @@ class ProfilesPage(Gtk.Box):
 
         # Счётчик отдельной меткой: внутри названия он обрезался вместе с ним,
         # а число профилей в группе — то, ради чего строку и разворачивают.
+        # У активного профиля здесь же метка «Подключён».
         count = Gtk.Label(xalign=1.0)
         count.add_css_class("dim-label")
         count.add_css_class("caption")
@@ -408,8 +416,12 @@ class ProfilesPage(Gtk.Box):
             state = self._ping_progress.state(item.row.group_id)
 
         if state is None:
-            count.set_text(item.count_text)
-            count.set_visible(bool(item.count_text))
+            count.set_text(item.suffix_text)
+            count.set_visible(bool(item.suffix_text))
+            if not item.is_group and item.row.is_active:
+                count.add_css_class("accent")
+            else:
+                count.remove_css_class("accent")
             progress.set_visible(False)
             return
 

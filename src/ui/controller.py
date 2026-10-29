@@ -839,7 +839,7 @@ class AppController:
     def refresh_core_releases_if_due(self) -> None:
         """Remember the newest core releases, at most once in a few days.
 
-        Только запоминает: о новой версии говорит страница «О программе».
+        Только запоминает: о новой версии говорит страница настроек «Версия».
         """
         if not self.context.config.core_update_enabled:
             return
@@ -887,7 +887,7 @@ class AppController:
 
         def done(release):
             if release and config.app_update_notified != release.version:
-                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
+                self.toast(f"Доступна версия {release.version}. Откройте настройки → Версия")
                 config.app_update_notified = release.version
             context.save_config()
 

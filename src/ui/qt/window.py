@@ -34,7 +34,12 @@ from PySide6.QtWidgets import (
 from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
 from src.ui.logic.monitoring_view import monitoring_view
 from src.ui.logic.profiles_view import SortKey, build_profile_rows
-from src.ui.logic.status import ConnectionPresentation, ConnectionState, status_view
+from src.ui.logic.status import (
+    ConnectionPresentation,
+    ConnectionState,
+    health_text,
+    status_view,
+)
 from src.ui.logic.subscriptions_view import build_subscription_rows
 from src.ui.qt.icons import flagged
 from src.ui.qt.models import (
@@ -500,11 +505,11 @@ class MainWindow(QMainWindow):
         monitor = self._context.monitor
         status = monitor.status if monitor is not None else _EmptyStatus()
         state = self._context.proxy_state
-        session = (state.is_running, state.started_profile_id)
-        if getattr(self, "_monitor_session", None) != session:
-            self._monitor_session = session
-            self._monitor_baseline = status.last_check_time
-        checked = bool(status.last_check_time and status.last_check_time > self._monitor_baseline)
+        checked = self.presentation.check_done(
+            running=state.is_running,
+            active_id=state.started_profile_id,
+            last_check_time=status.last_check_time,
+        )
         profile = (
             self._context.profiles.get_profile(state.started_profile_id)
             if state.is_running
@@ -547,16 +552,12 @@ class MainWindow(QMainWindow):
             if checked or not state.is_running
             else "Ожидается проверка соединения"
         )
-        if self.presentation.error:
-            summary = self.presentation.error
-        elif state.is_running and not checked:
-            summary = "Проверка соединения ещё не выполнена"
-        elif state.is_running and not status.proxy_ok:
-            summary = "Прокси запущен, соединение не прошло проверку"
-        elif state.is_running:
-            summary = f"Последняя проверка соединения: {view.last_check}"
-        else:
-            summary = ""
+        summary = self.presentation.error or health_text(
+            running=state.is_running,
+            checked=checked,
+            proxy_ok=status.proxy_ok,
+            last_check=view.last_check,
+        )
         self.status_card.health.setText(summary)
         self.status_card.health.setVisible(bool(summary))
         if hasattr(self, "footer_status"):

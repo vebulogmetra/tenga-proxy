@@ -28,7 +28,8 @@ def missing_release_asset() -> str:
 _SETTINGS_PAGE_TITLES = {
     "bypass": ("Обход блокировок", "Обход"),
     "subscriptions": ("Подписки", "Ссылки"),
-    "about": ("О программе", "Версия"),
+    # «О программе» на Linux — пункт главного меню с Adw.AboutDialog.
+    "about": ("Версия", "Версия"),
 }
 
 
