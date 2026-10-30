@@ -81,3 +81,55 @@ def test_monitor_runs_on_the_qt_loop(qapp, tmp_path):
     monitor.stop()
 
     assert loop._timers == set()
+
+
+def test_monitor_started_in_worker_updates_traffic(qapp, tmp_path):
+    from types import SimpleNamespace
+
+    from src.core.context import AppContext
+    from src.core.monitor import ConnectionMonitor
+    from src.core.xray_manager import TrafficStats
+
+    context = AppContext(config_dir=tmp_path)
+    context.config.monitoring.enabled = True
+    context.config.traffic_loop_interval = 200
+    context._xray_manager = SimpleNamespace(
+        get_traffic=lambda: TrafficStats(upload=4096, download=8192)
+    )
+    context.proxy_state.set_running(profile_id=1)
+    loop = QtLoop()
+    monitor = ConnectionMonitor(context, loop=loop)
+    monitor._check_connections = lambda: True
+    threads = []
+    context.proxy_state.add_listener(lambda _state: threads.append(threading.current_thread()))
+    worker = threading.Thread(target=monitor.start)
+    worker.start()
+    worker.join()
+    try:
+        wait_until(lambda: context.proxy_state.download_bytes == 8192)
+        assert context.proxy_state.upload_bytes == 4096
+        assert threads == [threading.main_thread()]
+        assert all(timer.thread() == loop.thread() for timer in loop._timers)
+    finally:
+        worker = threading.Thread(target=monitor.stop)
+        worker.start()
+        worker.join()
+        wait_until(lambda: not loop._timers)
+
+
+def test_worker_can_cancel_timer_before_creation(qapp):
+    loop = QtLoop()
+    ticks = []
+
+    def worker_task():
+        handle = loop.schedule(1, lambda: ticks.append(1) or True)
+        loop.cancel(handle)
+        loop.cancel(handle)
+
+    worker = threading.Thread(target=worker_task)
+    worker.start()
+    worker.join()
+    for _ in range(10):
+        process_events()
+    assert not ticks
+    assert not loop._timers

@@ -8,8 +8,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from threading import Event
 
-from PySide6.QtCore import QObject, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
+
+
+@dataclass
+class _TimerHandle:
+    cancelled: Event = field(default_factory=Event)
+    timer: QTimer | None = None
 
 
 class QtLoop(QObject):
@@ -35,20 +43,44 @@ class QtLoop(QObject):
         thunk()
 
     def schedule(self, interval_ms: int, fn: Callable[[], bool]) -> object:
+        handle = _TimerHandle()
+        if QThread.currentThread() == self.thread():
+            self._start_timer(handle, interval_ms, fn)
+        else:
+            self.dispatch(self._start_timer, handle, interval_ms, fn)
+        return handle
+
+    def _start_timer(self, handle: _TimerHandle, interval_ms: int, fn: Callable[[], bool]) -> None:
+        # Подключение вызывает monitor.start() из рабочего потока. Создание
+        # QTimer и управление им допустимы только в потоке-владельце QtLoop.
+        if handle.cancelled.is_set():
+            return
         timer = QTimer(self)
+        handle.timer = timer
         timer.setInterval(interval_ms)
 
         def tick() -> None:
-            if not fn():
-                self.cancel(timer)
+            if handle.cancelled.is_set() or not fn():
+                self.cancel(handle)
 
         timer.timeout.connect(tick)
         self._timers.add(timer)
         timer.start()
-        return timer
 
     def cancel(self, handle: object) -> None:
-        if handle in self._timers:
-            self._timers.discard(handle)
-            handle.stop()
-            handle.deleteLater()
+        if not isinstance(handle, _TimerHandle):
+            return
+        handle.cancelled.set()
+        if QThread.currentThread() == self.thread():
+            self._stop_timer(handle)
+        else:
+            self.dispatch(self._stop_timer, handle)
+
+    def _stop_timer(self, handle: _TimerHandle) -> None:
+        timer = handle.timer
+        if timer in self._timers:
+            self._timers.discard(timer)
+            timer.stop()
+            timer.timeout.disconnect()
+            timer.deleteLater()
+        handle.timer = None
