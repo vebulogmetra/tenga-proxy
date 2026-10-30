@@ -37,7 +37,6 @@ from src.ui.logic.profiles_view import SortKey, build_profile_rows
 from src.ui.logic.status import (
     ConnectionPresentation,
     ConnectionState,
-    health_text,
     status_view,
 )
 from src.ui.logic.subscriptions_view import build_subscription_rows
@@ -552,12 +551,14 @@ class MainWindow(QMainWindow):
             if checked or not state.is_running
             else "Ожидается проверка соединения"
         )
-        summary = self.presentation.error or health_text(
-            running=state.is_running,
-            checked=checked,
-            proxy_ok=status.proxy_ok,
-            last_check=view.last_check,
-        )
+        if self.presentation.error:
+            summary = self.presentation.error
+        elif state.is_running and not checked:
+            summary = "Проверка соединения ещё не выполнена"
+        elif state.is_running and not status.proxy_ok:
+            summary = "Прокси запущен, соединение не прошло проверку"
+        else:
+            summary = ""
         self.status_card.health.setText(summary)
         self.status_card.health.setVisible(bool(summary))
         if hasattr(self, "footer_status"):

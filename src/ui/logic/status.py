@@ -37,6 +37,7 @@ class StatusView:
     button_class: str
     show_spinner: bool
     metrics: str = ""
+    metric_items: tuple[tuple[str, str], ...] = ()
     # Логотип приложения вместо системной иконки: цветной, когда соединение
     # установлено, и обесцвеченный, когда нет. В состояниях «подключение» и
     # «ошибка» показываются спиннер и предупреждение, логотип там не нужен.
@@ -80,6 +81,17 @@ def status_view(
 ) -> StatusView:
     """Describe how the status card should look in the given state."""
     metrics = metrics_text(latency_ms, upload_bytes, download_bytes, mode)
+    items = []
+    if latency_ms is not None and latency_ms >= 0:
+        items.append(("Задержка", f"{latency_ms} мс"))
+    if upload_bytes is not None and download_bytes is not None:
+        items.extend(
+            (
+                ("↓ Получено", format_bytes(download_bytes)),
+                ("↑ Отправлено", format_bytes(upload_bytes)),
+            )
+        )
+    metric_items = tuple(items)
 
     if state is ConnectionState.CONNECTED:
         return StatusView(
@@ -91,6 +103,7 @@ def status_view(
             button_class="destructive-action",
             show_spinner=False,
             metrics=metrics,
+            metric_items=metric_items,
             use_logo=True,
         )
 
@@ -105,6 +118,7 @@ def status_view(
             show_spinner=True,
             metrics=metrics,
             action_enabled=False,
+            metric_items=metric_items,
         )
 
     if state is ConnectionState.ERROR:
@@ -117,6 +131,7 @@ def status_view(
             button_class="suggested-action",
             show_spinner=False,
             metrics=metrics,
+            metric_items=metric_items,
         )
 
     return StatusView(
@@ -128,6 +143,7 @@ def status_view(
         button_class="suggested-action",
         show_spinner=False,
         metrics=metrics,
+        metric_items=metric_items,
         use_logo=True,
         logo_desaturated=True,
     )

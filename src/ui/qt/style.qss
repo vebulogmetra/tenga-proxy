@@ -54,3 +54,6 @@ QTreeView::item:selected { background: palette(highlight); color: palette(highli
 QHeaderView::section { padding: 7px 4px; }
 QLineEdit { min-height: 26px; padding: 3px 8px; }
 QToolButton { min-height: 26px; padding: 3px 8px; }
+
+#metricValue { font-size: 12pt; font-weight: 600; }
+#metricCaption, #statusMode { color: palette(placeholder-text); }

@@ -116,7 +116,7 @@ def test_selection_does_not_change_active_and_switch_is_explicit(app):
     select(app, second)
     assert app.context.proxy_state.started_profile_id == first.id
     assert app.window.status_card.subtitle.text() == first.name
-    assert app.window.status_card.mode.text() == "Системный прокси"
+    assert app.window.status_card.mode.text() == "Режим Системный прокси"
     assert app.window.switch_button.isVisible()
     assert (
         "Подключён"
@@ -274,7 +274,8 @@ def test_session_health_does_not_reuse_previous_check(app):
     assert "ещё не выполнена" in app.window.status_card.health.text()
     status.last_check_time = 101
     app.window.refresh_monitoring()
-    assert "Последняя проверка" in app.window.status_card.health.text()
+    assert app.window.status_card.health.isHidden()
+    assert "Последняя проверка" in app.window.last_check.text()
     app.context.set_monitor(None)
 
 

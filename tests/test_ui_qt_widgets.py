@@ -20,6 +20,7 @@ def test_card_shows_the_connected_view(qapp):
         status_view(
             ConnectionState.CONNECTED,
             profile_name="Проба",
+            latency_ms=209,
             upload_bytes=1,
             download_bytes=2,
             mode="SYSTEM",
@@ -28,7 +29,9 @@ def test_card_shows_the_connected_view(qapp):
 
     assert card.title.text() == "Подключено"
     assert card.subtitle.text() == "Проба"
-    assert "SYSTEM" in card.metrics.text()
+    assert [value.text() for _, value in card.metric_values] == ["209 мс", "2 B", "1 B"]
+    assert card.instruction.isHidden()
+    assert card.logo.toolTip() == "Нажмите на логотип для отключения"
     assert card.logo.accessibleName() == "Отключить"
     assert card.instruction.text() == "Нажмите на логотип для отключения"
     assert card.property("state") == "status-connected"
@@ -80,3 +83,30 @@ def test_toast_without_action_has_no_button(qapp):
     toast.show_message("Отключено")
 
     assert toast.button.isHidden()
+
+
+@pytest.mark.parametrize("compact", [False, True])
+def test_connected_card_separates_profile_and_metrics(qapp, compact):
+    card = StatusCard()
+    card.resize(900, 280)
+    card.set_compact(compact)
+    card.update_view(
+        status_view(
+            ConnectionState.CONNECTED,
+            profile_name="Финляндия | Тестовый сервер",
+            latency_ms=209,
+            upload_bytes=1024,
+            download_bytes=2048,
+        ),
+        mode="TUN",
+    )
+    card.show()
+    qapp.processEvents()
+    assert card.mode.text() == "Режим TUN"
+    assert card.metrics.isVisible()
+    assert not card.instruction.isVisible()
+    if not compact:
+        assert card.name_box.geometry().bottom() < card.logo.geometry().top()
+        assert card.metrics.geometry().top() > card.text_box.geometry().bottom()
+    assert [value.text() for _, value in card.metric_values] == ["209 мс", "2.0 KB", "1.0 KB"]
+    card.close()
