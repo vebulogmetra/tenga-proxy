@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterable
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
@@ -26,16 +27,83 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from src.core.config import get_asset_path
+
 DEFAULT_WIDTH = 520
 AUTOSAVE_DELAY_MS = 500
 
-# Свои правила только для ошибок: поле в обычном состоянии остаётся системным.
+# Цвета из палитры Qt обновляются вместе с системной или выбранной темой.
 FORM_STYLE = """
-QLineEdit, QComboBox, QSpinBox { min-height: 26px; }
-QPushButton { min-height: 26px; padding: 3px 12px; }
+QLineEdit, QComboBox, QSpinBox, QPlainTextEdit {
+    background: palette(base);
+    color: palette(text);
+    border: 1px solid palette(alternate-base);
+    border-radius: 8px;
+    padding: 7px 10px;
+    selection-background-color: palette(highlight);
+    selection-color: palette(highlighted-text);
+}
+QLineEdit, QComboBox, QSpinBox { min-height: 22px; }
+QSpinBox QLineEdit {
+    border: none;
+    border-radius: 0;
+    background: transparent;
+    padding: 0;
+    min-height: 0;
+}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QPlainTextEdit:hover {
+    border-color: palette(mid);
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus {
+    border-color: palette(highlight);
+}
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled, QPlainTextEdit:disabled {
+    background: palette(window);
+    color: palette(placeholder-text);
+}
+QComboBox { padding-right: 28px; }
+QComboBox::drop-down { border: none; width: 26px; }
+QComboBox::down-arrow { image: url("CHEVRON_PATH"); width: 16px; height: 16px; }
+QPushButton {
+    min-height: 22px;
+    padding: 7px 14px;
+    background: palette(button);
+    color: palette(button-text);
+    border: 1px solid palette(midlight);
+    border-radius: 8px;
+}
+QPushButton:hover { background: palette(alternate-base); border-color: palette(mid); }
+QPushButton:pressed { background: palette(midlight); }
+QPushButton:focus { border-color: palette(highlight); }
+QPushButton:disabled { color: palette(placeholder-text); border-color: palette(alternate-base); }
 QLabel[error="true"] { color: #d13438; }
 QLineEdit[error="true"], QPlainTextEdit[error="true"] { border: 1px solid #d13438; }
-"""
+""".replace("CHEVRON_PATH", get_asset_path("icons/chevron-down.svg").as_posix())
+
+
+class FormStyle(QObject):
+    """Обновлять кэш QSS-палитры диалога после смены темы."""
+
+    def __init__(self, dialog: QWidget, extra: str = "") -> None:
+        super().__init__(dialog)
+        self.dialog = dialog
+        self.stylesheet = FORM_STYLE + extra
+        self.pending = False
+        dialog.setStyleSheet(self.stylesheet)
+        QApplication.instance().paletteChanged.connect(self.schedule)
+
+    def schedule(self, *_args) -> None:
+        if not self.pending:
+            self.pending = True
+            QTimer.singleShot(0, self, self.refresh)
+
+    def refresh(self) -> None:
+        self.dialog.setStyleSheet("")
+        palette = QApplication.palette()
+        for widget in (self.dialog, *self.dialog.findChildren(QWidget)):
+            widget.setPalette(palette)
+        self.dialog.setStyleSheet(self.stylesheet)
+        self.pending = False
 
 
 def mark_error(widget: QWidget, message: str | None) -> None:
@@ -97,7 +165,7 @@ class FormDialog(QDialog):
         self.setWindowTitle(title)
         self.setModal(True)
         self.setMinimumWidth(DEFAULT_WIDTH)
-        self.setStyleSheet(FORM_STYLE)
+        self._form_style = FormStyle(self)
 
         self.form = QFormLayout()
         self.form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)

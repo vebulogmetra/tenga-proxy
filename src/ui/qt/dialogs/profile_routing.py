@@ -35,7 +35,7 @@ from src.ui.logic.routing_form import (
     order_key,
     ru_direct_subtitle,
 )
-from src.ui.qt.dialogs.base import FORM_STYLE, Debounce, KeyedCombo, mark_error, watch
+from src.ui.qt.dialogs.base import Debounce, FormStyle, KeyedCombo, mark_error, watch
 
 LISTS = (
     ("block", "Блокировать", BLOCK_HINT),
@@ -59,7 +59,7 @@ class ProfileRoutingDialog(QDialog):
         self.setWindowTitle("VPN и маршруты")
         self.setModal(True)
         self.setMinimumSize(560, 600)
-        self.setStyleSheet(FORM_STYLE)
+        self._form_style = FormStyle(self)
         self._profile = profile
         self.lists: dict[str, QPlainTextEdit] = {}
 

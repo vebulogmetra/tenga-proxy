@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QLineEdit, QMessageBox
 
 from src.core.context import AppContext
 from src.db.config import DnsProvider, ProxyMode, RoutingSettings
@@ -93,6 +93,15 @@ def test_fields_come_from_the_config(app):
     # Старое значение по умолчанию показывается как «не задано».
     assert dialog.user_agent_edit.text() == ""
     assert not dialog.close_to_tray_check.isChecked()
+
+
+def test_numeric_fields_have_room_for_their_values(app):
+    dialog = _open(app)
+    process_events()
+    for spin in (dialog.port_spin, dialog.tun_mtu_spin):
+        editor = spin.findChild(QLineEdit)
+        assert editor.isVisible()
+        assert editor.width() > editor.fontMetrics().horizontalAdvance(editor.text())
 
 
 def test_save_writes_the_config_and_reaches_the_controller(app):

@@ -6,12 +6,30 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QCheckBox, QLineEdit
 
 from src.ui.qt.dialogs.base import Debounce, FormDialog, KeyedCombo, mark_error, watch
 from tests.support.qt import process_events, wait_until
 
 pytestmark = pytest.mark.qt
+
+
+def test_open_form_follows_palette_changes(qapp):
+    dialog = FormDialog("Тема", "Готово")
+    field = QLineEdit()
+    dialog.form.addRow("Адрес", field)
+    original = QPalette(qapp.palette())
+    changed = QPalette(original)
+    changed.setColor(QPalette.ColorRole.Base, QColor("#243040"))
+    try:
+        qapp.setPalette(changed)
+        process_events()
+        assert field.palette().color(QPalette.ColorRole.Base) == QColor("#243040")
+    finally:
+        qapp.setPalette(original)
+        process_events()
+        dialog.deleteLater()
 
 
 def test_form_buttons_and_status(qapp):

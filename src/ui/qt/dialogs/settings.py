@@ -43,13 +43,36 @@ from src.ui.logic.settings_form import (
     LOG_LEVELS,
     validate_settings,
 )
-from src.ui.qt.dialogs.base import FORM_STYLE, Debounce, KeyedCombo, mark_error, watch
+from src.ui.qt.dialogs.base import Debounce, FormStyle, KeyedCombo, mark_error, watch
 from src.ui.qt.theme import apply_theme
 
 if TYPE_CHECKING:
     from src.ui.qt.dialogs.settings_pages import AboutPage, SubscriptionsPage
 
 SECTIONS = ("Общие", "Мониторинг", "DNS", "Обход блокировок", "Подписки", "О программе")
+
+SETTINGS_STYLE = """
+QSpinBox::up-button, QSpinBox::down-button { width: 0; height: 0; border: none; }
+QGroupBox {
+    border: none;
+    margin-top: 24px;
+    padding-top: 12px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    padding: 0;
+    font-weight: 600;
+}
+QListWidget#settingsSections { border: none; background: transparent; outline: none; }
+QListWidget#settingsSections::item { padding: 10px 12px; border-radius: 8px; }
+QListWidget#settingsSections::item:hover { background: palette(alternate-base); }
+QListWidget#settingsSections::item:selected {
+    background: palette(alternate-base);
+    color: palette(text);
+}
+QListWidget#settingsSections::item:focus { border: 1px solid palette(highlight); }
+"""
 
 # Поле проверки (`validate_settings`) → атрибут виджета.
 ERROR_FIELDS = {
@@ -88,7 +111,15 @@ def page(*groups: QWidget) -> QScrollArea:
     """Страница раздела: группы сверху вниз, прокрутка при нехватке места."""
     body = QWidget()
     column = QVBoxLayout(body)
+    column.setContentsMargins(16, 4, 16, 16)
+    column.setSpacing(20)
     for group in groups:
+        for form in group.findChildren(QFormLayout):
+            form.setContentsMargins(0, 8, 0, 0)
+            form.setVerticalSpacing(12)
+            form.setHorizontalSpacing(20)
+            form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         column.addWidget(group)
     column.addStretch(1)
     scroll = QScrollArea()
@@ -113,7 +144,7 @@ class SettingsDialog(QDialog):
         self.setModal(True)
         self.resize(760, 560)
         self.setMinimumSize(640, 440)
-        self.setStyleSheet(FORM_STYLE)
+        self._form_style = FormStyle(self, SETTINGS_STYLE)
         self._app = app
         self._context = app.context
         self._config = app.context.config
@@ -129,6 +160,7 @@ class SettingsDialog(QDialog):
         self.about: AboutPage = AboutPage(self)
 
         self.sections = QListWidget()
+        self.sections.setObjectName("settingsSections")
         self.sections.addItems(list(SECTIONS))
         self.sections.setFixedWidth(180)
         self.pages = QStackedWidget()
@@ -214,6 +246,12 @@ class SettingsDialog(QDialog):
         form = QFormLayout(logs)
         self.log_level_combo = KeyedCombo(LOG_LEVELS, {level: level for level in LOG_LEVELS})
         form.addRow("Уровень подробности", self.log_level_combo)
+        for group in (inbound, runtime, window, logs):
+            form = group.layout()
+            for row in range(form.rowCount()):
+                item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
+                if item is not None:
+                    item.widget().setMinimumWidth(160)
         return page(inbound, runtime, window, logs)
 
     def _monitoring_page(self) -> QWidget:
