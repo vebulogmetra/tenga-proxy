@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import socket
+import sys
 import threading
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
 from src import __version__
-from src.sys.windows.service_client import ServiceClient, ServiceUnavailable
+from src.sys.windows.service_client import ServiceClient, ServiceUnavailable, _start_service
 from src.winsvc.server import serve_connection
 from src.winsvc.state import ServiceError
 
@@ -67,7 +70,7 @@ def test_service_error_is_raised_with_text(client):
         client.call("core.stop")
 
 
-def test_unavailable_service_is_reported():
+def test_unavailable_service_is_reported(caplog):
     def opener():
         raise OSError("pipe not found")
 
@@ -75,3 +78,26 @@ def test_unavailable_service_is_reported():
 
     with pytest.raises(ServiceUnavailable):
         broken.call("core.status")
+    assert "Cannot open Veblock service pipe: pipe not found" in caplog.text
+
+
+def test_start_service_requests_only_connect_and_start_permissions(monkeypatch):
+    api = SimpleNamespace(
+        SC_MANAGER_CONNECT=1,
+        SERVICE_START=16,
+        OpenSCManager=Mock(return_value="scm"),
+        OpenService=Mock(return_value="service"),
+        StartService=Mock(),
+        CloseServiceHandle=Mock(),
+    )
+    monkeypatch.setitem(sys.modules, "win32service", api)
+
+    _start_service()
+
+    api.OpenSCManager.assert_called_once_with(None, None, 1)
+    api.OpenService.assert_called_once_with("scm", "TengaProxySvc", 16)
+    api.StartService.assert_called_once_with("service", None)
+    assert [call.args for call in api.CloseServiceHandle.call_args_list] == [
+        ("service",),
+        ("scm",),
+    ]

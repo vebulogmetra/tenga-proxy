@@ -19,7 +19,7 @@ from src.winsvc.state import ServiceError
 
 logger = logging.getLogger("tenga.sys.service_client")
 
-UNAVAILABLE = "Служба Veblock недоступна: переустановите приложение"
+UNAVAILABLE = "Нет связи со службой Veblock. Перезапустите службу TengaProxySvc"
 
 
 class ServiceUnavailable(ServiceError):
@@ -43,12 +43,22 @@ class _PipeFile:
 
 
 def _start_service() -> None:
-    import win32serviceutil
+    import win32service
 
     from src.winsvc.service import SERVICE_NAME
 
     try:
-        win32serviceutil.StartService(SERVICE_NAME)
+        # StartService из win32serviceutil запрашивает ALL_ACCESS и требует
+        # администратора даже при выданном пользователю праве запуска службы.
+        scm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+        try:
+            handle = win32service.OpenService(scm, SERVICE_NAME, win32service.SERVICE_START)
+            try:
+                win32service.StartService(handle, None)
+            finally:
+                win32service.CloseServiceHandle(handle)
+        finally:
+            win32service.CloseServiceHandle(scm)
     except Exception as e:
         # 1056: уже запущена — это нормально.
         if getattr(e, "winerror", None) != 1056:
@@ -74,6 +84,7 @@ class ServiceClient:
                 break
             except OSError as e:
                 if time.monotonic() >= deadline:
+                    logger.error("Cannot open Veblock service pipe: %s", e, exc_info=True)
                     raise ServiceUnavailable(UNAVAILABLE) from e
                 time.sleep(0.2)
         self._reader = LineReader()
@@ -101,6 +112,7 @@ class ServiceClient:
                         self._connect()
                     return self._exchange(cmd, args)
                 except OSError as e:
+                    logger.warning("Service pipe I/O failed (attempt %s): %s", attempt, e)
                     self._drop()
                     if attempt == 2:
                         raise ServiceUnavailable(UNAVAILABLE) from e

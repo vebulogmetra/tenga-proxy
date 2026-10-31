@@ -59,8 +59,10 @@ class _PipeChannel:
         try:
             _rc, data = win32file.ReadFile(self._handle, BUFFER)
             return bytes(data)
-        except pywintypes.error:
-            return b""
+        except pywintypes.error as e:
+            if e.winerror in (109, 232, 233):
+                return b""
+            raise OSError(str(e)) from e
 
     def write(self, data: bytes) -> None:
         import pywintypes
@@ -123,6 +125,12 @@ class PipeServer:
                 if self._stopping.is_set():
                     return
                 serve_connection(_PipeChannel(handle), self._state)
+            except Exception:
+                # В том числе ERROR_NO_DATA: клиент мог закрыть канал до
+                # ConnectNamedPipe. Ошибка клиента не должна убивать pipe-поток
+                # и оставлять службу RUNNING без возможности подключиться.
+                logger.exception("Service pipe session failed; accepting a new client")
+                self._stopping.wait(RETRY_SECONDS)
             finally:
                 try:
                     win32pipe.DisconnectNamedPipe(handle)
