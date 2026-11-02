@@ -21,6 +21,7 @@ class FakeGroup:
     sub_support_url: str = ""
     sub_web_page_url: str = ""
     sub_empty: bool = False
+    sub_via_fallback: bool = False
 
 
 @pytest.fixture
@@ -209,3 +210,12 @@ def test_provider_links_extend_the_menu(page, data):
         "Удалить",
     ]
     assert page.context_menu_labels_for_test(group_id=2) == ["Обновить", "Редактировать", "Удалить"]
+
+
+def test_an_update_through_the_fallback_is_marked_in_its_row(page, data):
+    groups, counts = data
+    groups[1].sub_via_fallback = True
+    page.set_data(groups, counts)
+
+    assert page.is_via_fallback_shown_for_test(group_id=1)
+    assert not page.is_via_fallback_shown_for_test(group_id=2)

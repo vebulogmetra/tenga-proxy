@@ -31,6 +31,7 @@ from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.subscriptions_view import (
     EMPTY_RESPONSE_HINT,
     EMPTY_RESPONSE_TEXT,
+    VIA_FALLBACK_TEXT,
     SubscriptionRow,
     build_subscription_rows,
 )
@@ -111,6 +112,8 @@ class SubscriptionsPage(QGroupBox):
             details = row.details_text
             if row.empty:
                 details = " · ".join(part for part in (details, EMPTY_RESPONSE_TEXT) if part)
+            if row.via_fallback:
+                details = " · ".join(part for part in (details, VIA_FALLBACK_TEXT) if part)
             item = QTreeWidgetItem([row.name, str(row.profile_count), row.updated_text, details])
             item.setData(0, GROUP_ROLE, row.group_id)
             item.setToolTip(0, row.url)

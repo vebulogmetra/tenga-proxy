@@ -26,6 +26,7 @@ class FakeGroup:
     sub_support_url: str = ""
     sub_web_page_url: str = ""
     sub_empty: bool = False
+    sub_via_fallback: bool = False
 
 
 @pytest.fixture
@@ -219,6 +220,11 @@ def test_announce_and_links_reach_the_row():
 def test_empty_subscription_is_flagged_on_the_row():
     assert _row(sub_empty=True).empty is True
     assert _row().empty is False
+
+
+def test_update_through_the_fallback_is_flagged_on_the_row():
+    assert _row(sub_via_fallback=True).via_fallback is True
+    assert _row().via_fallback is False
 
 
 def test_unsafe_links_are_not_offered():

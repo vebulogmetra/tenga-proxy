@@ -375,3 +375,19 @@ def test_clear_logs_asks_first(app, monkeypatch):
 
     wait_until(lambda: dialog.about.clear_logs_label.text() == "Очищено файлов: 3")
     assert cleared == [1]
+
+
+def test_an_update_through_the_fallback_is_marked(app):
+    _subscription(app, sub_via_fallback=True)
+
+    dialog = _open(app)
+
+    assert "Обновлено через запасной адрес" in dialog.subscriptions.tree.topLevelItem(0).text(3)
+
+
+def test_a_normal_update_has_no_fallback_mark(app):
+    _subscription(app)
+
+    dialog = _open(app)
+
+    assert "запасной" not in dialog.subscriptions.tree.topLevelItem(0).text(3)

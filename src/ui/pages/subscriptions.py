@@ -15,6 +15,7 @@ from gi.repository import Adw, Gio, GObject, Gtk, Pango
 from src.ui.logic.subscriptions_view import (
     EMPTY_RESPONSE_HINT,
     EMPTY_RESPONSE_TEXT,
+    VIA_FALLBACK_TEXT,
     SubscriptionRow,
     build_subscription_rows,
 )
@@ -43,6 +44,7 @@ class SubscriptionsPage(Gtk.Box):
         self._details_labels: dict[int, Gtk.Label] = {}
         self._announce_labels: dict[int, Gtk.Label] = {}
         self._empty_labels: dict[int, Gtk.Label] = {}
+        self._via_fallback_labels: dict[int, Gtk.Label] = {}
 
         self._build_search_bar()
         self._build_stack()
@@ -91,6 +93,7 @@ class SubscriptionsPage(Gtk.Box):
         self._details_labels.clear()
         self._announce_labels.clear()
         self._empty_labels.clear()
+        self._via_fallback_labels.clear()
 
         self._rows = build_subscription_rows(self._groups, self._counts, query=self._query)
 
@@ -134,6 +137,12 @@ class SubscriptionsPage(Gtk.Box):
             empty.set_tooltip_text(EMPTY_RESPONSE_HINT)
             meta_box.append(empty)
             self._empty_labels[row.group_id] = empty
+        if row.via_fallback:
+            via_fallback = Gtk.Label(label=VIA_FALLBACK_TEXT, xalign=1.0)
+            via_fallback.add_css_class("caption")
+            via_fallback.add_css_class("dim-label")
+            meta_box.append(via_fallback)
+            self._via_fallback_labels[row.group_id] = via_fallback
         action_row.add_suffix(meta_box)
 
         button = Gtk.Button(icon_name="view-refresh-symbolic")
@@ -242,6 +251,9 @@ class SubscriptionsPage(Gtk.Box):
 
     def is_empty_notice_shown_for_test(self, *, group_id: int) -> bool:
         return group_id in self._empty_labels
+
+    def is_via_fallback_shown_for_test(self, *, group_id: int) -> bool:
+        return group_id in self._via_fallback_labels
 
     def get_announce_for_test(self, *, group_id: int) -> str:
         label = self._announce_labels.get(group_id)
