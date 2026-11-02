@@ -13,6 +13,7 @@ from src.sub.url_change import (
     UrlChangeProposal,
     is_acceptable_subscription_url,
     propose_url_change,
+    same_subscription_url,
 )
 
 CURRENT = "https://provider.example/sub/token"
@@ -156,3 +157,26 @@ def test_public_hosts_with_a_trailing_dot_are_acceptable(host):
 )
 def test_malformed_ports_and_control_characters_are_rejected(url):
     assert not is_acceptable_subscription_url(url)
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        "https://PROVIDER.example/sub/token",
+        "https://provider.example:443/sub/token",
+        "HTTPS://provider.example/sub/token",
+    ],
+)
+def test_the_same_address_in_another_spelling_is_not_proposed(candidate):
+    assert propose_url_change(7, CURRENT, candidate, REASON_NEW_URL) is None
+
+
+def test_a_different_token_is_a_different_address():
+    assert not same_subscription_url(CURRENT, "https://provider.example/sub/other")
+
+
+def test_unparsable_addresses_are_compared_as_text():
+    bad = "https://user:pass@provider.example/sub"
+
+    assert same_subscription_url(bad, f" {bad} ")
+    assert not same_subscription_url(bad, CURRENT)

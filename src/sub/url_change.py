@@ -38,12 +38,22 @@ def is_acceptable_subscription_url(url: str) -> bool:
     return True
 
 
+def same_subscription_url(first: str, second: str) -> bool:
+    """Whether two addresses lead to the same subscription."""
+    from src.db.profiles import subscription_url_key
+
+    try:
+        return subscription_url_key(first.strip()) == subscription_url_key(second.strip())
+    except ValueError:
+        return first.strip() == second.strip()
+
+
 def propose_url_change(
     group_id: int, current_url: str, candidate: str | None, reason: str
 ) -> UrlChangeProposal | None:
     """Build a proposal, or None when there is nothing safe and new to offer."""
     url = (candidate or "").strip()
-    if not url or url == current_url.strip():
+    if not url or same_subscription_url(url, current_url):
         return None
     if not is_acceptable_subscription_url(url):
         return None

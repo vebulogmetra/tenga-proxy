@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit, urlunsplit
 
 from src.db.config import ConfigBase, RoutingSettings, VpnSettings
 
@@ -57,6 +58,23 @@ class GroupSyncResult:
     updated: int = 0
     added: int = 0
     removed: int = 0
+
+
+def subscription_url_key(url: str) -> str:
+    """Normalize a subscription address for comparison.
+
+    Raises ValueError (включая UnicodeError) для адреса, который нельзя разобрать
+    или в котором есть credentials: такие адреса не считаются одинаковыми.
+    """
+    parts = urlsplit(url)
+    if parts.username is not None or parts.password is not None:
+        raise ValueError("URL с credentials нельзя объединять")
+    host = (parts.hostname or "").lower().encode("idna").decode("ascii")
+    host = f"[{host}]" if ":" in host else host
+    port = parts.port
+    if port and (parts.scheme.lower(), port) not in (("https", 443), ("http", 80)):
+        host += f":{port}"
+    return urlunsplit((parts.scheme.lower(), host, parts.path, parts.query, parts.fragment))
 
 
 @dataclass
@@ -193,28 +211,15 @@ class ProfileManager:
         return self._groups.get(group_id)
 
     def find_subscription_group(self, url: str, *, exceptions=()) -> ProfileGroup | None:
-        from urllib.parse import urlsplit, urlunsplit
-
-        def key(value):
-            parts = urlsplit(value)
-            if parts.username is not None or parts.password is not None:
-                raise ValueError("URL с credentials нельзя объединять")
-            host = (parts.hostname or "").lower().encode("idna").decode("ascii")
-            host = f"[{host}]" if ":" in host else host
-            port = parts.port
-            if port and (parts.scheme.lower(), port) not in (("https", 443), ("http", 80)):
-                host += f":{port}"
-            return urlunsplit((parts.scheme.lower(), host, parts.path, parts.query, parts.fragment))
-
         try:
-            target = key(url)
+            target = subscription_url_key(url)
             matches = []
             for group in self._groups.values():
                 if (
                     group.is_subscription
                     and group.subscription_url
                     and (url in exceptions) == (group.subscription_url in exceptions)
-                    and key(group.subscription_url) == target
+                    and subscription_url_key(group.subscription_url) == target
                 ):
                     matches.append(group)
             if len(matches) > 1:
