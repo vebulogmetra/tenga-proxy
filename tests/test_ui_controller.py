@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from unittest.mock import patch
 
 import pytest
+import requests
 
 from src.core.context import AppContext
 from src.core.main_loop import ImmediateLoop
@@ -483,6 +485,146 @@ def test_confirmed_url_change_switches_the_group_and_refreshes(made):
         "https://backup.example/sub"
     )
     assert seen == ["https://sub.example/list", "https://backup.example/sub"]
+
+
+PRIMARY_URL = "https://sub.example/list"
+BACKUP_URL = "https://backup.example/sub"
+
+
+def _subscription_response(body="", status=200, headers=None):
+    response = requests.Response()
+    response.status_code = status
+    response._content = body.encode("utf-8")
+    response._content_consumed = True
+    response.headers = headers or {}
+    return response
+
+
+def _fallback_group(controller):
+    group = controller.add_group("Demo")
+    group.subscription_url = PRIMARY_URL
+    group.is_subscription = True
+    group.sub_fallback_url = BACKUP_URL
+    return group
+
+
+def _run_update(controller, group, routes):
+    def pinned_get(url, **_kwargs):
+        return routes[url]
+
+    with patch("src.sub.updater.pinned_get", pinned_get):
+        controller.update_subscription(group.id)
+        _wait_subscriptions(controller)
+
+
+def test_an_update_through_the_fallback_keeps_the_address_and_asks(made):
+    controller, shell, _ = made
+    group = _fallback_group(controller)
+
+    _run_update(
+        controller,
+        group,
+        {
+            PRIMARY_URL: _subscription_response("down", status=503),
+            BACKUP_URL: _subscription_response(LINK),
+        },
+    )
+
+    assert group.subscription_url == PRIMARY_URL
+    assert group.sub_via_fallback is True
+    assert shell.last_toast == "Обновлено серверов: 1"
+    assert shell.confirms[-1].kind == CONFIRM_URL_CHANGE
+    assert "серверы загружены с запасного" in shell.confirms[-1].body
+    assert BACKUP_URL in shell.confirms[-1].body
+
+
+def test_a_new_address_goes_before_the_fallback_question(made):
+    controller, shell, _ = made
+    group = _fallback_group(controller)
+
+    _run_update(
+        controller,
+        group,
+        {
+            PRIMARY_URL: _subscription_response("down", status=503),
+            BACKUP_URL: _subscription_response(
+                LINK, headers={"new-url": "https://new.example/sub"}
+            ),
+        },
+    )
+
+    assert len(shell.confirms) == 1
+    assert "https://new.example/sub" in shell.confirms[-1].body
+    assert "сообщил новый адрес" in shell.confirms[-1].body
+
+
+def test_both_addresses_failing_shows_the_error_without_a_question(made):
+    controller, shell, _ = made
+    group = _fallback_group(controller)
+
+    _run_update(
+        controller,
+        group,
+        {
+            PRIMARY_URL: _subscription_response("down", status=503),
+            BACKUP_URL: _subscription_response("down", status=502),
+        },
+    )
+
+    assert shell.last_toast == "Не удалось обновить подписки: сервер ответил 503"
+    assert shell.confirms == []
+
+
+@pytest.mark.parametrize("status", [404, 410])
+def test_a_revoked_token_offers_no_address_change(made, status):
+    controller, shell, _ = made
+    group = _fallback_group(controller)
+
+    _run_update(controller, group, {PRIMARY_URL: _subscription_response("no", status=status)})
+
+    assert shell.confirms == []
+
+
+def test_another_failure_still_offers_the_address(made):
+    controller, shell, _ = made
+    group = _fallback_group(controller)
+
+    _run_update(controller, group, {PRIMARY_URL: _subscription_response("no", status=401)})
+
+    assert "Обновить подписку «Demo» не удалось" in shell.confirms[-1].body
+
+
+def test_refreshing_all_follows_the_same_rule_for_a_revoked_token(made):
+    controller, shell, _ = made
+    _fallback_group(controller)
+    routes = {PRIMARY_URL: _subscription_response("no", status=404)}
+
+    with patch("src.sub.updater.pinned_get", lambda url, **_kwargs: routes[url]):
+        controller.refresh_subscriptions()
+        _wait_subscriptions(controller)
+
+    assert shell.confirms == []
+
+
+def test_a_changed_address_forgets_the_previous_providers_fallback(made):
+    controller, _shell, _ = made
+    group = _fallback_group(controller)
+    group.sub_via_fallback = True
+
+    controller.update_group(group.id, name="Demo", url="https://other.example/sub")
+
+    assert group.sub_fallback_url == ""
+    assert group.sub_via_fallback is False
+
+
+def test_renaming_keeps_the_fallback(made):
+    controller, _shell, _ = made
+    group = _fallback_group(controller)
+
+    controller.update_group(group.id, name="Новое", url=PRIMARY_URL)
+    controller.update_group(group.id, name="Ещё новее")
+
+    assert group.sub_fallback_url == BACKUP_URL
 
 
 def test_refresh_subscriptions_without_any_toasts(made):

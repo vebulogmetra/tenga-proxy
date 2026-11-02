@@ -205,8 +205,12 @@ class AppController:
             return None
 
         group.name = name
-        if url is not None:
+        if url is not None and url != group.subscription_url:
             group.subscription_url = url
+            # Запасной адрес относился к прежнему: при смене провайдера его сбой
+            # молча подтянул бы серверы старой подписки с её токеном.
+            group.sub_fallback_url = ""
+            group.sub_via_fallback = False
         self._save_profiles()
         self._shell.refresh_pages()
         return group
@@ -468,8 +472,8 @@ class AppController:
         def work() -> int:
             try:
                 return updater(group_id, url)
-            except Exception:
-                self._propose_fallback_url(group_id, url)
+            except Exception as error:
+                self._propose_fallback_url(group_id, url, error)
                 raise
 
         self._subscription_busy = True
@@ -485,7 +489,7 @@ class AppController:
     def default_subscription_updater(self, group_id: int, url: str) -> int:
         from src.sub.route import local_proxy_url
         from src.sub.updater import SubscriptionUpdater
-        from src.sub.url_change import REASON_NEW_URL, propose_url_change
+        from src.sub.url_change import REASON_FALLBACK_USED, REASON_NEW_URL, propose_url_change
 
         context = self.context
         updater = SubscriptionUpdater(
@@ -495,15 +499,23 @@ class AppController:
         )
         beans = updater.update(url, group_id)
 
-        proposal = propose_url_change(group_id, url, updater.new_url, REASON_NEW_URL)
-        if proposal is not None:
-            self._url_proposals.append(proposal)
+        # Очередь показывает одно предложение: прямое указание провайдера важнее.
+        for candidate, reason in (
+            (updater.new_url, REASON_NEW_URL),
+            (updater.used_fallback_url, REASON_FALLBACK_USED),
+        ):
+            proposal = propose_url_change(group_id, url, candidate, reason)
+            if proposal is not None:
+                self._url_proposals.append(proposal)
         return len(beans)
 
-    def _propose_fallback_url(self, group_id: int, url: str) -> None:
+    def _propose_fallback_url(self, group_id: int, url: str, error: BaseException) -> None:
         """Queue the provider's fallback address after a failed update."""
+        from src.sub.fallback import can_propose_after
         from src.sub.url_change import REASON_FALLBACK_URL, propose_url_change
 
+        if not can_propose_after(error):
+            return
         group = self.context.profiles.get_group(group_id)
         if group is None:
             return
@@ -570,7 +582,7 @@ class AppController:
                     total += updater(group_id, url)
                 except Exception as e:
                     logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
-                    self._propose_fallback_url(group_id, url)
+                    self._propose_fallback_url(group_id, url, e)
             return total
 
         self._subscription_busy = True
