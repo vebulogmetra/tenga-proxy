@@ -25,6 +25,10 @@ class ConnectionState(StrEnum):
     ERROR = "error"
 
 
+SWITCH_LABEL = "Переключить на выбранный"
+EMPTY_TITLE = "Добавьте сервер или подписку"
+
+
 @dataclass(frozen=True)
 class StatusView:
     """Everything the status card needs to render itself."""
@@ -34,53 +38,54 @@ class StatusView:
     icon_name: str
     css_class: str
     button_label: str
-    button_class: str
     show_spinner: bool
-    metrics: str = ""
     metric_items: tuple[tuple[str, str], ...] = ()
-    # Логотип приложения вместо системной иконки: цветной, когда соединение
-    # установлено, и обесцвеченный, когда нет. В состояниях «подключение» и
-    # «ошибка» показываются спиннер и предупреждение, логотип там не нужен.
-    use_logo: bool = False
-    logo_desaturated: bool = False
+    mode: str = ""
+    # Логотип есть всегда: цветной, только когда соединение установлено.
+    # Ожидание и ошибку показывают спиннер и значок поверх него.
+    logo_desaturated: bool = True
     # Пока операция идёт, кнопка недоступна: контроллер не умеет прерывать
     # начатое подключение, а повторное нажатие дало бы только тост.
     action_enabled: bool = True
 
 
-def metrics_text(
-    latency_ms: int | None = None,
-    upload_bytes: int | None = None,
-    download_bytes: int | None = None,
-    mode: str = "",
-) -> str:
-    """Build the metrics line, dropping every part that is unknown."""
-    parts: list[str] = []
+def mode_text(proxy_mode: str) -> str:
+    """Name the proxy mode for the card."""
+    return "Режим Системный прокси" if proxy_mode == "system" else "Режим TUN"
 
-    if latency_ms is not None and latency_ms >= 0:
-        parts.append(f"{latency_ms} мс")
 
-    if upload_bytes is not None and download_bytes is not None:
-        parts.append(f"↑ {format_bytes(upload_bytes)} ↓ {format_bytes(download_bytes)}")
+def switch_hint(target_name: str) -> str:
+    """Tooltip of the switch button: the button itself does not name its target."""
+    return f"Подключить: {target_name}"
 
-    if mode:
-        parts.append(mode)
 
-    return " · ".join(parts)
+def action_hint(view: StatusView) -> str:
+    """Explain what pressing the logo does in this state."""
+    if view.show_spinner:
+        return view.title
+    if not view.action_enabled:
+        return "Сначала добавьте или выберите сервер"
+    if view.css_class == "status-connected":
+        return "Нажмите на логотип для отключения"
+    if view.css_class == "status-error":
+        return "Нажмите на логотип для повторного подключения"
+    return "Нажмите на логотип для подключения"
 
 
 def status_view(
     state: ConnectionState,
     *,
     profile_name: str = "",
-    error: str = "",
     latency_ms: int | None = None,
     upload_bytes: int | None = None,
     download_bytes: int | None = None,
     mode: str = "",
 ) -> StatusView:
-    """Describe how the status card should look in the given state."""
-    metrics = metrics_text(latency_ms, upload_bytes, download_bytes, mode)
+    """Describe how the status card should look in the given state.
+
+    Причину ошибки карточка показывает строкой проверки (`health_text`), а в
+    подписи остаётся сервер, который не удалось подключить.
+    """
     items = []
     if latency_ms is not None and latency_ms >= 0:
         items.append(("Задержка", f"{latency_ms} мс"))
@@ -100,11 +105,10 @@ def status_view(
             icon_name="network-vpn-symbolic",
             css_class="status-connected",
             button_label="Отключить",
-            button_class="destructive-action",
             show_spinner=False,
-            metrics=metrics,
             metric_items=metric_items,
-            use_logo=True,
+            mode=mode,
+            logo_desaturated=False,
         )
 
     if state is ConnectionState.CONNECTING:
@@ -114,47 +118,46 @@ def status_view(
             icon_name="network-transmit-receive-symbolic",
             css_class="status-connecting",
             button_label="Подключение…",
-            button_class="suggested-action",
             show_spinner=True,
-            metrics=metrics,
-            action_enabled=False,
             metric_items=metric_items,
+            mode=mode,
+            action_enabled=False,
         )
 
     if state is ConnectionState.ERROR:
         return StatusView(
             title="Ошибка",
-            subtitle=error or "Соединение не установлено",
+            subtitle=profile_name,
             icon_name="dialog-warning-symbolic",
             css_class="status-error",
-            button_label="Подключить",
-            button_class="suggested-action",
+            button_label="Повторить",
             show_spinner=False,
-            metrics=metrics,
             metric_items=metric_items,
+            mode=mode,
         )
 
     return StatusView(
         title="Отключено",
-        subtitle="",
+        subtitle=profile_name,
         icon_name="network-offline-symbolic",
         css_class="status-disconnected",
         button_label="Подключить",
-        button_class="suggested-action",
         show_spinner=False,
-        metrics=metrics,
         metric_items=metric_items,
-        use_logo=True,
-        logo_desaturated=True,
+        mode=mode,
     )
 
 
-def health_text(*, running: bool, checked: bool, proxy_ok: bool, last_check: str) -> str:
-    """Describe the monitor's check of the running session.
+def health_text(
+    *, running: bool, checked: bool, proxy_ok: bool, last_check: str, error: str = ""
+) -> str:
+    """Describe the monitor's check of the running session, or the last failure.
 
     «Подключено» на карточке значит только, что сессия запущена; работает ли
     соединение, говорит эта строка, и только по данным монитора.
     """
+    if error:
+        return error
     if not running:
         return ""
     if not checked:
@@ -214,6 +217,8 @@ class ConnectionPresentation:
         upload: int,
         download: int,
         latency: int | None,
+        has_profiles: bool = True,
+        can_connect: bool = True,
     ) -> StatusView:
         snapshot = (running, active_id if running else None)
         if self.error_snapshot is not None and snapshot != self.error_snapshot:
@@ -221,7 +226,9 @@ class ConnectionPresentation:
             self.error_snapshot = None
         if busy:
             view = status_view(
-                ConnectionState.CONNECTING, profile_name=self.target_name or profile_name
+                ConnectionState.CONNECTING,
+                profile_name=self.target_name or profile_name,
+                mode=mode,
             )
             # Об отключении оболочка может и не сообщить: занятый поток при
             # работающем прокси без начатого подключения — это отключение.
@@ -240,8 +247,10 @@ class ConnectionPresentation:
                 download_bytes=download,
                 latency_ms=latency,
             )
-        if self.error:
-            view = status_view(ConnectionState.ERROR, error=self.error)
-            return replace(view, button_label="Повторить")
-        view = status_view(ConnectionState.DISCONNECTED)
-        return replace(view, subtitle=profile_name)
+        state = ConnectionState.ERROR if self.error else ConnectionState.DISCONNECTED
+        view = replace(
+            status_view(state, profile_name=profile_name, mode=mode), action_enabled=can_connect
+        )
+        if not has_profiles and not self.error:
+            view = replace(view, title=EMPTY_TITLE)
+        return view

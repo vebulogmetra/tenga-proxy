@@ -274,7 +274,7 @@ def test_session_health_does_not_reuse_previous_check(app):
     assert "ещё не выполнена" in app.window.status_card.health.text()
     status.last_check_time = 101
     app.window.refresh_monitoring()
-    assert app.window.status_card.health.isHidden()
+    assert "Последняя проверка соединения" in app.window.status_card.health.text()
     assert "Последняя проверка" in app.window.last_check.text()
     app.context.set_monitor(None)
 

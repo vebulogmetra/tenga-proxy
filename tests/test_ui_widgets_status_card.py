@@ -51,18 +51,6 @@ def test_state_css_class_replaces_the_previous_one(card):
     assert "status-connected" not in classes
 
 
-def test_button_css_class_replaces_the_previous_one(card):
-    from src.ui.logic.status import ConnectionState
-
-    card.update(_view(ConnectionState.CONNECTED, profile_name="X"))
-    assert "destructive-action" in card.action_button.get_css_classes()
-
-    card.update(_view(ConnectionState.DISCONNECTED))
-    classes = card.action_button.get_css_classes()
-    assert "suggested-action" in classes
-    assert "destructive-action" not in classes
-
-
 def test_spinner_visible_only_while_connecting(card):
     from src.ui.logic.status import ConnectionState
 
@@ -73,20 +61,38 @@ def test_spinner_visible_only_while_connecting(card):
     assert card.is_spinning() is False
 
 
+def test_logo_button_explains_its_action(card):
+    from src.ui.logic.status import ConnectionState
+
+    card.update(_view(ConnectionState.DISCONNECTED))
+    assert card.logo_button.get_tooltip_text() == "Нажмите на логотип для подключения"
+
+
+def test_warning_is_shown_only_for_an_error(card):
+    from src.ui.logic.status import ConnectionState
+
+    card.update(_view(ConnectionState.ERROR, profile_name="X"))
+    assert card._warning.get_visible() is True
+
+    card.update(_view(ConnectionState.DISCONNECTED))
+    assert card._warning.get_visible() is False
+
+
 def test_button_is_insensitive_while_connecting(card):
     from src.ui.logic.status import ConnectionState
 
     card.update(_view(ConnectionState.CONNECTING, profile_name="X"))
-    assert card.action_button.get_sensitive() is False
+    assert card.logo_button.get_sensitive() is False
 
-    card.update(_view(ConnectionState.ERROR, error="сбой"))
-    assert card.action_button.get_sensitive() is True
+    card.update(_view(ConnectionState.ERROR, profile_name="X"))
+    assert card.logo_button.get_sensitive() is True
 
 
-def test_switch_button_names_its_target(card):
+def test_switch_button_names_its_target_in_the_tooltip(card):
     card.set_switch_target("Германия", enabled=True)
     assert card.switch_button.get_visible() is True
-    assert card.switch_button.get_label() == "Переключить на «Германия»"
+    assert card.switch_button.get_label() == "Переключить на выбранный"
+    assert card.switch_button.get_tooltip_text() == "Подключить: Германия"
 
     card.set_switch_target("", enabled=True)
     assert card.switch_button.get_visible() is False
@@ -110,11 +116,12 @@ def test_health_row_hidden_when_empty(card):
     assert card.get_health() == "Проверка соединения ещё не выполнена"
 
 
-def test_metrics_row_hidden_when_empty(card):
+def test_metrics_and_mode_follow_the_view(card):
     from src.ui.logic.status import ConnectionState
 
     card.update(_view(ConnectionState.DISCONNECTED))
-    assert card.get_metrics() == ""
+    assert card.get_metrics() == []
+    assert card._metrics.get_visible() is False
 
     card.update(
         _view(
@@ -123,21 +130,25 @@ def test_metrics_row_hidden_when_empty(card):
             latency_ms=132,
             upload_bytes=0,
             download_bytes=0,
-            mode="TUN",
+            mode="Режим TUN",
         )
     )
-    assert "132 мс" in card.get_metrics()
+    assert card.get_metrics() == ["Задержка 132 мс", "↓ Получено 0 B", "↑ Отправлено 0 B"]
+    assert card.get_mode() == "Режим TUN"
+
+    # Значение исчезает, а ячейка остаётся на следующий тик счётчика.
+    card.update(
+        _view(ConnectionState.CONNECTED, profile_name="X", upload_bytes=1, download_bytes=1)
+    )
+    assert [text.split()[1] for text in card.get_metrics()] == ["Получено", "Отправлено"]
 
 
-def test_logo_replaces_the_themed_icon_when_connected(card):
+def test_the_logo_stays_in_every_state(card):
     from src.ui.logic.status import ConnectionState
 
-    card.update(_view(ConnectionState.CONNECTED, profile_name="X"))
-    assert card.shows_logo() is True
-
-    # У ошибки логотипа нет: предупреждение читается однозначнее.
-    card.update(_view(ConnectionState.ERROR, error="boom"))
-    assert card.shows_logo() is False
+    for state in ConnectionState:
+        card.update(_view(state))
+        assert card.shows_logo() is True
 
 
 def test_button_click_emits_signal(card):
@@ -147,6 +158,6 @@ def test_button_click_emits_signal(card):
     seen = []
     card.connect("action-clicked", lambda _card: seen.append(True))
 
-    card.action_button.emit("clicked")
+    card.logo_button.emit("clicked")
 
     assert seen == [True]

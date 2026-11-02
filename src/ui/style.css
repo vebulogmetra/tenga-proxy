@@ -26,7 +26,7 @@
 /* Логотип — готовая картинка, а не symbolic-иконка: правила выше задают
    `color`, который на текстуру не действует, поэтому состояние показывает
    сама картинка (цветная или обесцвеченная). Прозрачность приглушает
-   логотип в отключённом состоянии заодно с обесцвечиванием. */
+   логотип во всех состояниях, кроме «Подключено». */
 .status-card .status-logo {
   opacity: 0.55;
 }
@@ -35,9 +35,21 @@
   opacity: 1;
 }
 
+.status-card .logo-button {
+  padding: 4px;
+}
+
+.status-card .status-warning {
+  color: @error_color;
+}
+
 .metrics {
   font-size: 0.85em;
   font-feature-settings: "tnum";
+}
+
+.status-metrics flowboxchild {
+  padding: 0;
 }
 
 .latency-good {

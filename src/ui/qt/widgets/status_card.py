@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config import get_asset_path
-from src.ui.logic.status import StatusView
+from src.ui.logic.status import StatusView, action_hint
 from src.ui.qt.icons import flagged
 
 LOGO_SIZE = 108
@@ -182,7 +182,7 @@ class StatusCard(QFrame):
         self.logo.setIconSize(self.logo.size() * 0.9)
         self.health.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-    def update_view(self, view: StatusView, *, enabled: bool = True, mode: str = "") -> None:
+    def update_view(self, view: StatusView) -> None:
         self.title.setText(view.title)
         icon, name = flagged(view.subtitle)
         self._profile_name = name
@@ -201,22 +201,13 @@ class StatusCard(QFrame):
             value.setText(values.get(caption, ""))
             item.setVisible(caption in values)
         self.metrics.setVisible(bool(values))
-        self.mode.setText(f"Режим {mode}" if mode else "")
-        self.mode.setVisible(bool(mode))
-        if view.css_class == "status-connecting":
-            instruction = view.title
-        elif not enabled:
-            instruction = "Сначала добавьте или выберите сервер"
-        elif view.css_class == "status-connected":
-            instruction = "Нажмите на логотип для отключения"
-        elif view.css_class == "status-error":
-            instruction = "Нажмите на логотип для повторного подключения"
-        else:
-            instruction = "Нажмите на логотип для подключения"
+        self.mode.setText(view.mode)
+        self.mode.setVisible(bool(view.mode))
+        instruction = action_hint(view)
         self.instruction.setText(instruction)
         self.instruction.hide()
         self.logo.setIcon(QIcon(logo_pixmap(view.css_class)))
-        self.logo.setEnabled(enabled)
+        self.logo.setEnabled(view.action_enabled)
         self.logo.setAccessibleName(view.button_label)
         self.logo.setToolTip(instruction)
         self.setProperty("state", view.css_class)

@@ -33,7 +33,7 @@ from PySide6.QtWidgets import (
 
 from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
 from src.ui.logic.menus import ADD_MENU, MAIN_MENU
-from src.ui.logic.monitoring_view import monitoring_view
+from src.ui.logic.monitoring_view import format_last_check, monitoring_view
 from src.ui.logic.profiles_view import (
     EMPTY_DESCRIPTION,
     EMPTY_TITLE,
@@ -42,9 +42,13 @@ from src.ui.logic.profiles_view import (
     build_profile_rows,
 )
 from src.ui.logic.status import (
+    SWITCH_LABEL,
     ConnectionPresentation,
     ConnectionState,
+    health_text,
+    mode_text,
     status_view,
+    switch_hint,
 )
 from src.ui.logic.subscriptions_view import build_subscription_rows
 from src.ui.qt.icons import flagged
@@ -279,7 +283,7 @@ class MainWindow(QMainWindow):
         self.selection_label.setTextFormat(Qt.TextFormat.PlainText)
         self.selection_label.setWordWrap(True)
         bottom.addWidget(self.selection_label, 1)
-        self.switch_button = QPushButton("Переключить на выбранный")
+        self.switch_button = QPushButton(SWITCH_LABEL)
         self.switch_button.clicked.connect(self._switch_selected)
         bottom.addWidget(self.switch_button)
         library.addLayout(bottom)
@@ -350,24 +354,19 @@ class MainWindow(QMainWindow):
         profile = store.get_profile(state.started_profile_id) if state.is_running else target
         busy = self._app.controller.connection_busy()
         mode = state.started_mode if state.is_running else self._context.config.proxy_mode
-        mode_text = "Системный прокси" if mode == "system" else "TUN"
         view = self.presentation.resolve(
             running=state.is_running,
             active_id=state.started_profile_id,
             busy=busy,
             profile_name=profile.name if profile else "",
-            mode="",
+            mode=mode_text(mode),
             upload=state.upload_bytes,
             download=state.download_bytes,
             latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
+            has_profiles=bool(store.profiles),
+            can_connect=target is not None,
         )
-        if self.presentation.error and not state.is_running:
-            view = replace(view, subtitle=profile.name if profile else "")
-        if not store.profiles and not state.is_running:
-            view = replace(view, title="Добавьте сервер или подписку")
-        self.status_card.update_view(
-            view, enabled=not busy and (state.is_running or target is not None), mode=mode_text
-        )
+        self.status_card.update_view(view)
         selected_name = flagged(selected.name)[1] if selected else "Сервер не выбран"
         self.selection_label.setText(f"Выбран: {selected_name}" if selected else selected_name)
         self.selection_label.setToolTip(
@@ -379,7 +378,7 @@ class MainWindow(QMainWindow):
             bool(selected and state.is_running and selected.id != state.started_profile_id)
         )
         self.switch_button.setEnabled(not busy)
-        self.switch_button.setToolTip(f"Подключить: {selected_name}")
+        self.switch_button.setToolTip(switch_hint(selected_name))
         self.refresh_monitoring()
 
     def begin_operation(self, name: str, profile_id: int | None = None) -> None:
@@ -394,9 +393,9 @@ class MainWindow(QMainWindow):
 
     def show_connecting(self, profile_name: str = "") -> None:
         self.presentation.begin("connect", profile_name)
-        view = status_view(ConnectionState.CONNECTING, profile_name=profile_name)
-        view = replace(view, button_label="Подключение…")
-        self.status_card.update_view(view, enabled=False)
+        self.status_card.update_view(
+            status_view(ConnectionState.CONNECTING, profile_name=profile_name)
+        )
 
     def show_error(self, message: str) -> None:
         state = self._context.proxy_state
@@ -542,14 +541,13 @@ class MainWindow(QMainWindow):
             if checked or not state.is_running
             else "Ожидается проверка соединения"
         )
-        if self.presentation.error:
-            summary = self.presentation.error
-        elif state.is_running and not checked:
-            summary = "Проверка соединения ещё не выполнена"
-        elif state.is_running and not status.proxy_ok:
-            summary = "Прокси запущен, соединение не прошло проверку"
-        else:
-            summary = ""
+        summary = health_text(
+            running=state.is_running,
+            checked=checked,
+            proxy_ok=status.proxy_ok,
+            last_check=format_last_check(status.last_check_time),
+            error=self.presentation.error,
+        )
         self.status_card.health.setText(summary)
         self.status_card.health.setVisible(bool(summary))
         if hasattr(self, "footer_status"):

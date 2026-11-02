@@ -28,12 +28,13 @@ from src.ui.logic.status import (
     ConnectionPresentation,
     ConnectionState,
     health_text,
+    mode_text,
     status_view,
 )
 from src.ui.pages.monitoring import MonitoringPage
 from src.ui.pages.profiles import ProfilesPage
 from src.ui.pages.subscriptions import SubscriptionsPage
-from src.ui.widgets.status_card import StatusCard
+from src.ui.widgets.status_card import LOGO_SIZE_COMPACT, StatusCard
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("tenga.ui.window")
 
 NARROW_WIDTH = 550
+COMPACT_HEIGHT = 560
 APP_ICON = "tenga-proxy"
 
 
@@ -219,16 +221,34 @@ class MainWindow(Adw.ApplicationWindow):
         return self.search_button
 
     def _install_breakpoint(self) -> None:
-        """Move the switcher into the bottom bar on narrow windows."""
-        condition = Adw.BreakpointCondition.new_length(
-            Adw.BreakpointConditionLengthType.MAX_WIDTH,
-            NARROW_WIDTH,
-            Adw.LengthUnit.SP,
-        )
-        breakpoint_ = Adw.Breakpoint.new(condition)
-        breakpoint_.add_setter(self.view_switcher_bar, "reveal", True)
-        breakpoint_.add_setter(self.view_switcher, "visible", False)
-        self.add_breakpoint(breakpoint_)
+        """Adapt to small windows: switcher in the bottom bar, smaller logo.
+
+        Из подошедших брейкпоинтов действует только последний, поэтому узкому
+        и низкому окну нужен свой, с обоими наборами значений.
+        """
+
+        def narrow():
+            return Adw.BreakpointCondition.new_length(
+                Adw.BreakpointConditionLengthType.MAX_WIDTH, NARROW_WIDTH, Adw.LengthUnit.SP
+            )
+
+        def short():
+            return Adw.BreakpointCondition.new_length(
+                Adw.BreakpointConditionLengthType.MAX_HEIGHT, COMPACT_HEIGHT, Adw.LengthUnit.SP
+            )
+
+        for condition, is_narrow, is_short in (
+            (narrow(), True, False),
+            (short(), False, True),
+            (Adw.BreakpointCondition.new_and(narrow(), short()), True, True),
+        ):
+            breakpoint_ = Adw.Breakpoint.new(condition)
+            if is_narrow:
+                breakpoint_.add_setter(self.view_switcher_bar, "reveal", True)
+                breakpoint_.add_setter(self.view_switcher, "visible", False)
+            if is_short:
+                breakpoint_.add_setter(self.status_card.logo_image, "pixel-size", LOGO_SIZE_COMPACT)
+            self.add_breakpoint(breakpoint_)
 
     # --- действия строк ---
 
@@ -562,6 +582,7 @@ class MainWindow(Adw.ApplicationWindow):
         else:
             # Тот же порядок, что у connect_selected(): выделение, иначе последний.
             profile = selected or store.last_used_profile()
+        mode = state.started_mode if state.is_running else self._context.config.proxy_mode
         app = self.get_application()
         controller = getattr(app, "controller", None)
         busy = controller is not None and controller.connection_busy()
@@ -570,10 +591,12 @@ class MainWindow(Adw.ApplicationWindow):
             active_id=state.started_profile_id,
             busy=busy,
             profile_name=profile.name if profile else "",
-            mode=state.started_mode.upper(),
+            mode=mode_text(mode),
             upload=state.upload_bytes,
             download=state.download_bytes,
             latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
+            has_profiles=bool(store.profiles),
+            can_connect=profile is not None,
         )
         self.status_card.update(view)
 
@@ -597,6 +620,7 @@ class MainWindow(Adw.ApplicationWindow):
                 checked=checked,
                 proxy_ok=status.proxy_ok,
                 last_check=format_last_check(status.last_check_time),
+                error=self._presentation.error,
             )
         )
 

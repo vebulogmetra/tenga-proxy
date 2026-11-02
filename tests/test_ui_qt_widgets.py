@@ -23,7 +23,7 @@ def test_card_shows_the_connected_view(qapp):
             latency_ms=209,
             upload_bytes=1,
             download_bytes=2,
-            mode="SYSTEM",
+            mode="Режим Системный прокси",
         )
     )
 
@@ -97,8 +97,8 @@ def test_connected_card_separates_profile_and_metrics(qapp, compact):
             latency_ms=209,
             upload_bytes=1024,
             download_bytes=2048,
+            mode="Режим TUN",
         ),
-        mode="TUN",
     )
     card.show()
     qapp.processEvents()

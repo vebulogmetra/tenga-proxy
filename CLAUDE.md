@@ -199,6 +199,11 @@ True), `cancel`. `ConnectionMonitor` и `AppController` получают его
 `IS_WINDOWS` не читают; где это допустимо, перечисляет
 `tests/test_ui_platform_branches.py`.
 
+**Общий дизайн GTK и Qt** - `docs/plans/2026-11-02-shared-ui-design.md`: состояния,
+словарь («Сервер», а не «профиль»), меню и сочетания клавиш. Намеренных отличий два:
+логотип (Linux — голубь, Windows — монолит) и навигация (вкладки на Linux). Изменение
+интерфейса сверяй с этим документом и делай в обоих тулкитах.
+
 **TUN на Linux** - xray получает `cap_net_admin` через `setcap` в postinst
 deb-пакета, маршрут по умолчанию переключает помощник
 `/usr/libexec/tenga-proxy/tun-route-helper` через `sudo -n` (правило пакета —

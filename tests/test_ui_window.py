@@ -64,7 +64,15 @@ def test_close_request_saves_geometry(window, adw_app):
     assert (saved.width, saved.height) == (880, 660)
 
 
+def test_empty_store_asks_to_add_a_server(window, adw_app):
+    adw_app.context.proxy_state.is_running = False
+    window.refresh_status()
+    assert window.status_card.get_title() == "Добавьте сервер или подписку"
+    assert window.status_card.logo_button.get_sensitive() is False
+
+
 def test_status_card_follows_proxy_state(window, adw_app):
+    _two_profiles(adw_app)
     adw_app.context.proxy_state.is_running = False
     window.refresh_status()
     assert window.status_card.get_title() == "Отключено"
@@ -288,7 +296,7 @@ def test_a_connection_error_survives_the_status_refresh(window, adw_app):
     window.refresh_status()
 
     assert window.status_card.get_title() == "Ошибка"
-    assert window.status_card.get_subtitle() == "xray-core не запустился"
+    assert window.status_card.get_health() == "xray-core не запустился"
     assert window.status_card.get_button_label() == "Повторить"
 
 

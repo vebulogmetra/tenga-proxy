@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from src.ui.logic.status import (
     ConnectionPresentation,
     ConnectionState,
+    action_hint,
     health_text,
-    metrics_text,
+    mode_text,
     status_view,
 )
 
@@ -16,7 +19,6 @@ def test_disconnected_offers_connect():
     assert view.title == "Отключено"
     assert view.subtitle == ""
     assert view.button_label == "Подключить"
-    assert view.button_class == "suggested-action"
     assert view.css_class == "status-disconnected"
     assert view.show_spinner is False
 
@@ -50,7 +52,6 @@ def test_connected_shows_profile_and_destructive_button():
     assert view.title == "Подключено"
     assert view.subtitle == "Германия"
     assert view.button_label == "Отключить"
-    assert view.button_class == "destructive-action"
     assert view.css_class == "status-connected"
     assert view.show_spinner is False
 
@@ -60,16 +61,13 @@ def test_connected_without_profile_falls_back():
     assert view.subtitle == "Сервер неизвестен"
 
 
-def test_error_shows_message_as_subtitle():
-    view = status_view(ConnectionState.ERROR, error="xray-core не запустился")
+def test_error_keeps_the_server_in_the_subtitle():
+    # Причина ошибки — в строке проверки (`health_text`), там же, где и в Qt.
+    view = status_view(ConnectionState.ERROR, profile_name="Польша")
     assert view.title == "Ошибка"
-    assert view.subtitle == "xray-core не запустился"
+    assert view.subtitle == "Польша"
     assert view.css_class == "status-error"
-    assert view.button_label == "Подключить"
-
-
-def test_error_without_message_has_generic_subtitle():
-    assert status_view(ConnectionState.ERROR).subtitle == "Соединение не установлено"
+    assert view.button_label == "Повторить"
 
 
 def test_every_state_has_an_icon():
@@ -77,42 +75,44 @@ def test_every_state_has_an_icon():
         assert status_view(state).icon_name
 
 
-def test_metrics_text_joins_all_known_parts():
-    text = metrics_text(latency_ms=132, upload_bytes=1258291, download_bytes=51065651, mode="TUN")
-    assert text == "132 мс · ↑ 1.2 MB ↓ 48.7 MB · TUN"
+def test_metric_items_list_every_known_value():
+    view = status_view(
+        ConnectionState.CONNECTED, latency_ms=132, upload_bytes=1258291, download_bytes=51065651
+    )
+    assert view.metric_items == (
+        ("Задержка", "132 мс"),
+        ("↓ Получено", "48.7 MB"),
+        ("↑ Отправлено", "1.2 MB"),
+    )
 
 
-def test_metrics_text_skips_unknown_latency():
-    text = metrics_text(latency_ms=None, upload_bytes=0, download_bytes=0, mode="TUN")
-    assert text == "↑ 0 B ↓ 0 B · TUN"
+def test_metric_items_skip_unknown_values():
+    view = status_view(ConnectionState.CONNECTED, latency_ms=-1, upload_bytes=0, download_bytes=0)
+    assert [caption for caption, _ in view.metric_items] == ["↓ Получено", "↑ Отправлено"]
+    assert status_view(ConnectionState.CONNECTED).metric_items == ()
 
 
-def test_metrics_text_skips_negative_latency():
-    assert metrics_text(latency_ms=-1, upload_bytes=0, download_bytes=0, mode="") == "↑ 0 B ↓ 0 B"
+def test_mode_names_are_shared():
+    assert mode_text("system") == "Режим Системный прокси"
+    assert mode_text("tun") == "Режим TUN"
 
 
-def test_metrics_text_is_empty_when_nothing_is_known():
-    assert metrics_text(latency_ms=None, upload_bytes=None, download_bytes=None, mode="") == ""
+def test_only_the_connected_logo_is_in_colour():
+    for state in ConnectionState:
+        assert status_view(state).logo_desaturated is (state is not ConnectionState.CONNECTED)
 
 
-def test_connected_shows_the_logo_in_colour():
-    view = status_view(ConnectionState.CONNECTED, profile_name="Польша")
-
-    assert view.use_logo is True
-    assert view.logo_desaturated is False
-
-
-def test_disconnected_shows_the_logo_desaturated():
-    view = status_view(ConnectionState.DISCONNECTED)
-
-    assert view.use_logo is True
-    assert view.logo_desaturated is True
-
-
-def test_connecting_and_error_keep_their_themed_icons():
-    # Спиннер и предупреждение сообщают состояние точнее, чем логотип.
-    for state in (ConnectionState.CONNECTING, ConnectionState.ERROR):
-        assert status_view(state).use_logo is False
+@pytest.mark.parametrize(
+    ("state", "hint"),
+    [
+        (ConnectionState.DISCONNECTED, "Нажмите на логотип для подключения"),
+        (ConnectionState.CONNECTED, "Нажмите на логотип для отключения"),
+        (ConnectionState.ERROR, "Нажмите на логотип для повторного подключения"),
+        (ConnectionState.CONNECTING, "Подключение…"),
+    ],
+)
+def test_action_hint_explains_the_logo(state, hint):
+    assert action_hint(status_view(state)) == hint
 
 
 # --- ConnectionPresentation ---
@@ -147,8 +147,28 @@ def test_an_error_survives_an_unrelated_refresh():
     view = _resolve(presentation)
 
     assert view.title == "Ошибка"
-    assert view.subtitle == "xray-core не запустился"
     assert view.button_label == "Повторить"
+    assert presentation.error == "xray-core не запустился"
+
+
+def test_an_error_names_the_server_that_failed():
+    presentation = ConnectionPresentation()
+    presentation.fail("xray-core не запустился", (False, None))
+
+    assert _resolve(presentation, profile_name="Польша").subtitle == "Польша"
+
+
+def test_empty_store_asks_to_add_a_server():
+    view = _resolve(ConnectionPresentation(), has_profiles=False, can_connect=False)
+
+    assert view.title == "Добавьте сервер или подписку"
+    assert view.action_enabled is False
+    assert action_hint(view) == "Сначала добавьте или выберите сервер"
+
+
+def test_nothing_to_connect_disables_the_action():
+    assert _resolve(ConnectionPresentation(), can_connect=False).action_enabled is False
+    assert _resolve(ConnectionPresentation(), running=True, can_connect=False).action_enabled
 
 
 def test_an_error_is_cleared_when_the_connection_comes_up():
@@ -212,6 +232,14 @@ def test_a_failed_check_is_named():
 def test_a_passed_check_shows_its_time():
     text = health_text(running=True, checked=True, proxy_ok=True, last_check="12:00:00")
     assert text == "Последняя проверка соединения: 12:00:00"
+
+
+def test_a_failure_takes_over_the_health_line():
+    for running in (False, True):
+        text = health_text(
+            running=running, checked=True, proxy_ok=True, last_check="12:00:00", error="сбой"
+        )
+        assert text == "сбой"
 
 
 def test_a_check_of_the_previous_session_does_not_count():
