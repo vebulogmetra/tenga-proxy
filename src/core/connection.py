@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("tenga.core.connection")
 
-PROFILE_NOT_FOUND = "Профиль не найден"
-NO_CONFIG = "Не удалось построить конфигурацию профиля"
+PROFILE_NOT_FOUND = "Сервер не найден"
+NO_CONFIG = "Не удалось построить конфигурацию сервера"
 NOT_RUNNING = "Прокси не запущен"
 UNSAFE_CONFIG = "Конфигурация отклонена"
 

@@ -13,20 +13,20 @@ python gui.py
 The main application window contains the following elements:
 
 - **System tray** with quick connect/disconnect
-- **Profile management** - view, add, edit, and delete profiles
+- **Server management** - view, add, edit, and delete servers
 - **DNS, VPN, and routing settings** - flexible connection configuration
 - **Connection statistics and latency** - performance monitoring
 
-## "Profiles" Tab
+## "Servers" Tab
 
-On the "Profiles" tab you can:
+On the "Servers" tab you can:
 
-- Browse profile lists grouped by categories
-- Add new profiles from share links
-- Edit existing profiles
-- Delete unwanted profiles
+- Browse server lists grouped by categories
+- Add new servers from share links
+- Edit existing servers
+- Delete unwanted servers
 - Test server latency
-- Connect to selected profile
+- Connect to selected server
 
 ## "Subscriptions" Tab
 
@@ -37,9 +37,9 @@ On the "Subscriptions" tab you can:
 - Edit subscription parameters
 - Delete subscriptions
 
-## "Monitoring" Tab
+## "Diagnostics" Tab
 
-The "Monitoring" tab displays:
+The "Diagnostics" tab displays:
 
 - Proxy connection status
 - VPN connection status (if used)
@@ -47,7 +47,7 @@ The "Monitoring" tab displays:
 - Manual connection check capability
 
 The proxy status is not "the core process is running" but the result of a
-request through the profile's server: the application reaches the test URL via
+request through the server itself: the application reaches the test URL via
 a service inbound of the core on `127.0.0.1`, protected by a one-time password.
 Routing rules do not apply to this request, so "server does not respond" means
 the server itself, even when the test URL is on your direct list.
@@ -56,9 +56,9 @@ the server itself, even when the test URL is on your direct list.
 
 Settings → Monitoring has an automatic failover switch (off by default). After
 the configured number of failed checks in a row the application connects
-another profile of the same group — the one with the lowest measured latency
-first — and tells you with a notification. It does not return to a profile that
-has just stopped responding for 15 minutes. When no suitable profile is left
+another server of the same group — the one with the lowest measured latency
+first — and tells you with a notification. It does not return to a server that
+has just stopped responding for 15 minutes. When no suitable server is left
 the connection is kept: traffic must not suddenly go direct.
 
 ### Core updates
@@ -80,9 +80,9 @@ as usual, just without a panel icon. Pass `--no-tray` to disable the icon.
 
 The system tray icon allows you to:
 
-- Quickly connect/disconnect from the current profile
-- Select a profile to connect to
-- Add new profiles
+- Quickly connect/disconnect from the current server
+- Select a server to connect to
+- Add new servers
 - Open the main application window
 - Open settings
 - Exit the application
@@ -103,7 +103,7 @@ In settings you can:
 |----------|--------|
 | `Ctrl+Return` | Connect or disconnect |
 | `Ctrl+T` | Test latency |
-| `Ctrl+N` | Add profile |
+| `Ctrl+N` | Add server |
 | `Ctrl+Shift+N` | Add subscription |
 | `F5` | Refresh subscriptions |
 | `Ctrl+F` | Search |

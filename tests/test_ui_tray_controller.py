@@ -104,7 +104,7 @@ def test_the_menu_lists_the_profiles_of_the_store(controller, context):
 
     tray.refresh()
 
-    assert "Локальный" in labels(find_item(item.menus[-1], "Профили").children)
+    assert "Локальный" in labels(find_item(item.menus[-1], "Серверы").children)
 
 
 def test_clicking_an_entry_activates_the_application_action(controller):

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from src.ui.qt.dialogs.settings import SettingsDialog
 
 ERROR_COLOR = QColor("#d13438")
-COLUMNS = ("Название", "Профилей", "Обновлено", "Трафик и срок")
+COLUMNS = ("Название", "Серверов", "Обновлено", "Трафик и срок")
 GROUP_ROLE = Qt.ItemDataRole.UserRole + 1
 
 

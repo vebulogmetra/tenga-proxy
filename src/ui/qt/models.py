@@ -16,7 +16,7 @@ from src.ui.logic.latency import PingProgress
 from src.ui.logic.profiles_view import GroupRow, ProfileRow, SortKey, ping_text
 from src.ui.qt.icons import flagged
 
-COLUMNS = ("Имя", "Тип", "Сервер", "Пинг")
+COLUMNS = ("Имя", "Тип", "Адрес", "Задержка")
 NAME_COLUMN, TYPE_COLUMN, ADDRESS_COLUMN, PING_COLUMN = range(len(COLUMNS))
 
 # По «Серверу» не сортируют и в GTK: колонки нет в SortKey.
@@ -48,7 +48,7 @@ def group_count_text(row: GroupRow, progress: PingProgress | None) -> str:
 
 
 def group_summary(row: GroupRow, progress: PingProgress | None, details: str) -> str:
-    summary = f"{row.title}  ·  Профилей: {row.count}"
+    summary = f"{row.title}  ·  Серверов: {row.count}"
     if progress is not None and progress.state(row.group_id) is not None:
         summary += f"  ·  Проверено: {group_count_text(row, progress)}"
     return f"{summary}  ·  {details}" if details else summary

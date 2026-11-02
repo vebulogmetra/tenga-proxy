@@ -81,5 +81,5 @@ def test_provider_direct_default_is_reported_not_applied():
 
 
 def test_non_string_name_is_rejected():
-    with pytest.raises(ValueError, match="имя профиля"):
+    with pytest.raises(ValueError, match="имя набора"):
         parse_app_link(_routing({"Name": 5}))

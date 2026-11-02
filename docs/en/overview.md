@@ -21,13 +21,13 @@ Veblock uses an architecture with separation into:
 - **Interface** - CLI and GUI for user interaction
 - **Application core** - management logic and coordination
 - **Formatting modules** - link parsing and formatting
-- **Data manager** - profile storage and management
+- **Data manager** - server storage and management
 - **Backend** - xray-core for network traffic processing
 
 ### Main Components
 
 - **AppContext** - central application context
-- **ProfileManager** - profile and group management
+- **ProfileManager** - server and group management
 - **XrayManager** - xray-core management
 - **ProxyState** - proxy state tracking
 - **ConnectionMonitor** - connection monitoring
@@ -43,10 +43,10 @@ Veblock uses an architecture with separation into:
 - **SOCKS** - standard SOCKS4/4a/5 protocols
 - **HTTP/HTTPS** - HTTP proxies
 
-### Profile Management
+### Server Management
 
-- **Profile creation** from share links
-- **Profile grouping** by categories
+- **Server creation** from share links
+- **Server grouping** by categories
 - **Subscription import** in various formats
 - **Server latency testing** 
 - **Connection parameter editing**

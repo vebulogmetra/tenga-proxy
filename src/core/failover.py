@@ -115,7 +115,7 @@ class FailoverController:
             if not self._exhausted:
                 self._exhausted = True
                 logger.warning("Failover: no candidates left in group %s", failed.group_id)
-                self._notify(f"«{failed.name}» не отвечает, других рабочих профилей в группе нет")
+                self._notify(f"«{failed.name}» не отвечает, других рабочих серверов в группе нет")
             return
 
         logger.warning("Failover: switching from profile %s to %s", failed_id, candidate.id)

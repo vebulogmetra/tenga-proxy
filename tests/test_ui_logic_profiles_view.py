@@ -157,7 +157,7 @@ def test_group_title_carries_visible_count(sample):
 
 def test_ping_text():
     assert ping_text(-1) == "—"
-    assert ping_text(42) == "42 ms"
+    assert ping_text(42) == "42 мс"
 
 
 def test_empty_group_is_hidden_without_a_query():

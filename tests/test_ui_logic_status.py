@@ -57,7 +57,7 @@ def test_connected_shows_profile_and_destructive_button():
 
 def test_connected_without_profile_falls_back():
     view = status_view(ConnectionState.CONNECTED, profile_name="")
-    assert view.subtitle == "Профиль неизвестен"
+    assert view.subtitle == "Сервер неизвестен"
 
 
 def test_error_shows_message_as_subtitle():
@@ -79,7 +79,7 @@ def test_every_state_has_an_icon():
 
 def test_metrics_text_joins_all_known_parts():
     text = metrics_text(latency_ms=132, upload_bytes=1258291, download_bytes=51065651, mode="TUN")
-    assert text == "132 ms · ↑ 1.2 MB ↓ 48.7 MB · TUN"
+    assert text == "132 мс · ↑ 1.2 MB ↓ 48.7 MB · TUN"
 
 
 def test_metrics_text_skips_unknown_latency():

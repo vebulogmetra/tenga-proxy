@@ -276,7 +276,7 @@ def test_an_event_on_an_unknown_id_does_not_raise(item, bus_connection, dbus_cal
 
 def test_a_menu_event_carries_the_target(bus_connection, dbus_call, pump):
     sni = StatusNotifierItem(connection=bus_connection, item_id="tenga-target")
-    sni.set_menu([MenuItem("Профиль", action="app.select-profile", target=17)])
+    sni.set_menu([MenuItem("Сервер", action="app.select-profile", target=17)])
     sni.publish()
     pump()
 

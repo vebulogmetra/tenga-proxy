@@ -29,13 +29,13 @@ def test_menu_follows_the_model(qapp):
             MenuItem("Статус", enabled=False),
             separator(),
             MenuItem("Подключить", action="app.connect"),
-            MenuItem("Профили", children=[MenuItem("A", action="app.connect-profile", target=1)]),
+            MenuItem("Серверы", children=[MenuItem("A", action="app.connect-profile", target=1)]),
             MenuItem("Скрытый", visible=False),
         ]
     )
 
     actions = item.menu.actions()
-    assert _labels(item.menu) == ["Статус", "Подключить", "Профили"]
+    assert _labels(item.menu) == ["Статус", "Подключить", "Серверы"]
     assert actions[1].isSeparator()
     assert not actions[0].isEnabled()
     assert _labels(actions[3].menu()) == ["A"]
@@ -46,7 +46,7 @@ def test_triggered_entry_reports_action_and_target(qapp):
     seen = []
     item.set_on_activate(lambda name, target: seen.append((name, target)))
     item.set_menu(
-        [MenuItem("Профили", children=[MenuItem("A", action="app.connect-profile", target=7)])]
+        [MenuItem("Серверы", children=[MenuItem("A", action="app.connect-profile", target=7)])]
     )
 
     item.menu.actions()[0].menu().actions()[0].trigger()

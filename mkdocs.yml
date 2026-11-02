@@ -56,7 +56,7 @@ plugins:
             - CLI: ru/cli.md
             - GUI: ru/gui.md
             - Протоколы: ru/protocols.md
-            - Профили: ru/profiles.md
+            - Серверы: ru/profiles.md
             - VPN: ru/vpn.md
             - Маршрутизация: ru/routing.md
             - Разработка: ru/development.md
@@ -100,7 +100,7 @@ nav:
   - CLI: en/cli.md
   - GUI: en/gui.md
   - Protocols: en/protocols.md
-  - Profiles: en/profiles.md
+  - Servers: en/profiles.md
   - VPN: en/vpn.md
   - Routing: en/routing.md
   - Development: en/development.md

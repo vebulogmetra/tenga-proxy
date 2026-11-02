@@ -22,7 +22,7 @@ def test_root_itself_has_id_zero():
 def test_nested_items_continue_the_same_numbering():
     model = MenuModel(
         [
-            MenuItem("Профили", children=[MenuItem("A"), MenuItem("B")]),
+            MenuItem("Серверы", children=[MenuItem("A"), MenuItem("B")]),
             MenuItem("Выход"),
         ]
     )
@@ -52,13 +52,13 @@ def test_a_separator_carries_the_type_property():
 
 
 def test_a_parent_declares_a_submenu():
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A")])])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A")])])
 
     assert model.properties(1)["children-display"] == "submenu"
 
 
 def test_a_checked_item_reports_a_radio_toggle():
-    model = MenuModel([MenuItem("Профиль", checked=True)])
+    model = MenuModel([MenuItem("Сервер", checked=True)])
     props = model.properties(1)
 
     assert props["toggle-type"] == "radio"
@@ -66,7 +66,7 @@ def test_a_checked_item_reports_a_radio_toggle():
 
 
 def test_an_unchecked_toggle_reports_state_zero():
-    model = MenuModel([MenuItem("Профиль", checked=False)])
+    model = MenuModel([MenuItem("Сервер", checked=False)])
 
     # checked=False — это «переключатель, который выключен», а не «пункт без
     # переключателя»: у второго checked=None.
@@ -108,13 +108,13 @@ def test_the_action_of_an_item_is_kept():
 
 
 def test_the_target_of_an_item_is_kept():
-    model = MenuModel([MenuItem("Профиль", action="app.select-profile", target=17)])
+    model = MenuModel([MenuItem("Сервер", action="app.select-profile", target=17)])
 
     assert model.find(1).target == 17
 
 
 def test_layout_lists_the_children_of_the_requested_parent():
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A")]), MenuItem("Выход")])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A")]), MenuItem("Выход")])
 
     root_id, root_props, children = model.layout(0)
 
@@ -132,7 +132,7 @@ def test_layout_of_a_leaf_has_no_children():
 
 
 def test_layout_depth_one_stops_before_grandchildren():
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A")])])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A")])])
 
     _id, _props, children = model.layout(0, depth=1)
     _child_id, _child_props, grandchildren = children[0]
@@ -142,7 +142,7 @@ def test_layout_depth_one_stops_before_grandchildren():
 
 
 def test_layout_depth_minus_one_returns_the_whole_tree():
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A")])])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A")])])
 
     _id, _props, children = model.layout(0, depth=-1)
     _child_id, _child_props, grandchildren = children[0]
@@ -192,6 +192,6 @@ def test_a_hidden_item_reports_visible_false():
 
 @pytest.mark.parametrize("depth", [0, 1, 5, -1])
 def test_layout_never_raises_for_any_depth(depth):
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A")])])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A")])])
 
     assert model.layout(0, depth=depth) is not None

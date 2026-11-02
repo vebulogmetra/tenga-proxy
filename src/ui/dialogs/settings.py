@@ -210,9 +210,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         failover = Adw.PreferencesGroup(
             title="Автопереключение",
-            description=(
-                "Если сервер перестал отвечать, подключается другой профиль той же группы"
-            ),
+            description=("Если сервер перестал отвечать, подключается другой сервер той же группы"),
         )
         page.add(failover)
 
@@ -274,7 +272,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         fragment = Adw.PreferencesGroup(
             title="Фрагментация TLS",
             description="Делит начало TLS-соединения на части, чтобы фильтр не разобрал "
-            "имя сервера. Действует на профили с TLS и Reality. Вступает в силу после переподключения.",
+            "имя сервера. Действует на серверы с TLS и Reality. Вступает в силу после переподключения.",
         )
         page.add(fragment)
 

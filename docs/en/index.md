@@ -10,7 +10,7 @@
 - xray-core configuration generation
 - Automatic system proxy setup (GNOME/KDE)
 - Flexible traffic routing (through VLESS, VPN, or directly)
-- Profile management
+- Server management
 - System tray with notifications
 - Monitoring via Stats API (statistics)
 

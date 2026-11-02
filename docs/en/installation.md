@@ -3,7 +3,7 @@
 ## Moving from Tenga Proxy
 
 The app has been renamed to Veblock. The update installs over the previous
-version: profiles, subscriptions and settings are kept. The launch command
+version: servers, subscriptions and settings are kept. The launch command
 (`tenga-proxy`), the deb package name and the settings directory
 (`~/.config/tenga-proxy`) are unchanged. On Windows the installer replaces the
 "Tenga Proxy" shortcuts with "Veblock"; the service name (`TengaProxySvc`) and
@@ -31,7 +31,7 @@ libadwaita 1.5 and apt refuses the package.
 | xray-core and geo databases | `/usr/lib/tenga-proxy/core/bin` |
 | TUN route helper | `/usr/libexec/tenga-proxy/tun-route-helper` |
 | sudoers rule | `/etc/sudoers.d/tenga-proxy` |
-| Settings, profiles, logs | `~/.config/tenga-proxy` |
+| Settings, servers, logs | `~/.config/tenga-proxy` |
 
 ### TUN mode
 
@@ -169,7 +169,7 @@ Autostart and the `veblock://`, `wingeon://` links are registered under
 | What | Where |
 |---|---|
 | Application | `C:\Program Files\Veblock` (after upgrading from Tenga Proxy, the previous `C:\Program Files\Tenga Proxy`) |
-| Settings and profiles | `%APPDATA%\tenga-proxy` |
+| Settings and servers | `%APPDATA%\tenga-proxy` |
 | Application logs | `%LOCALAPPDATA%\tenga-proxy\logs` |
 | Service logs and journal | `%ProgramData%\tenga-proxy` (read-only for users) |
 

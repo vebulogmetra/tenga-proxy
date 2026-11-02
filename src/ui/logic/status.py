@@ -58,7 +58,7 @@ def metrics_text(
     parts: list[str] = []
 
     if latency_ms is not None and latency_ms >= 0:
-        parts.append(f"{latency_ms} ms")
+        parts.append(f"{latency_ms} мс")
 
     if upload_bytes is not None and download_bytes is not None:
         parts.append(f"↑ {format_bytes(upload_bytes)} ↓ {format_bytes(download_bytes)}")
@@ -96,7 +96,7 @@ def status_view(
     if state is ConnectionState.CONNECTED:
         return StatusView(
             title="Подключено",
-            subtitle=profile_name or "Профиль неизвестен",
+            subtitle=profile_name or "Сервер неизвестен",
             icon_name="network-vpn-symbolic",
             css_class="status-connected",
             button_label="Отключить",

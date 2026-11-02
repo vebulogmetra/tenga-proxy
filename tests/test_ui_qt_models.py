@@ -43,7 +43,7 @@ def test_groups_hold_their_profiles(qapp):
     model.set_rows(_rows())
 
     group = model.item(0, 0)
-    assert group.text() == "Подписка  ·  Профилей: 2"
+    assert group.text() == "Подписка  ·  Серверов: 2"
     assert group.rowCount() == 2
     assert model.item(0, PING_COLUMN).text() == ""
     assert group.child(1, 0).text() == "Без флага"

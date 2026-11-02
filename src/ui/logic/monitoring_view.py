@@ -138,7 +138,7 @@ def monitoring_view(
         routing_part = _blank_routing()
     elif not profile_found:
         routing_part = (
-            MonitoringRow("Режим", "Профиль не найден", CLASS_ERROR),
+            MonitoringRow("Режим", "Сервер не найден", CLASS_ERROR),
             MonitoringRow("DIRECT", UNKNOWN, CLASS_DIM),
             MonitoringRow("PROXY", UNKNOWN, CLASS_DIM),
             MonitoringRow("VPN", UNKNOWN, CLASS_DIM),

@@ -14,6 +14,9 @@ from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from src.ui.logic.latency import PingProgress
 from src.ui.logic.profiles_view import (
+    EMPTY_DESCRIPTION,
+    EMPTY_TITLE,
+    SEARCH_PLACEHOLDER,
     GroupRow,
     ProfileRow,
     SortKey,
@@ -125,7 +128,7 @@ class ProfilesPage(Gtk.Box):
 
     def _build_search_bar(self) -> None:
         self.search_entry = Gtk.SearchEntry(hexpand=True)
-        self.search_entry.set_placeholder_text("Имя, тип, сервер или группа")
+        self.search_entry.set_placeholder_text(SEARCH_PLACEHOLDER)
         self.search_entry.connect("search-changed", self._on_search_changed)
 
         self.search_bar = Gtk.SearchBar()
@@ -140,8 +143,8 @@ class ProfilesPage(Gtk.Box):
 
         self._empty_page = Adw.StatusPage(
             icon_name="network-server-symbolic",
-            title="Профилей пока нет",
-            description="Добавьте профиль по ссылке или подключите подписку.",
+            title=EMPTY_TITLE,
+            description=EMPTY_DESCRIPTION,
         )
         self._stack.add_named(self._empty_page, "empty")
 
@@ -166,7 +169,7 @@ class ProfilesPage(Gtk.Box):
             self._build_text_column("Тип", lambda item: item.proxy_type, expand=False)
         )
         self.column_view.append_column(
-            self._build_text_column("Сервер", lambda item: item.address, expand=True)
+            self._build_text_column("Адрес", lambda item: item.address, expand=True)
         )
         self.column_view.append_column(self._build_ping_column())
 
@@ -198,7 +201,7 @@ class ProfilesPage(Gtk.Box):
         factory.connect("setup", self._setup_label_cell)
         factory.connect("bind", lambda _f, item: self._bind_label_cell(item, lambda i: i.ping))
 
-        column = Gtk.ColumnViewColumn(title="Пинг", factory=factory)
+        column = Gtk.ColumnViewColumn(title="Задержка", factory=factory)
         column.set_resizable(True)
         return column
 

@@ -130,7 +130,7 @@ def test_add_profile_persists_refreshes_and_says_so(made):
     entry = add_profile(controller)
 
     assert controller.context.profiles.get_profile(entry.id) is not None
-    assert shell.last_toast == f"Профиль добавлен: {entry.name}"
+    assert shell.last_toast == f"Сервер добавлен: {entry.name}"
     assert shell.count("refresh_pages") == 1
 
 
@@ -139,7 +139,7 @@ def test_delete_missing_profile_only_toasts(made):
 
     controller.delete_profile(999)
 
-    assert shell.last_toast == "Профиль не найден"
+    assert shell.last_toast == "Сервер не найден"
     assert shell.count("refresh_pages") == 0
 
 
@@ -150,7 +150,7 @@ def test_delete_profile_removes_it(made):
     controller.delete_profile(entry.id)
 
     assert controller.context.profiles.get_profile(entry.id) is None
-    assert shell.last_toast == f"Профиль удалён: {entry.name}"
+    assert shell.last_toast == f"Сервер удалён: {entry.name}"
 
 
 def test_groups_are_added_renamed_and_deleted(made):
@@ -190,7 +190,7 @@ def test_failed_persist_is_reported_not_raised(made, monkeypatch):
 
     controller.add_group("Свои")
 
-    assert ("Не удалось сохранить профили", None, None) in shell.toasts
+    assert ("Не удалось сохранить серверы", None, None) in shell.toasts
 
 
 # --- настройки и маршрутизация ---
@@ -320,7 +320,7 @@ def test_connect_unknown_profile_only_toasts(made):
 
     controller.connect_profile(123)
 
-    assert shell.last_toast == "Профиль не найден"
+    assert shell.last_toast == "Сервер не найден"
     assert controller.connection_thread is None
 
 
@@ -343,7 +343,7 @@ def test_connect_selected_without_any_profile_asks_to_pick_one(made):
 
     controller.connect_selected()
 
-    assert shell.last_toast == "Выберите профиль в списке"
+    assert shell.last_toast == "Выберите сервер в списке"
 
 
 def test_toggle_disconnects_a_running_proxy(made):
@@ -414,7 +414,7 @@ def test_add_subscription_creates_the_group_and_updates_it(made):
 
     assert group.is_subscription and group.subscription_url == "https://sub.example/list"
     assert updated == [(group.id, "https://sub.example/list")]
-    assert shell.last_toast == "Обновлено профилей: 3"
+    assert shell.last_toast == "Обновлено серверов: 3"
 
 
 def test_update_subscription_without_url_toasts(made):
@@ -504,7 +504,7 @@ def test_refresh_subscriptions_sums_the_groups(made):
     controller.refresh_subscriptions()
     _wait_subscriptions(controller)
 
-    assert shell.last_toast == "Обновлено профилей: 4"
+    assert shell.last_toast == "Обновлено серверов: 4"
 
 
 # --- замер задержки ---
@@ -536,7 +536,7 @@ def test_test_latency_without_profiles_toasts(made):
 
     controller.test_latency()
 
-    assert shell.last_toast == "Нет профилей для проверки"
+    assert shell.last_toast == "Нет серверов для проверки"
 
 
 def test_probe_is_refused_while_tun_is_active(made):
@@ -615,7 +615,7 @@ def test_app_update_is_notified_once(tmp_path):
     controller.refresh_app_releases_if_due()
 
     assert context.config.app_update_notified == "v0.17.0"
-    assert shell.last_toast == "Доступна версия v0.17.0. Откройте настройки → Версия"
+    assert shell.last_toast == "Доступна версия v0.17.0. Откройте настройки → О программе"
     assert calls == [True]
 
 

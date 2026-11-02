@@ -46,7 +46,7 @@ def _connection_entry(state: ConnectionState) -> MenuItem:
 
 def _profile_entries(profiles: Sequence, active_profile_id: int | None) -> list[MenuItem]:
     if not profiles:
-        return [MenuItem("(нет профилей)", enabled=False)]
+        return [MenuItem("(нет серверов)", enabled=False)]
 
     shown = list(profiles[:MAX_PROFILES])
     truncated = len(profiles) > MAX_PROFILES
@@ -91,8 +91,8 @@ def build_menu(
         separator(),
         _connection_entry(state),
         separator(),
-        MenuItem("Профили", children=_profile_entries(profiles, active_profile_id)),
-        MenuItem("Добавить профиль…", action="app.add-profile"),
+        MenuItem("Серверы", children=_profile_entries(profiles, active_profile_id)),
+        MenuItem("Добавить сервер…", action="app.add-profile"),
         separator(),
         MenuItem("Открыть окно", action="app.activate-window"),
         MenuItem("Настройки…", action="app.settings"),

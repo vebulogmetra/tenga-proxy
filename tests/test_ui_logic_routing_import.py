@@ -39,14 +39,14 @@ def test_rows_count_removals_from_legacy_files(tmp_path):
 
 def test_rows_name_profile_and_rest_of_traffic():
     rows = import_rows(RoutingSettings(), RoutingSettings(), name="RU", direct_default=False)
-    assert rows[0] == ImportRow("Профиль", "RU")
+    assert rows[0] == ImportRow("Набор маршрутов", "RU")
     rest = next(r for r in rows if r.label == "Остальное")
     assert rest == ImportRow("Остальное", "через прокси")
 
 
 def test_direct_default_request_is_flagged_on_the_rest_row():
     rows = import_rows(RoutingSettings(), RoutingSettings(), name="", direct_default=True)
-    assert rows[0].label != "Профиль"
+    assert rows[0].label != "Набор маршрутов"
     rest = next(r for r in rows if r.label == "Остальное")
     assert rest.warning
     assert rest.value == (

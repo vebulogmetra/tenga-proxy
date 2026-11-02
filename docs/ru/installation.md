@@ -3,7 +3,7 @@
 ## Переход с Tenga Proxy
 
 Приложение переименовано в Veblock. Обновление ставится поверх прежней версии:
-профили, подписки и настройки сохраняются. Команда запуска (`tenga-proxy`),
+серверы, подписки и настройки сохраняются. Команда запуска (`tenga-proxy`),
 имя deb-пакета и каталог настроек (`~/.config/tenga-proxy`) прежние. На
 Windows установщик заменяет ярлыки «Tenga Proxy» на «Veblock»; имя службы
 (`TengaProxySvc`) и каталог установки остаются прежними.
@@ -30,7 +30,7 @@ apt сам поставит зависимости: Python 3.11+, PyGObject, GTK
 | xray-core и геобазы | `/usr/lib/tenga-proxy/core/bin` |
 | Помощник маршрутов TUN | `/usr/libexec/tenga-proxy/tun-route-helper` |
 | Правило sudoers | `/etc/sudoers.d/tenga-proxy` |
-| Настройки, профили, логи | `~/.config/tenga-proxy` |
+| Настройки, серверы, логи | `~/.config/tenga-proxy` |
 
 ### Режим TUN
 
@@ -184,7 +184,7 @@ Stats API ядра использует Unix-сокет в новом прива
 | Что | Где |
 |---|---|
 | Приложение | `C:\Program Files\Veblock` (после обновления с Tenga Proxy — прежний `C:\Program Files\Tenga Proxy`) |
-| Настройки и профили | `%APPDATA%\tenga-proxy` |
+| Настройки и серверы | `%APPDATA%\tenga-proxy` |
 | Логи приложения | `%LOCALAPPDATA%\tenga-proxy\logs` |
 | Логи и журнал службы | `%ProgramData%\tenga-proxy` (пользователям — только чтение) |
 

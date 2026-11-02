@@ -47,7 +47,7 @@ def test_missing_profile_is_reported():
     view = monitoring_view(
         FakeStatus(proxy_ok=True), FakeRouting(), is_running=True, profile_found=False
     )
-    assert values(view.routing)["Режим"] == "Профиль не найден"
+    assert values(view.routing)["Режим"] == "Сервер не найден"
 
 
 def test_proxy_all_with_bypass():

@@ -332,12 +332,20 @@ def test_palette_change_refreshes_cached_qss_colors(app):
         process_events()
 
 
-def test_header_buttons_match_and_about_is_only_in_settings(app):
+def test_header_buttons_match_and_about_is_in_the_menu_and_settings(app):
     app.activate()
     process_events()
     window = app.window
     assert window.settings_button.height() == window.menu_button.height()
-    assert "О программе" not in [action.text() for action in window.main_menu.actions()]
+    assert [action.text() for action in window.main_menu.actions()] == [
+        "Обновить подписки",
+        "Проверить задержку",
+        "Настройки",
+        "Журнал…",
+        "Сочетания клавиш",
+        "О программе",
+        "Выход",
+    ]
     app.activate_action("settings")
     assert "О программе" in [
         app.current_dialog.sections.item(i).text()

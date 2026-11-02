@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -13,8 +12,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.core.config import get_asset_path
 from src.ui.qt.dialogs.base import copy_text
+from src.ui.qt.widgets.status_card import logo_pixmap
 
 WEBSITE = "https://github.com/vebulogmetra/tenga-proxy"
 DEVELOPER = "Artem G."
@@ -33,17 +32,8 @@ class AboutDialog(QDialog):
         self.setModal(True)
         self._debug_info = debug_info(version, core)
 
-        logo = QLabel()
-        pixmap = QPixmap(str(get_asset_path("tenga-proxy.png")))
-        if not pixmap.isNull():
-            logo.setPixmap(
-                pixmap.scaled(
-                    LOGO_SIZE,
-                    LOGO_SIZE,
-                    Qt.AspectRatioMode.KeepAspectRatio,
-                    Qt.TransformationMode.SmoothTransformation,
-                )
-            )
+        self.logo = QLabel()
+        self.logo.setPixmap(logo_pixmap("status-connected", LOGO_SIZE))
         name = QLabel("Veblock")
         name.setObjectName("aboutName")
         font = name.font()
@@ -62,7 +52,7 @@ class AboutDialog(QDialog):
         for widget in (name, self.version_label, comment, link, credits):
             texts.addWidget(widget)
         head = QHBoxLayout()
-        head.addWidget(logo, 0, Qt.AlignmentFlag.AlignTop)
+        head.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignTop)
         head.addLayout(texts, 1)
 
         buttons = QDialogButtonBox()

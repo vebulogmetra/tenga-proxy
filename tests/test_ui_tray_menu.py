@@ -91,7 +91,7 @@ def test_the_profiles_submenu_lists_the_profiles():
 
     items = build_menu(ConnectionState.DISCONNECTED, profiles, profile_name="")
 
-    assert _labels(_find(items, "Профили").children) == ["Первый", "Второй"]
+    assert _labels(_find(items, "Серверы").children) == ["Первый", "Второй"]
 
 
 def test_a_profile_entry_carries_its_id_as_the_target():
@@ -125,16 +125,16 @@ def test_no_profile_is_checked_when_nothing_runs():
 
 def test_the_submenu_says_so_when_there_are_no_profiles():
     items = build_menu(ConnectionState.DISCONNECTED, [], profile_name="")
-    children = _find(items, "Профили").children
+    children = _find(items, "Серверы").children
 
-    assert _labels(children) == ["(нет профилей)"]
+    assert _labels(children) == ["(нет серверов)"]
     assert children[0].enabled is False
 
 
 def test_the_profile_list_is_capped():
     profiles = [FakeProfile(i, f"P{i}") for i in range(1, MAX_PROFILES + 10)]
 
-    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Профили").children
+    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Серверы").children
 
     # Меню в 130 пунктов панель растягивает на весь экран, поэтому список
     # обрезается, а полный остаётся в окне.
@@ -144,7 +144,7 @@ def test_the_profile_list_is_capped():
 def test_the_capped_list_ends_with_a_link_to_the_window():
     profiles = [FakeProfile(i, f"P{i}") for i in range(1, MAX_PROFILES + 10)]
 
-    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Профили").children
+    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Серверы").children
 
     assert children[-1].label == "Показать все…"
     assert children[-1].action == "app.activate-window"
@@ -153,7 +153,7 @@ def test_the_capped_list_ends_with_a_link_to_the_window():
 def test_a_short_list_has_no_link_to_the_window():
     profiles = [FakeProfile(1, "Один")]
 
-    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Профили").children
+    children = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Серверы").children
 
     assert _labels(children) == ["Один"]
 
@@ -164,7 +164,7 @@ def test_the_running_profile_stays_visible_beyond_the_cap():
 
     children = _find(
         build_menu(ConnectionState.CONNECTED, profiles, "P99", active_profile_id=last_id),
-        "Профили",
+        "Серверы",
     ).children
 
     # Иначе подключённый профиль пропал бы из меню ровно тогда, когда он важнее
@@ -175,7 +175,7 @@ def test_the_running_profile_stays_visible_beyond_the_cap():
 def test_the_menu_offers_the_standard_application_entries():
     items = build_menu(ConnectionState.DISCONNECTED, [], profile_name="")
 
-    for label in ("Добавить профиль…", "Открыть окно", "Настройки…", "Выход"):
+    for label in ("Добавить сервер…", "Открыть окно", "Настройки…", "Выход"):
         assert _find(items, label) is not None, label
 
 
@@ -200,7 +200,7 @@ def test_the_menu_is_split_by_separators():
 def test_a_long_profile_name_is_shortened():
     profiles = [FakeProfile(1, "О" * 80)]
 
-    entry = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Профили").children[0]
+    entry = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Серверы").children[0]
 
     # Панель не переносит строки: длинное имя растянуло бы меню на весь экран.
     assert len(entry.label) <= 40
@@ -210,7 +210,7 @@ def test_a_long_profile_name_is_shortened():
 def test_a_short_profile_name_is_untouched():
     profiles = [FakeProfile(1, "Работа")]
 
-    entry = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Профили").children[0]
+    entry = _find(build_menu(ConnectionState.DISCONNECTED, profiles, ""), "Серверы").children[0]
 
     assert entry.label == "Работа"
 

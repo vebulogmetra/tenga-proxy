@@ -25,7 +25,7 @@ class EditProfileDialog(FormDialog):
     }
 
     def __init__(self, profile) -> None:
-        super().__init__("Редактировать профиль", "Сохранить")
+        super().__init__("Редактировать сервер", "Сохранить")
         self._profile = profile
         # Bean из применённой ссылки ждёт подтверждения: диалог правит живой
         # объект хранилища, и подмена сразу пережила бы Отмену.
@@ -40,7 +40,7 @@ class EditProfileDialog(FormDialog):
         self.name_row.set_text(bean.display_name)
         main.add(self.name_row)
 
-        self.address_row = Adw.EntryRow(title="Сервер")
+        self.address_row = Adw.EntryRow(title="Адрес")
         self.address_row.set_text(str(bean.server_address))
         main.add(self.address_row)
 
@@ -51,7 +51,7 @@ class EditProfileDialog(FormDialog):
 
         link_group = Adw.PreferencesGroup(
             title="Строка подключения",
-            description="Вставьте новую строку, чтобы заменить параметры профиля",
+            description="Вставьте новую строку, чтобы заменить параметры сервера",
         )
         self.page.add(link_group)
 

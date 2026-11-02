@@ -121,9 +121,9 @@ Order of routing rule processing:
 
 ## GUI Configuration
 
-### In Profile Settings
+### In Server Settings
 
-In profile settings you can:
+In server settings you can:
 
 - Select routing mode
 - Configure lists for each connection type
@@ -135,7 +135,7 @@ In profile settings you can:
 In application settings:
 
 - Global routing settings
-- Templates for new profiles
+- Templates for new servers
 - Common exclusion lists
 
 ## Configuration Examples

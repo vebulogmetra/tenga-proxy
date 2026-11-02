@@ -115,13 +115,13 @@ class ProfileRoutingDialog(QDialog):
         page = QWidget()
         column = QVBoxLayout(page)
 
-        profile = QGroupBox("Профиль")
+        profile = QGroupBox("Сервер")
         form = QFormLayout(profile)
         self.name_edit = QLineEdit()
         form.addRow("Имя", self.name_edit)
         self.address_label = QLabel()
         self.address_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        form.addRow("Сервер", self.address_label)
+        form.addRow("Адрес", self.address_label)
         column.addWidget(profile)
 
         vpn = QGroupBox(platform_texts.vpn_group_title())
@@ -136,7 +136,7 @@ class ProfileRoutingDialog(QDialog):
         form.addRow("Имя подключения", self.vpn_name_edit)
         self.vpn_auto_check = _check(
             "Подключать автоматически",
-            "Поднимать VPN при запуске профиля и опускать при остановке",
+            "Поднимать VPN при подключении к серверу и опускать при отключении",
         )
         form.addRow(self.vpn_auto_check)
         column.addWidget(vpn)

@@ -372,7 +372,7 @@ class QtApplication:
     def _profile_or_toast(self, profile_id: int):
         profile = self.context.profiles.get_profile(profile_id)
         if profile is None:
-            self.controller.toast("Профиль не найден")
+            self.controller.toast("Сервер не найден")
         return profile
 
     def edit_profile(self, profile_id: int) -> None:
@@ -390,7 +390,7 @@ class QtApplication:
         self.show_dialog(
             build_confirmation(
                 CONFIRM_DELETE,
-                "Удалить профиль?",
+                "Удалить сервер?",
                 f"«{profile.name}» будет удалён безвозвратно.",
                 lambda: self.controller.delete_profile(profile_id),
                 parent=self.window,
@@ -437,7 +437,7 @@ class QtApplication:
             build_confirmation(
                 CONFIRM_DELETE,
                 "Удалить группу?",
-                f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
+                f"«{group.name}» и {count} серверов внутри будут удалены безвозвратно.",
                 lambda: self.controller.delete_group(group_id),
                 parent=parent or self.window,
             ),

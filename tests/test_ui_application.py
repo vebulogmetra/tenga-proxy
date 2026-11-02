@@ -396,7 +396,7 @@ def test_toggle_connection_without_a_selection_says_so(adw_app):
 
     adw_app.activate_action("toggle-connection", None)
 
-    assert "профиль" in adw_app.last_toast_for_test.lower()
+    assert "сервер" in adw_app.last_toast_for_test.lower()
 
 
 def test_connect_without_a_selection_reuses_the_last_profile(adw_app):
@@ -1070,7 +1070,7 @@ def test_routing_import_dialog_lists_rows(adw_app):
     adw_app.import_app_link(_routing_link({"Name": "RU", "GlobalProxy": False}))
     dialog = adw_app.current_dialog
     assert dialog.row_titles() == [
-        "Профиль",
+        "Набор маршрутов",
         "Через прокси",
         "Напрямую",
         "Блокировать",

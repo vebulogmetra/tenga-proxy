@@ -11,11 +11,11 @@ Veblock provides integration with VPN connections for comprehensive network traf
 
 ## VPN Integration Settings
 
-### In Profile
+### In Server
 
-Each profile can have individual VPN settings:
+Each server can have individual VPN settings:
 
-- **Enable/disable integration** - global enable/disable VPN integration for profile
+- **Enable/disable integration** - global enable/disable VPN integration for server
 - **Connection name** - VPN connection name in NetworkManager
 - **Auto-connect** - automatic VPN connection before starting proxy
 - **Interface** - specifying specific interface for direct traffic
@@ -51,7 +51,7 @@ The "Connection name" field accepts one of:
   The "Veblock" service brings the tunnel up and down, because WireGuard
   configurations are readable by the system only.
 - **OpenVPN and other clients** — the app does not control them, but if an
-  adapter with that name is up, the profile uses its interface and DNS.
+  adapter with that name is up, the server uses its interface and DNS.
 
 If a built-in VPN and a WireGuard tunnel share a name, the built-in VPN wins.
 
@@ -94,9 +94,9 @@ When using VPN for specific domains:
 
 ## GUI Settings
 
-### In Profile Window
+### In Server Window
 
-In profile settings you can:
+In server settings you can:
 
 - Enable/disable VPN integration
 - Select VPN connection from list

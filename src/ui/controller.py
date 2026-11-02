@@ -173,21 +173,21 @@ class AppController:
         entry = self.context.profiles.add_profile(bean, group_id=group_id)
         self._save_profiles()
         self._shell.refresh_pages()
-        self.toast(f"Профиль добавлен: {entry.name}")
+        self.toast(f"Сервер добавлен: {entry.name}")
         return entry
 
     def delete_profile(self, profile_id: int) -> None:
         """Remove one profile."""
         profile = self.context.profiles.get_profile(profile_id)
         if profile is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         name = profile.name
         self.context.profiles.remove_profile(profile_id)
         self._save_profiles()
         self._shell.refresh_pages()
-        self.toast(f"Профиль удалён: {name}")
+        self.toast(f"Сервер удалён: {name}")
 
     def add_group(self, name: str):
         """Create a plain group."""
@@ -233,10 +233,10 @@ class AppController:
     def _save_profiles(self) -> None:
         try:
             if not self.context.save_profiles():
-                raise OSError("Запись профилей не выполнена")
+                raise OSError("Запись серверов не выполнена")
         except Exception as e:
             logger.warning("Could not persist profiles: %s", e)
-            self.toast("Не удалось сохранить профили")
+            self.toast("Не удалось сохранить серверы")
 
     # --- настройки и маршрутизация ---
 
@@ -304,7 +304,7 @@ class AppController:
             return
         profile = self.context.profiles.get_profile(profile_id)
         if profile is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         if self.connection_busy():
@@ -348,7 +348,7 @@ class AppController:
             last = self.context.profiles.last_used_profile()
             profile_id = None if last is None else last.id
         if profile_id is None:
-            self.toast("Выберите профиль в списке")
+            self.toast("Выберите сервер в списке")
             return
         self.connect_profile(profile_id)
 
@@ -591,7 +591,7 @@ class AppController:
             logger.warning("Could not persist updated subscriptions: %s", e)
 
         self._shell.refresh_pages()
-        self.toast(f"Обновлено профилей: {total}")
+        self.toast(f"Обновлено серверов: {total}")
         self._offer_url_change()
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
@@ -674,7 +674,7 @@ class AppController:
             )
             working = sum(value >= 0 for value in results.values())
             if not removable:
-                self.toast(f"Рабочих: {working} из {len(ids)}. Профили не удалены")
+                self.toast(f"Рабочих: {working} из {len(ids)}. Серверы не удалены")
                 return
 
             def remove():
@@ -688,8 +688,8 @@ class AppController:
 
             self._shell.confirm(
                 CONFIRM_DELETE,
-                "Оставить рабочие профили?",
-                f"Рабочих: {working} из {len(ids)}. Будет удалено: {len(removable)}. Активный профиль сохраняется.",
+                "Оставить рабочие серверы?",
+                f"Рабочих: {working} из {len(ids)}. Будет удалено: {len(removable)}. Активный сервер сохраняется.",
                 remove,
                 confirm_label="Оставить рабочие",
             )
@@ -702,7 +702,7 @@ class AppController:
             return
         profile_ids = list(self.context.profiles.profiles)
         if not profile_ids:
-            self.toast("Нет профилей для проверки")
+            self.toast("Нет серверов для проверки")
             return
 
         runner = self._ensure_latency_runner()
@@ -721,14 +721,14 @@ class AppController:
             if profile is not None:
                 by_group.setdefault(profile.group_id, []).append(profile_id)
         self._show_ping_progress(PingProgress(by_group))
-        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+        self.toast(f"Проверяю задержку: {len(profile_ids)} серверов")
 
     def test_latency_for(self, profile_id: int) -> None:
         """Measure the latency of one profile."""
         if not self._can_probe():
             return
         if self.context.profiles.get_profile(profile_id) is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         runner = self._ensure_latency_runner()
@@ -751,7 +751,7 @@ class AppController:
 
         profile_ids = [profile.id for profile in store.get_profiles_in_group(group_id)]
         if not profile_ids:
-            self.toast("В группе нет профилей")
+            self.toast("В группе нет серверов")
             return
 
         # Пинг группы — единственный случай, когда порядок строк говорит о
@@ -769,7 +769,7 @@ class AppController:
             return
 
         self._show_ping_progress(PingProgress({group_id: profile_ids}))
-        self.toast(f"Проверяю задержку: {len(profile_ids)} профилей")
+        self.toast(f"Проверяю задержку: {len(profile_ids)} серверов")
 
     def _show_ping_progress(self, progress: PingProgress | None) -> None:
         """Hand the progress of a run to the group rows; None hides it."""
@@ -887,7 +887,7 @@ class AppController:
 
         def done(release):
             if release and config.app_update_notified != release.version:
-                self.toast(f"Доступна версия {release.version}. Откройте настройки → Версия")
+                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
                 config.app_update_notified = release.version
             context.save_config()
 

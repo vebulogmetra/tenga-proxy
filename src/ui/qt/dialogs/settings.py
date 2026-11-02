@@ -267,9 +267,7 @@ class SettingsDialog(QDialog):
 
         failover = QGroupBox("Автопереключение")
         form = QFormLayout(failover)
-        form.addRow(
-            hint("Если сервер перестал отвечать, подключается другой профиль той же группы")
-        )
+        form.addRow(hint("Если сервер перестал отвечать, подключается другой сервер той же группы"))
         self.failover_check = check("Переключаться автоматически")
         self.failover_check.toggled.connect(self._sync_monitoring)
         form.addRow(self.failover_check)
@@ -317,7 +315,7 @@ class SettingsDialog(QDialog):
         form.addRow(
             hint(
                 "Делит начало TLS-соединения на части, чтобы фильтр не разобрал имя "
-                "сервера. Действует на профили с TLS и Reality. Вступает в силу после "
+                "сервера. Действует на серверы с TLS и Reality. Вступает в силу после "
                 "переподключения."
             )
         )

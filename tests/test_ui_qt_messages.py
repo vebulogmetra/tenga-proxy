@@ -40,14 +40,14 @@ def test_routing_import_lists_rows_and_confirms_only_on_import(qapp):
     from src.ui.qt.dialogs.routing_import import RoutingImportDialog
 
     rows = [
-        ImportRow("Профиль", "Дом"),
+        ImportRow("Набор маршрутов", "Дом"),
         ImportRow("Через прокси", "2 правила: +2, −0", ("+ a.example", "+ b.example")),
         ImportRow(REST_LABEL, "через прокси", warning=True),
     ]
     confirmed = []
     dialog = RoutingImportDialog(rows, lambda: confirmed.append(1))
 
-    assert dialog.row_titles() == ["Профиль", "Через прокси", REST_LABEL]
+    assert dialog.row_titles() == ["Набор маршрутов", "Через прокси", REST_LABEL]
     assert dialog.tree.topLevelItem(1).childCount() == 2
     assert dialog.cancel_button.isDefault()
     dialog.reject()

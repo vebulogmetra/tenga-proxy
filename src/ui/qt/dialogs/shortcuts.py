@@ -36,9 +36,9 @@ SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
         ],
     ),
     (
-        "Профили и подписки",
+        "Серверы и подписки",
         [
-            ("add-profile", "Добавить профиль"),
+            ("add-profile", "Добавить сервер"),
             ("add-subscription", "Добавить подписку"),
             ("refresh-subscriptions", "Обновить подписки"),
             ("search", "Поиск"),

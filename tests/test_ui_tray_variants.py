@@ -54,7 +54,7 @@ def test_layout_variant_unpacks_to_the_expected_tree():
 
 
 def test_layout_variant_nests_submenus():
-    model = MenuModel([MenuItem("Профили", children=[MenuItem("A"), MenuItem("B")])])
+    model = MenuModel([MenuItem("Серверы", children=[MenuItem("A"), MenuItem("B")])])
 
     _revision, root = layout_variant(model, 0, revision=1).unpack()
     _child_id, _child_props, grandchildren = root[2][0]

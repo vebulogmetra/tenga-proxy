@@ -18,7 +18,7 @@ class AddProfileDialog(FormDialog):
     profile_ready = Signal(object)
 
     def __init__(self, parent: QWidget | None = None, *, link: str = "") -> None:
-        super().__init__("Добавить профиль", "Добавить", parent)
+        super().__init__("Добавить сервер", "Добавить", parent)
         # Имя, введённое вручную, не затирается именем из ссылки.
         self._name_touched = False
 
@@ -72,7 +72,7 @@ class EditProfileDialog(FormDialog):
     profile_saved = Signal()
 
     def __init__(self, profile, parent: QWidget | None = None) -> None:
-        super().__init__("Редактировать профиль", "Сохранить", parent)
+        super().__init__("Редактировать сервер", "Сохранить", parent)
         self._profile = profile
         # Профиль из применённой ссылки ждёт «Сохранить»: форма правит живой
         # объект хранилища, и подмена сразу пережила бы «Отмену».
@@ -82,7 +82,7 @@ class EditProfileDialog(FormDialog):
         self.name_edit = QLineEdit(bean.display_name)
         self.form.addRow("Имя", self.name_edit)
         self.address_edit = QLineEdit(str(bean.server_address))
-        self.form.addRow("Сервер", self.address_edit)
+        self.form.addRow("Адрес", self.address_edit)
         self.port_spin = QSpinBox()
         self.port_spin.setRange(1, 65535)
         self.port_spin.setValue(int(bean.server_port))
@@ -96,7 +96,7 @@ class EditProfileDialog(FormDialog):
         self.apply_button.setAutoDefault(False)
         self.apply_button.clicked.connect(self.apply_link)
         self.form.addRow("Ссылка", row(self.link_edit, self.copy_button, self.apply_button))
-        hint = QLabel("Вставьте новую строку, чтобы заменить параметры профиля")
+        hint = QLabel("Вставьте новую строку, чтобы заменить параметры сервера")
         hint.setWordWrap(True)
         self.form.addRow("", hint)
 

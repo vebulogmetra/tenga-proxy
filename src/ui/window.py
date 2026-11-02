@@ -22,6 +22,7 @@ from src.ui.logic.geometry import (
     format_geometry,
     parse_geometry,
 )
+from src.ui.logic.menus import ADD_MENU, MAIN_MENU
 from src.ui.logic.monitoring_view import format_last_check, monitoring_view
 from src.ui.logic.status import (
     ConnectionPresentation,
@@ -182,23 +183,21 @@ class MainWindow(Adw.ApplicationWindow):
         self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
         self.view_stack.add_titled_with_icon(
-            self.profiles_page, "profiles", "Профили", "network-server-symbolic"
+            self.profiles_page, "profiles", "Серверы", "network-server-symbolic"
         )
         self.view_stack.add_titled_with_icon(
             self.subscriptions_page, "subscriptions", "Подписки", "folder-download-symbolic"
         )
         self.view_stack.add_titled_with_icon(
-            self.monitoring_page, "monitoring", "Мониторинг", "utilities-system-monitor-symbolic"
+            self.monitoring_page, "monitoring", "Диагностика", "utilities-system-monitor-symbolic"
         )
 
         self.view_stack.connect("notify::visible-child-name", self._on_page_changed)
 
     def _build_add_button(self) -> Gtk.MenuButton:
         menu = Gio.Menu()
-        menu.append("Профиль из ссылки", "app.add-profile")
-        menu.append("Профиль из буфера обмена", "app.add-profile-from-clipboard")
-        menu.append("Подписка", "app.add-subscription")
-        menu.append("Группа", "app.add-group")
+        for name, label in ADD_MENU:
+            menu.append(label, f"app.{name}")
 
         button = Gtk.MenuButton(icon_name="list-add-symbolic", menu_model=menu)
         button.set_tooltip_text("Добавить")
@@ -206,11 +205,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_main_menu_button(self) -> Gtk.MenuButton:
         menu = Gio.Menu()
-        menu.append("Обновить подписки", "app.refresh-subscriptions")
-        menu.append("Настройки", "app.settings")
-        menu.append("Сочетания клавиш", "app.shortcuts")
-        menu.append("О программе", "app.about")
-        menu.append("Выход", "app.quit")
+        for name, label in MAIN_MENU:
+            menu.append(label, f"app.{name}")
 
         button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
         button.set_tooltip_text("Главное меню")
@@ -294,7 +290,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         dialog = EditProfileDialog(profile)
@@ -306,13 +302,13 @@ class MainWindow(Adw.ApplicationWindow):
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         app = self.get_application()
         self._present_dialog(
             build_delete_confirmation(
-                "Удалить профиль?",
+                "Удалить сервер?",
                 f"«{profile.name}» будет удалён безвозвратно.",
                 lambda: app.delete_profile(profile_id) if app is not None else None,
             )
@@ -323,7 +319,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         profile = self._context.profiles.get_profile(profile_id)
         if profile is None:
-            self.toast("Профиль не найден")
+            self.toast("Сервер не найден")
             return
 
         dialog = ProfileRoutingDialog(profile)
@@ -389,7 +385,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._present_dialog(
             build_delete_confirmation(
                 "Удалить группу?",
-                f"«{group.name}» и {count} профилей внутри будут удалены безвозвратно.",
+                f"«{group.name}» и {count} серверов внутри будут удалены безвозвратно.",
                 lambda: app.delete_group(group_id) if app is not None else None,
             )
         )

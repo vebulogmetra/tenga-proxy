@@ -15,7 +15,7 @@ python cli.py parse "vless://..." -f json
 ## Working with Subscriptions
 
 ```bash
-# Download and parse subscription (profile list)
+# Download and parse subscription (server list)
 python cli.py sub "https://example.com/subscription"
 
 # Output subscription in JSON format
@@ -32,16 +32,16 @@ python cli.py gen "vless://..." -o config.json
 python cli.py gen "vless://..." -p 8080 -o config.json
 ```
 
-## Profile Management
+## Server Management
 
 ```bash
-# Add profile
+# Add server
 python cli.py add "vless://..."
 
-# Show list of saved profiles
+# Show list of saved servers
 python cli.py ls
 
-# Remove profile by ID
+# Remove server by ID
 python cli.py rm 1
 ```
 
@@ -54,10 +54,10 @@ python cli.py run "vless://..."
 # Run proxy by number from list (ls)
 python cli.py run 1
 
-# Run proxy by profile ID
+# Run proxy by server ID
 python cli.py run 123
 
-# Run proxy by profile name
+# Run proxy by server name
 python cli.py run "My Profile"
 
 # Run on specified port (default 2080)
@@ -134,10 +134,10 @@ python cli.py lint --help
 ## Quick Proxy Start
 
 ```bash
-# 1. Add profile from share link
+# 1. Add server from share link
 python cli.py add "vless://..."
 
-# 2. View profile list
+# 2. View server list
 python cli.py ls
 
 # 3. Run proxy (by sequence number from list)

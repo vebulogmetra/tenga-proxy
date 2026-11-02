@@ -1,23 +1,23 @@
-# Profiles
+# Servers
 
-Profile management in Veblock allows you to efficiently organize and use various proxy connection settings.
+Server management in Veblock allows you to efficiently organize and use various proxy connection settings.
 
 ## Basic Concepts
 
-**Profile** - a saved configuration for connecting to a proxy server, containing:
+**Server** - a saved configuration for connecting to a proxy server, containing:
 
-- Connection parameters (server, port, credentials)
+- Connection parameters (address, port, credentials)
 - Transport settings
 - Security parameters
 - Name and description
 
-**Group** - a collection of profiles united by some characteristic (e.g., by provider or usage type).
+**Group** - a collection of servers united by some characteristic (e.g., by provider or usage type).
 
-## Creating Profiles
+## Creating Servers
 
 ### From Share Links
 
-Profiles can be created from share links of various protocols:
+Servers can be created from share links of various protocols:
 
 ```bash
 # CLI
@@ -29,19 +29,19 @@ python cli.py add "vless://..."
 
 ### From Subscriptions
 
-Profiles can be automatically created from subscriptions:
+Servers can be automatically created from subscriptions:
 
 - Subscriptions can be base64, plain text or a ready xray config (JSON)
-- Profiles are grouped into special subscription groups
+- Servers are grouped into special subscription groups
 - Subscriptions are updated manually only: the button in the subscription row or `F5`
 
 #### What an update does
 
-- A profile still present in the provider's response (same name, type, server
+- A server still present in the provider's response (same name, type, server
   and port) is updated in place: its latency, per-profile routing and VPN
-  settings are kept, and a connected profile stays connected. Profiles missing
+  settings are kept, and a connected server stays connected. Servers missing
   from the response are removed. An empty response changes nothing.
-- When a profile is connected in system proxy mode, the subscription is fetched
+- When a server is connected in system proxy mode, the subscription is fetched
   through it first and directly on failure. In TUN mode application requests
   already go through the tunnel. Requests through the local proxy follow
   the application's routing rules.
@@ -80,42 +80,42 @@ announcement and renewal link from that response are still available.
   model. Needed by providers that enforce a device limit: without it they
   answer 403.
 
-## Profile Management
+## Server Management
 
-### Viewing Profiles
+### Viewing Servers
 
-In GUI, profiles are displayed as a tree with groups:
+In GUI, servers are displayed as a tree with groups:
 
 - Groups are displayed as folders
-- Profiles within groups
+- Servers within groups
 - Information about type, address, and latency
 
-### Editing Profiles
+### Editing Servers
 
-Profiles can be edited:
+Servers can be edited:
 
-- Changing profile name
+- Changing server name
 - Adjusting connection parameters
 - Changing transport settings
 - Configuring VPN and routing
 
-### Deleting Profiles
+### Deleting Servers
 
-Profiles can be deleted:
+Servers can be deleted:
 
-- Deleting individual profiles
+- Deleting individual servers
 - Deleting entire groups
-- Deleting profiles from subscriptions
+- Deleting servers from subscriptions
 
-## Profile Groups
+## Server Groups
 
 ### Regular Groups
 
 Regular groups allow you to:
 
-- Organize profiles by category
+- Organize servers by category
 - Quickly switch between groups
-- Manage profiles within a group
+- Manage servers within a group
 
 ### Subscription Groups
 
@@ -127,22 +127,22 @@ Groups created from subscriptions:
 
 ## Latency Testing
 
-For each profile, you can test latency:
+For each server, you can test latency:
 
 - Measuring server response time
-- Comparing profile performance
+- Comparing server performance
 - Automatic result updates
 
-A group is measured by one temporary core process: every profile gets its own
+A group is measured by one temporary core process: every server gets its own
 inbound on `127.0.0.1` with a one-time password, and results appear as they
 arrive. Latency is the median of three requests to the test URL through the
-profile's server. A dash instead of a number means one of three things: the
-profile could not be built, the core rejected its settings, or the server did
+server itself. A dash instead of a number means one of three things: the
+server could not be built, the core rejected its settings, or the server did
 not respond.
 
-## Profile Settings
+## Server Settings
 
-Each profile can have individual settings:
+Each server can have individual settings:
 
 - **VPN integration** - VPN connection settings
 - **Routing** - traffic routing rules

@@ -45,7 +45,7 @@ class ElidedLabel(QLabel):
 
 
 @cache
-def logo_pixmap(css_class: str) -> QPixmap:
+def logo_pixmap(css_class: str, size: int = LOGO_SIZE) -> QPixmap:
     source = get_asset_path("icons/win/monolith.svg").read_bytes()
     color = {
         "status-disconnected": b"#8a969d",
@@ -55,7 +55,7 @@ def logo_pixmap(css_class: str) -> QPixmap:
     if css_class != "status-connected":
         source = source.replace(b"#5ed3c7", color).replace(b"#a9ffe0", color)
     renderer = QSvgRenderer(source)
-    pixmap = QPixmap(LOGO_SIZE * 4, LOGO_SIZE * 4)
+    pixmap = QPixmap(size * 4, size * 4)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     renderer.render(painter)

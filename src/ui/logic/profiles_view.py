@@ -16,6 +16,10 @@ GROUP_ICON = "folder-symbolic"
 
 UNKNOWN_PING = "—"
 
+EMPTY_TITLE = "Серверов пока нет"
+EMPTY_DESCRIPTION = "Добавьте сервер по ссылке или подключите подписку."
+SEARCH_PLACEHOLDER = "Имя, тип, адрес или группа"
+
 
 class SortKey(StrEnum):
     """Column the profile list is ordered by."""
@@ -56,7 +60,7 @@ def ping_text(latency_ms: int) -> str:
     """Render a latency value, including the "not measured" case."""
     if latency_ms is None or latency_ms < 0:
         return UNKNOWN_PING
-    return f"{latency_ms} ms"
+    return f"{latency_ms} мс"
 
 
 def _latency_of(profile: Any) -> int:
@@ -85,7 +89,7 @@ def _sorted_profiles(profiles: list[Any], sort_key: SortKey, ascending: bool) ->
     if sort_key is SortKey.PING:
         # Непроверенные профили остаются в конце в обоих направлениях: сортировка
         # одним ключом с reverse переставила бы прочерки в начало убывающего
-        # порядка, и колонка «Пинг» начиналась бы с пустых значений.
+        # порядка, и колонка «Задержка» начиналась бы с пустых значений.
         measured = [p for p in profiles if _latency_of(p) >= 0]
         untested = [p for p in profiles if _latency_of(p) < 0]
         measured.sort(key=_latency_of, reverse=not ascending)

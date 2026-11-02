@@ -109,13 +109,13 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
 
         # Профиль и VPN на одной странице: две строки не оправдывают отдельной
         # вкладки, а имя всё равно правится в диалоге редактирования профиля.
-        profile_group = Adw.PreferencesGroup(title="Профиль")
+        profile_group = Adw.PreferencesGroup(title="Сервер")
         page.add(profile_group)
 
         self.name_row = Adw.EntryRow(title="Имя")
         profile_group.add(self.name_row)
 
-        self.address_row = Adw.ActionRow(title="Сервер")
+        self.address_row = Adw.ActionRow(title="Адрес")
         self.address_row.set_subtitle_selectable(True)
         profile_group.add(self.address_row)
 
@@ -134,7 +134,7 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
 
         self.vpn_auto_row = Adw.SwitchRow(
             title="Подключать автоматически",
-            subtitle="Поднимать VPN при запуске профиля и опускать при остановке",
+            subtitle="Поднимать VPN при подключении к серверу и опускать при отключении",
         )
         group.add(self.vpn_auto_row)
 

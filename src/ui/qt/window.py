@@ -32,8 +32,15 @@ from PySide6.QtWidgets import (
 )
 
 from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
+from src.ui.logic.menus import ADD_MENU, MAIN_MENU
 from src.ui.logic.monitoring_view import monitoring_view
-from src.ui.logic.profiles_view import SortKey, build_profile_rows
+from src.ui.logic.profiles_view import (
+    EMPTY_DESCRIPTION,
+    EMPTY_TITLE,
+    SEARCH_PLACEHOLDER,
+    SortKey,
+    build_profile_rows,
+)
 from src.ui.logic.status import (
     ConnectionPresentation,
     ConnectionState,
@@ -62,23 +69,6 @@ if TYPE_CHECKING:
     from src.ui.qt.application import QtApplication
 
 logger = logging.getLogger("tenga.ui.qt.window")
-
-# Пункты меню «☰»: имя действия приложения → подпись.
-MAIN_MENU = (
-    ("refresh-subscriptions", "Обновить подписки"),
-    ("test-latency", "Проверить задержку"),
-    ("settings", "Настройки"),
-    ("shortcuts", "Сочетания клавиш"),
-    ("quit", "Выход"),
-)
-
-# Меню кнопки «Добавить» внизу окна.
-ADD_MENU = (
-    ("add-profile", "Профиль по ссылке…"),
-    ("add-profile-from-clipboard", "Профиль из буфера обмена"),
-    ("add-subscription", "Подписка…"),
-    ("add-group", "Группа…"),
-)
 
 # Меню строк дерева: (действие, подпись); None — разделитель. Как в GTK
 # (src/ui/pages/profiles.py), у подписки ещё «Обновить подписку»: списка
@@ -188,8 +178,9 @@ class MainWindow(QMainWindow):
             if action is not None:
                 entry = self.main_menu.addAction(label)
                 entry.triggered.connect(action.trigger)
+            if name == "settings":
+                self.main_menu.addAction("Журнал…", self.show_diagnostics)
         self.menu_button.setMenu(self.main_menu)
-        self.main_menu.addAction("Журнал…", self.show_diagnostics)
         toolbar.addWidget(self.menu_button)
         hero_row = QHBoxLayout()
         hero_row.setContentsMargins(12, 0, 12, 0)
@@ -230,9 +221,9 @@ class MainWindow(QMainWindow):
 
         tools = QHBoxLayout()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Поиск сервера… (Ctrl+F)")
+        self.search.setPlaceholderText(SEARCH_PLACEHOLDER)
         self.search.setClearButtonEnabled(True)
-        self.search.setAccessibleName("Поиск профилей")
+        self.search.setAccessibleName("Поиск серверов")
         self.search.textChanged.connect(lambda _text: self.refresh_pages())
         tools.addWidget(self.search, 1)
         self.add_button = QToolButton()
@@ -270,7 +261,7 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._on_context_menu)
         self.tree.collapsed.connect(lambda index: self._remember_collapsed(index, True))
         self.tree.expanded.connect(lambda index: self._remember_collapsed(index, False))
-        self.empty_label = QLabel("Нет профилей. Добавьте профиль или подписку.")
+        self.empty_label = QLabel(f"{EMPTY_TITLE}\n{EMPTY_DESCRIPTION}")
         self.empty_label.setWordWrap(True)
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.list_box = QWidget()
@@ -496,7 +487,7 @@ class MainWindow(QMainWindow):
         self.empty_label.setText(
             "Ничего не найдено. Измените запрос."
             if self.search.text()
-            else "Нет профилей. Добавьте профиль или подписку."
+            else f"{EMPTY_TITLE}\n{EMPTY_DESCRIPTION}"
         )
         self.refresh_status()
 
@@ -613,7 +604,7 @@ class MainWindow(QMainWindow):
     def _on_header_clicked(self, column: int) -> None:
         sort_key = SORT_KEYS.get(column)
         if sort_key is None:
-            # По «Серверу» не сортируют: вернуть индикатор на текущую колонку.
+            # По адресу не сортируют: вернуть индикатор на текущую колонку.
             self.set_sort(self._sort_key, ascending=self._ascending)
             return
         ascending = not self._ascending if sort_key is self._sort_key else True

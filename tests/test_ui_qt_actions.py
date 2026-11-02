@@ -12,13 +12,14 @@ from src.core.context import AppContext
 from src.fmt import parse_link
 from src.ui.logic.routing_import import ImportRow
 from src.ui.qt.application import QtApplication
-from src.ui.qt.dialogs.about import AboutDialog
+from src.ui.qt.dialogs.about import LOGO_SIZE, AboutDialog
 from src.ui.qt.dialogs.group import GroupDialog
 from src.ui.qt.dialogs.profile import AddProfileDialog, EditProfileDialog
 from src.ui.qt.dialogs.profile_routing import ProfileRoutingDialog
 from src.ui.qt.dialogs.routing_import import RoutingImportDialog
 from src.ui.qt.dialogs.shortcuts import ShortcutsDialog
 from src.ui.qt.dialogs.subscription import SubscriptionDialog
+from src.ui.qt.widgets.status_card import logo_pixmap
 from tests.support.qt import process_events
 
 pytestmark = pytest.mark.qt
@@ -78,7 +79,7 @@ def test_added_profile_reaches_the_store(app):
     process_events()
 
     assert [p.name for p in app.context.profiles.profiles.values()] == ["Проба"]
-    assert app.last_toast_for_test == "Профиль добавлен: Проба"
+    assert app.last_toast_for_test == "Сервер добавлен: Проба"
     assert app.current_dialog is None
 
 
@@ -147,7 +148,7 @@ def test_missing_profile_is_reported(app):
     app.activate_action("edit-profile", 999)
 
     assert app.current_dialog is None
-    assert app.last_toast_for_test == "Профиль не найден"
+    assert app.last_toast_for_test == "Сервер не найден"
 
 
 def test_profile_routing_opens(app):
@@ -179,7 +180,7 @@ def test_delete_group_counts_its_profiles(app):
 
     app.activate_action("delete-group", group.id)
 
-    assert app.current_dialog.text() == "«Дом» и 1 профилей внутри будут удалены безвозвратно."
+    assert app.current_dialog.text() == "«Дом» и 1 серверов внутри будут удалены безвозвратно."
     _click(app.current_dialog, "Удалить")
     assert app.context.profiles.get_group(group.id) is None
 
@@ -218,3 +219,17 @@ def test_a_second_dialog_waits_for_the_first(app):
     app.actions["add-profile"].trigger()
 
     assert isinstance(app.current_dialog, AboutDialog)
+
+
+def test_about_shows_the_monolith(qapp, monkeypatch):
+    calls = []
+
+    def spy(state, size):
+        calls.append((state, size))
+        return logo_pixmap(state, size)
+
+    monkeypatch.setattr("src.ui.qt.dialogs.about.logo_pixmap", spy)
+    dialog = AboutDialog("1.0", "26.1")
+
+    assert calls == [("status-connected", LOGO_SIZE)]
+    assert not dialog.logo.pixmap().isNull()

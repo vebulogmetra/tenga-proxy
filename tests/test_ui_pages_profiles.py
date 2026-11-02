@@ -82,7 +82,7 @@ def test_filter_narrows_the_tree(page, data):
 
 def test_filter_without_matches_shows_the_status_page(page, data):
     page.set_data(*data)
-    page.set_query("такого профиля нет")
+    page.set_query("такого сервера нет")
     assert page.get_visible_state() == "empty"
 
 

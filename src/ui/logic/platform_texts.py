@@ -12,10 +12,10 @@ def vpn_group_title() -> str:
 def vpn_group_description() -> str:
     if platform_info.IS_WINDOWS:
         return (
-            "Встроенный VPN Windows или туннель WireGuard, который профиль поднимает "
+            "Встроенный VPN Windows или туннель WireGuard, который поднимается для сервера "
             "перед запуском прокси"
         )
-    return "Профиль может поднимать VPN перед запуском прокси"
+    return "Для сервера можно поднимать VPN перед запуском прокси"
 
 
 def missing_release_asset() -> str:
@@ -24,15 +24,12 @@ def missing_release_asset() -> str:
     return "deb-пакет для этой архитектуры отсутствует"
 
 
-# Короткие подписи — для нижней навигации узкого Windows-диалога.
 _SETTINGS_PAGE_TITLES = {
-    "bypass": ("Обход блокировок", "Обход"),
-    "subscriptions": ("Подписки", "Ссылки"),
-    # «О программе» на Linux — пункт главного меню с Adw.AboutDialog.
-    "about": ("Версия", "Версия"),
+    "bypass": "Обход блокировок",
+    "subscriptions": "Подписки",
+    "about": "О программе",
 }
 
 
 def settings_page_title(page: str) -> str:
-    linux, windows = _SETTINGS_PAGE_TITLES[page]
-    return windows if platform_info.IS_WINDOWS else linux
+    return _SETTINGS_PAGE_TITLES[page]

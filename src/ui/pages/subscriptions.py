@@ -66,7 +66,7 @@ class SubscriptionsPage(Gtk.Box):
         self._empty_page = Adw.StatusPage(
             icon_name="folder-download-symbolic",
             title="Подписок пока нет",
-            description="Добавьте подписку, чтобы профили обновлялись автоматически.",
+            description="Добавьте подписку, чтобы серверы обновлялись автоматически.",
         )
         self._stack.add_named(self._empty_page, "empty")
 

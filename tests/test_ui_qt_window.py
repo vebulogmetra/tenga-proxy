@@ -124,8 +124,8 @@ def test_add_menu_runs_the_actions(made):
     made.activate()
 
     assert _labels(made.window.add_menu) == [
-        "Профиль по ссылке…",
-        "Профиль из буфера обмена",
+        "Сервер по ссылке…",
+        "Сервер из буфера обмена",
         "Подписка…",
         "Группа…",
     ]

@@ -126,7 +126,7 @@ def test_metrics_row_hidden_when_empty(card):
             mode="TUN",
         )
     )
-    assert "132 ms" in card.get_metrics()
+    assert "132 мс" in card.get_metrics()
 
 
 def test_logo_replaces_the_themed_icon_when_connected(card):

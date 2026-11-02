@@ -53,7 +53,7 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
         data = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
         root = json.loads(data)
     except (binascii.Error, ValueError, UnicodeError, RecursionError):
-        raise ValueError("Некорректный профиль маршрутизации") from None
+        raise ValueError("Некорректный набор маршрутов") from None
     if not isinstance(root, dict):
         raise ValueError("Ожидается объект маршрутизации")
     fields = {key.lower(): value for key, value in root.items()}
@@ -72,7 +72,7 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
     routing.mode = RoutingMode.CUSTOM
     name = fields.get("name", "")
     if not isinstance(name, str):
-        raise ValueError("Некорректное имя профиля маршрутизации")
+        raise ValueError("Некорректное имя набора маршрутов")
     # Тот же фильтр, что у имени подписки выше: строка придёт в окно как текст.
     name = "".join(c for c in name if ord(c) >= 32 and ord(c) != 127)[:64]
     for destination in ("direct", "proxy", "block"):

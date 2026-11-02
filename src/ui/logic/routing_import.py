@@ -65,7 +65,7 @@ def import_rows(
     before: RoutingSettings, after: RoutingSettings, *, name: str, direct_default: bool
 ) -> list[ImportRow]:
     """Строки окна подтверждения: «подпись — значение»."""
-    rows = [ImportRow("Профиль", name)] if name else []
+    rows = [ImportRow("Набор маршрутов", name)] if name else []
     if before.mode != after.mode:
         labels = RoutingMode.LABELS
         rows.append(ImportRow("Режим", f"{labels[before.mode]} → {labels[after.mode]}"))

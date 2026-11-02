@@ -147,8 +147,8 @@ TLS fragmentation and mux are available under “Настройки” → “О
 active connection with the updated configuration.
 Both switches are disabled by default.
 
-Fragmentation applies to TLS or REALITY profiles, excluding Hysteria2 and
-profiles with their own TCP masks. Defaults: ClientHello (`tlshello`),
+Fragmentation applies to TLS or REALITY servers, excluding Hysteria2 and
+servers with their own TCP masks. Defaults: ClientHello (`tlshello`),
 `100-200` bytes per fragment, and `10-20` ms delay. Packet numbers (`1-3`),
 length, and delay accept a number or range. Invalid values fall back to the
 defaults. Effectiveness needs to be tested on your network.

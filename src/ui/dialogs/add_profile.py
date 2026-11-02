@@ -25,7 +25,7 @@ class AddProfileDialog(FormDialog):
     }
 
     def __init__(self) -> None:
-        super().__init__("Добавить профиль", "Добавить")
+        super().__init__("Добавить сервер", "Добавить")
         self._bean = None
         # Имя, введённое вручную, не должно затираться именем из ссылки.
         self._name_touched = False
