@@ -480,6 +480,7 @@ class MainWindow(Adw.ApplicationWindow):
 
         state = self._context.proxy_state
         active_id = state.started_profile_id if state.is_running else -1
+        self._rendered_active = (state.is_running, state.started_profile_id)
 
         self.profiles_page.set_active_profile(active_id)
         self.profiles_page.set_data(groups, profiles_by_group)
@@ -666,8 +667,15 @@ class MainWindow(Adw.ApplicationWindow):
     def _refresh_status_idle(self) -> bool:
         from gi.repository import GLib
 
+        # Слушателей будит и счётчик трафика, раз в секунду. Строки пересобираются
+        # только при смене активного сервера: пересборка закрывает открытое в них меню.
+        state = self._context.proxy_state
+        changed = self._rendered_active != (state.is_running, state.started_profile_id)
         self.refresh_status()
-        self.refresh_pages()
+        if changed:
+            self.refresh_pages()
+        else:
+            self.refresh_monitoring()
         return GLib.SOURCE_REMOVE
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:

@@ -403,3 +403,68 @@ def test_toggle_group_expands_and_collapses(window, adw_app):
     window.lookup_action("toggle-group").activate(GLib.Variant("i", group.id))
 
     assert window.profiles_page.get_visible_row_count() > before
+
+
+def _drain_main_loop() -> None:
+    from gi.repository import GLib
+
+    context = GLib.MainContext.default()
+    while context.pending():
+        context.iteration(False)
+
+
+def _subscription_in(adw_app, window):
+    store = adw_app.context.profiles
+    group = store.add_group("Подписка", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+    window.refresh_pages()
+    return group
+
+
+def test_traffic_tick_keeps_the_open_subscription_menu(window, adw_app):
+    """Счётчик трафика тикает раз в секунду: пересборка строк закрывала их меню."""
+    group = _subscription_in(adw_app, window)
+    state = adw_app.context.proxy_state
+    state.set_running(-1, "proxy")
+    _drain_main_loop()
+    menu_button = window.subscriptions_page.get_menu_button_for_test(group_id=group.id)
+
+    state.upload_bytes += 1024
+    state.notify_listeners()
+    _drain_main_loop()
+
+    assert window.subscriptions_page.get_menu_button_for_test(group_id=group.id) is menu_button
+
+
+def test_traffic_tick_still_redraws_the_status_and_monitoring(window, adw_app, monkeypatch):
+    state = adw_app.context.proxy_state
+    state.set_running(-1, "proxy")
+    _drain_main_loop()
+    drawn: list[str] = []
+    monkeypatch.setattr(window, "refresh_status", lambda: drawn.append("status"))
+    monkeypatch.setattr(window, "refresh_monitoring", lambda: drawn.append("monitoring"))
+
+    state.notify_listeners()
+    _drain_main_loop()
+
+    assert sorted(drawn) == ["monitoring", "status"]
+
+
+def test_connecting_and_disconnecting_rebuild_the_pages(window, adw_app):
+    """Смена активного сервера видна в списке, поэтому строки пересобираются."""
+    store = adw_app.context.profiles
+    group = store.add_group("Тест")
+    entry = store.parse_and_add_link(
+        "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба",
+        group_id=group.id,
+    )
+    window.refresh_pages()
+    state = adw_app.context.proxy_state
+
+    state.set_running(entry.id, "proxy")
+    _drain_main_loop()
+    assert window.profiles_page.get_active_titles() == ["Проба"]
+
+    state.set_stopped()
+    _drain_main_loop()
+    assert window.profiles_page.get_active_titles() == []
