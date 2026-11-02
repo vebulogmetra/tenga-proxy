@@ -252,7 +252,9 @@ def is_safe_support_url(url: str) -> bool:
     return scheme in _SUPPORT_SCHEMES
 
 
-def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
+def apply_metadata(
+    group: ProfileGroup, metadata: SubscriptionMetadata, *, may_forget_fallback: bool = False
+) -> None:
     """Store provider metadata on the subscription group.
 
     Вызывается только для успешного ответа. Трафик и интервал без значения не
@@ -274,8 +276,11 @@ def apply_metadata(group: ProfileGroup, metadata: SubscriptionMetadata) -> None:
     group.sub_web_page_url = web_page_url if is_safe_web_page_url(web_page_url) else ""
     # new_url не сохраняется: это одноразовое предложение по итогам обновления.
     # Запасной адрес нужен позже — когда обновление не удастся.
-    if is_acceptable_subscription_url(metadata.fallback_url.strip()):
-        group.sub_fallback_url = metadata.fallback_url.strip()
+    fallback_url = metadata.fallback_url.strip()
+    if is_acceptable_subscription_url(fallback_url):
+        group.sub_fallback_url = fallback_url
+    elif may_forget_fallback:
+        group.sub_fallback_url = ""
 
     # Название следует за панелью, пока пользователь не выбрал своё. Пропавший
     # заголовок имя не трогает: возвращать хост незачем.

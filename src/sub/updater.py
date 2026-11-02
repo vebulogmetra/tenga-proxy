@@ -18,6 +18,7 @@ from src.sub.errors import (
     SubscriptionTooLargeError,
     snippet_of,
 )
+from src.sub.fallback import FallbackExhaustedError, display_error, is_worth_trying, usable_url
 from src.sub.metadata import apply_metadata, read_metadata
 from src.sub.url_policy import SubscriptionPolicyError, pinned_get, validate_url
 
@@ -55,6 +56,8 @@ class SubscriptionUpdater:
         # Новый адрес, который провайдер сообщил при последнем update(). Сам
         # адрес подписки не меняется: это решает пользователь.
         self.new_url = ""
+        # Запасной адрес, с которого загружен последний update(); пусто — основной.
+        self.used_fallback_url = ""
 
     def fetch(self, url: str) -> str:
         """Fetch subscription content."""
@@ -251,6 +254,37 @@ class SubscriptionUpdater:
         """Parse subscription content."""
         return parse_subscription_content(content)
 
+    def _fetch_with_fallback(self, url: str, group_id: int | None) -> FetchedSubscription:
+        """Fetch the primary address, then once the provider's fallback address."""
+        try:
+            return self.fetch_response(url)
+        except (requests.RequestException, SubscriptionPolicyError) as primary_error:
+            if not is_worth_trying(primary_error):
+                raise
+            fallback_url = usable_url(url, self._stored_fallback(group_id))
+            if fallback_url is None:
+                raise
+            # В журнал — тип ошибки: в тексте и адресе лежит токен подписки.
+            logger.warning(
+                "Основной адрес подписки не сработал (%s), пробую запасной",
+                type(primary_error).__name__,
+            )
+            try:
+                fetched = self.fetch_response(fallback_url)
+            except (requests.RequestException, SubscriptionPolicyError) as fallback_error:
+                raise FallbackExhaustedError(
+                    display_error(primary_error, fallback_error)
+                ) from fallback_error
+            self.used_fallback_url = fallback_url
+            return fetched
+
+    def _stored_fallback(self, group_id: int | None) -> str:
+        """The stored address of this group; without a group it would be someone else's."""
+        if group_id is None or not self._profiles:
+            return ""
+        group = self._profiles.get_group(group_id)
+        return group.sub_fallback_url if group is not None else ""
+
     def update(
         self,
         url: str,
@@ -270,7 +304,8 @@ class SubscriptionUpdater:
         """
 
         self.new_url = ""
-        fetched = self.fetch_response(url)
+        self.used_fallback_url = ""
+        fetched = self._fetch_with_fallback(url, group_id)
         beans = self.parse(fetched.content)
         metadata = read_metadata(fetched.headers, fetched.content)
         self.new_url = metadata.new_url
@@ -286,8 +321,12 @@ class SubscriptionUpdater:
         # Серверы при этом остаются, а пустой ответ отмечается на группе, чтобы
         # пользователь видел причину, а не «рабочие» профили без объяснения.
         if group is not None:
-            apply_metadata(group, metadata)
+            # Забыть запасной адрес может только ответ основного с серверами: страница
+            # CDN с кодом 200 разбирается как пустой список и стёрла бы адрес при сбое CDN.
+            from_fallback = bool(self.used_fallback_url)
+            apply_metadata(group, metadata, may_forget_fallback=bool(beans) and not from_fallback)
             group.sub_empty = not beans
+            group.sub_via_fallback = from_fallback
 
         if beans:
             if clear_existing:
