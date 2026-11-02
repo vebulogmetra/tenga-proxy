@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 REASON_NEW_URL = "new-url"  # провайдер сообщил новый адрес при удачном обновлении
 REASON_FALLBACK_URL = "fallback-url"  # обновление не удалось, есть запасной адрес
+REASON_FALLBACK_USED = "fallback-used"  # серверы уже загружены с запасного адреса
 
 MAX_URL_LENGTH = 2048
 

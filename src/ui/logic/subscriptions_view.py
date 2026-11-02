@@ -148,7 +148,10 @@ def describe_update_error(error: BaseException, *, device_info_sent: bool = True
     import requests
 
     from src.sub.errors import SubscriptionHttpError, SubscriptionTooLargeError
+    from src.sub.fallback import FallbackExhaustedError
 
+    if isinstance(error, FallbackExhaustedError):
+        error = error.display_error
     if isinstance(error, SubscriptionHttpError):
         text = f"сервер ответил {error.status_code}"
         if error.is_access_denied and error.body_snippet:
@@ -167,9 +170,14 @@ def describe_update_error(error: BaseException, *, device_info_sent: bool = True
 
 def describe_url_change(name: str, current_url: str, proposal: Any) -> tuple[str, str]:
     """Heading and body of the "change the subscription address?" question."""
-    from src.sub.url_change import REASON_FALLBACK_URL
+    from src.sub.url_change import REASON_FALLBACK_URL, REASON_FALLBACK_USED
 
-    if proposal.reason == REASON_FALLBACK_URL:
+    if proposal.reason == REASON_FALLBACK_USED:
+        lead = (
+            f"Основной адрес подписки «{name}» не ответил, серверы загружены с запасного. "
+            "Перейти на него насовсем?"
+        )
+    elif proposal.reason == REASON_FALLBACK_URL:
         lead = f"Обновить подписку «{name}» не удалось. Провайдер оставил запасной адрес:"
     else:
         lead = f"Провайдер подписки «{name}» сообщил новый адрес:"

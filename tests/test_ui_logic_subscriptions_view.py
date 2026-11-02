@@ -287,3 +287,27 @@ def test_out_of_range_expiry_keeps_the_subscription_row(expire):
     assert row.expire_text == ""
     assert not row.expired
     assert row.usage_text == "1.00 GB из 10.00 GB"
+
+
+def test_both_addresses_failing_is_described_by_the_chosen_error():
+    from src.sub.errors import SubscriptionHttpError
+    from src.sub.fallback import FallbackExhaustedError
+    from src.ui.logic.subscriptions_view import describe_update_error
+
+    error = FallbackExhaustedError(SubscriptionHttpError(503))
+
+    assert describe_update_error(error) == "сервер ответил 503"
+
+
+def test_used_fallback_question_says_the_servers_are_already_loaded():
+    from src.sub.url_change import REASON_FALLBACK_USED, UrlChangeProposal
+    from src.ui.logic.subscriptions_view import describe_url_change
+
+    proposal = UrlChangeProposal(1, "https://backup.example/sub", REASON_FALLBACK_USED)
+    heading, body = describe_url_change("Основная", "https://old.example/sub", proposal)
+
+    assert heading == "Сменить адрес подписки?"
+    assert "серверы загружены с запасного" in body
+    assert "насовсем" in body
+    assert "https://backup.example/sub" in body
+    assert "https://old.example/sub" in body
