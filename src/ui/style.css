@@ -48,8 +48,8 @@
   font-feature-settings: "tnum";
 }
 
-.status-metrics flowboxchild {
-  padding: 0;
+.status-summary {
+  font-feature-settings: "tnum";
 }
 
 .latency-good {

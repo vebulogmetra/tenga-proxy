@@ -11,6 +11,7 @@ from src.ui.logic.status import (
     health_text,
     mode_text,
     status_view,
+    summary_line,
 )
 
 
@@ -248,3 +249,34 @@ def test_a_check_of_the_previous_session_does_not_count():
     assert presentation.check_done(running=True, active_id=1, last_check_time=150.0) is True
     # Новая сессия: прежняя проверка относится к другому подключению.
     assert presentation.check_done(running=True, active_id=2, last_check_time=150.0) is False
+
+
+def test_summary_joins_mode_and_metrics_in_one_line():
+    view = status_view(
+        ConnectionState.CONNECTED,
+        latency_ms=202,
+        upload_bytes=0,
+        download_bytes=0,
+        mode="Режим TUN",
+    )
+
+    assert summary_line(view).replace("\u00a0", " ") == (
+        "Режим TUN · Задержка 202 мс · ↓ Получено 0 B · ↑ Отправлено 0 B"
+    )
+
+
+def test_summary_breaks_only_between_items():
+    view = status_view(ConnectionState.CONNECTED, latency_ms=202, mode="Режим Системный прокси")
+
+    assert summary_line(view).split(" ") == [
+        "Режим\u00a0Системный\u00a0прокси",
+        "·",
+        "Задержка\u00a0202\u00a0мс",
+    ]
+
+
+def test_summary_skips_unknown_values():
+    assert summary_line(status_view(ConnectionState.DISCONNECTED)) == ""
+    assert summary_line(status_view(ConnectionState.DISCONNECTED, mode="Режим TUN")) == (
+        "Режим\u00a0TUN"
+    )

@@ -13,7 +13,7 @@ gi.require_version("GdkPixbuf", "2.0")
 from gi.repository import Gdk, GdkPixbuf, GLib, GObject, Gtk, Pango
 
 from src.core.config import get_asset_path
-from src.ui.logic.status import SWITCH_LABEL, StatusView, action_hint, switch_hint
+from src.ui.logic.status import SWITCH_LABEL, StatusView, action_hint, summary_line, switch_hint
 
 logger = logging.getLogger("tenga.ui.status_card")
 
@@ -76,7 +76,6 @@ class StatusCard(Gtk.Box):
 
         self._logo = _load_logo_textures()
         self._button_label = ""
-        self._metric_labels: dict[str, tuple[Gtk.FlowBoxChild, Gtk.Label]] = {}
 
         self.logo_image = Gtk.Image(pixel_size=LOGO_SIZE)
         self.logo_image.add_css_class("status-icon")
@@ -116,19 +115,13 @@ class StatusCard(Gtk.Box):
         self._subtitle.set_ellipsize(Pango.EllipsizeMode.END)
         text_box.append(self._subtitle)
 
-        # Режим и метрики идут одной строкой и переносятся на узком окне: столбики
-        # подняли бы карточку над вкладками, а хватает короткой подписи рядом.
-        self._metrics = Gtk.FlowBox(
-            selection_mode=Gtk.SelectionMode.NONE,
-            focusable=False,
-            homogeneous=False,
-            column_spacing=12,
-            min_children_per_line=1,
-            max_children_per_line=4,
-        )
-        self._metrics.add_css_class("status-metrics")
-        self._mode_child, self._mode = self._metric_cell()
-        text_box.append(self._metrics)
+        # Одна строка у левого края: столбики подняли бы карточку над вкладками,
+        # а ячейки на всю ширину разбросали бы значения по широкому окну.
+        self._summary = Gtk.Label(xalign=0.0, wrap=True)
+        self._summary.add_css_class("status-summary")
+        self._summary.add_css_class("caption")
+        self._summary.add_css_class("dim-label")
+        text_box.append(self._summary)
 
         self._health = Gtk.Label(xalign=0.0, visible=False)
         self._health.add_css_class("caption")
@@ -147,14 +140,6 @@ class StatusCard(Gtk.Box):
 
         self.append(text_box)
 
-    def _metric_cell(self) -> tuple[Gtk.FlowBoxChild, Gtk.Label]:
-        label = Gtk.Label(xalign=0.0)
-        label.add_css_class("metrics")
-        label.add_css_class("dim-label")
-        child = Gtk.FlowBoxChild(child=label, focusable=False)
-        self._metrics.append(child)
-        return child, label
-
     def update(self, view: StatusView) -> None:
         """Render the given view, replacing the classes of the previous state."""
         self._title.set_text(view.title)
@@ -162,10 +147,9 @@ class StatusCard(Gtk.Box):
         self._subtitle.set_text(view.subtitle)
         self._subtitle.set_visible(bool(view.subtitle))
 
-        self._mode.set_text(view.mode)
-        self._mode_child.set_visible(bool(view.mode))
-        self._set_metrics(view.metric_items)
-        self._metrics.set_visible(bool(view.mode or view.metric_items))
+        summary = summary_line(view)
+        self._summary.set_text(summary)
+        self._summary.set_visible(bool(summary))
 
         self._set_logo(view)
         self._warning.set_visible(view.css_class == "status-error")
@@ -184,16 +168,6 @@ class StatusCard(Gtk.Box):
         self.logo_button.update_property([Gtk.AccessibleProperty.LABEL], [view.button_label])
         self.logo_button.set_tooltip_text(action_hint(view))
         self.logo_button.set_sensitive(view.action_enabled)
-
-    def _set_metrics(self, items: tuple[tuple[str, str], ...]) -> None:
-        """Show the given values; cells stay in place so traffic ticks do not flicker."""
-        values = dict(items)
-        for caption in values:
-            if caption not in self._metric_labels:
-                self._metric_labels[caption] = self._metric_cell()
-        for caption, (child, label) in self._metric_labels.items():
-            label.set_text(f"{caption} {values[caption]}" if caption in values else "")
-            child.set_visible(caption in values)
 
     def set_switch_target(self, name: str, *, enabled: bool) -> None:
         """Offer to switch to the named server; an empty name hides the button."""
@@ -224,13 +198,8 @@ class StatusCard(Gtk.Box):
     def get_subtitle(self) -> str:
         return self._subtitle.get_text()
 
-    def get_mode(self) -> str:
-        return self._mode.get_text()
-
-    def get_metrics(self) -> list[str]:
-        return [
-            label.get_text() for child, label in self._metric_labels.values() if child.get_visible()
-        ]
+    def get_summary(self) -> str:
+        return self._summary.get_text()
 
     def get_health(self) -> str:
         return self._health.get_text()

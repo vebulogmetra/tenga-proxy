@@ -72,6 +72,14 @@ def action_hint(view: StatusView) -> str:
     return "Нажмите на логотип для подключения"
 
 
+def summary_line(view: StatusView) -> str:
+    """Join the mode and metrics into one line that wraps only between items."""
+    items = [f"{caption} {value}" for caption, value in view.metric_items]
+    if view.mode:
+        items.insert(0, view.mode)
+    return " · ".join(item.replace(" ", " ") for item in items)
+
+
 def status_view(
     state: ConnectionState,
     *,

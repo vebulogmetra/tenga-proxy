@@ -116,31 +116,18 @@ def test_health_row_hidden_when_empty(card):
     assert card.get_health() == "Проверка соединения ещё не выполнена"
 
 
-def test_metrics_and_mode_follow_the_view(card):
+def test_summary_follows_the_view(card):
     from src.ui.logic.status import ConnectionState
 
     card.update(_view(ConnectionState.DISCONNECTED))
-    assert card.get_metrics() == []
-    assert card._metrics.get_visible() is False
+    assert card.get_summary() == ""
+    assert card._summary.get_visible() is False
 
     card.update(
-        _view(
-            ConnectionState.CONNECTED,
-            profile_name="X",
-            latency_ms=132,
-            upload_bytes=0,
-            download_bytes=0,
-            mode="Режим TUN",
-        )
+        _view(ConnectionState.CONNECTED, profile_name="X", latency_ms=132, mode="Режим TUN")
     )
-    assert card.get_metrics() == ["Задержка 132 мс", "↓ Получено 0 B", "↑ Отправлено 0 B"]
-    assert card.get_mode() == "Режим TUN"
-
-    # Значение исчезает, а ячейка остаётся на следующий тик счётчика.
-    card.update(
-        _view(ConnectionState.CONNECTED, profile_name="X", upload_bytes=1, download_bytes=1)
-    )
-    assert [text.split()[1] for text in card.get_metrics()] == ["Получено", "Отправлено"]
+    assert card.get_summary() == "Режим\u00a0TUN · Задержка\u00a0132\u00a0мс"
+    assert card._summary.get_visible() is True
 
 
 def test_the_logo_stays_in_every_state(card):
