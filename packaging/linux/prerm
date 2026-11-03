@@ -1,6 +1,15 @@
 #!/bin/sh
 set -e
 
+# Таблица блокировки общесистемная и живёт в памяти: при удалении пакета её
+# больше некому снять. При обновлении не трогаем: у пользователя может идти
+# сеанс, и трафик не должен открыться посреди apt upgrade.
+case "$1" in
+  remove | purge)
+    command -v nft >/dev/null 2>&1 && nft delete table inet veblock 2>/dev/null || true
+    ;;
+esac
+
 # Байт-код собирал postinst, dpkg о нём не знает и каталоги без него не удалит.
 find /usr/lib/tenga-proxy -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null || true
 

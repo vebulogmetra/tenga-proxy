@@ -119,7 +119,7 @@ Section: net
 Priority: optional
 Architecture: $ARCH
 Installed-Size: $size
-Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), python3-requests, libcap2-bin, iproute2, sudo
+Depends: python3 (>= 3.11), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), python3-requests, libcap2-bin, iproute2, sudo, nftables
 Recommends: systemd-resolved
 Maintainer: Artem G. <vebulogmetra@yandex.ru>
 Homepage: https://github.com/vebulogmetra/tenga-proxy
