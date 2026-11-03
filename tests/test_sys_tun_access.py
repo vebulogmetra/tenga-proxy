@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import errno
 import struct
+import subprocess
 
 import pytest
 
@@ -33,14 +34,21 @@ def sudo(allowed: set[str]):
     return run
 
 
-def check(*, euid=1000, xattr=no_xattr, allowed=(), helper=True, xray=XRAY):
+FEATURES = {"apply", "restore", "dns", "firewall"}
+
+
+def check(
+    *, euid=1000, xattr=no_xattr, allowed=(), helper=True, xray=XRAY, nft=True, features=FEATURES
+):
+    tools = {"sudo", "ip", *(("nft",) if nft else ())}
     return linux.tun_problems(
         xray,
         geteuid=lambda: euid,
         getxattr=xattr,
         sudo_allows=sudo(set(allowed)),
         exists=lambda path: helper and path == linux.HELPER_PATH,
-        which=lambda name: f"/usr/sbin/{name}" if name in ("sudo", "ip") else None,
+        which=lambda name: f"/usr/sbin/{name}" if name in tools else None,
+        helper_features=lambda: features,
     )
 
 
@@ -88,6 +96,76 @@ def test_routes_without_passwordless_sudo_are_reported():
     # Правило ставит пакет: на помощника без пароля пускается группа sudo.
     assert "группе sudo" in problem
     assert "apt install --reinstall tenga-proxy" in problem
+
+
+def test_missing_nft_is_reported_with_the_fix():
+    problems = check(xattr=lambda *_: caps(CAP_NET_ADMIN), allowed=[linux.HELPER_PATH], nft=False)
+
+    assert len(problems) == 1
+    assert "nftables" in problems[0]
+    assert "apt install nftables" in problems[0]
+
+
+def test_root_still_needs_nft():
+    problems = check(euid=0, nft=False)
+
+    assert len(problems) == 1
+    assert "nftables" in problems[0]
+
+
+def test_nft_outside_the_users_path_counts():
+    """У обычного пользователя в PATH может не быть /usr/sbin, а sudo его найдёт."""
+    problems = linux.tun_problems(
+        None,
+        geteuid=lambda: 0,
+        which=lambda _name: None,
+        exists=lambda path: path == linux.NFT_PATH,
+    )
+
+    assert problems == []
+
+
+def test_old_helper_without_the_firewall_is_reported():
+    problems = check(
+        xattr=lambda *_: caps(CAP_NET_ADMIN),
+        allowed=[linux.HELPER_PATH],
+        features={"apply", "restore", "dns"},
+    )
+
+    assert len(problems) == 1
+    assert "--reinstall tenga-proxy" in problems[0]
+
+
+def test_no_helper_means_no_question_about_its_features():
+    """Запуск из исходников с sudo на ip: помощника нет, спрашивать не у кого."""
+    problems = check(
+        xattr=lambda *_: caps(CAP_NET_ADMIN), allowed=["/usr/sbin/ip"], helper=False, features=set()
+    )
+
+    assert problems == []
+
+
+def test_helper_features_come_from_the_helper(monkeypatch):
+    seen = []
+
+    def run(cmd, **_kwargs):
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="apply firewall\n", stderr="")
+
+    monkeypatch.setattr(linux.subprocess, "run", run)
+
+    assert linux._helper_features() == {"apply", "firewall"}
+    assert seen == [["sudo", "-n", linux.HELPER_PATH, "features"]]
+
+
+def test_helper_that_refuses_has_no_features(monkeypatch):
+    monkeypatch.setattr(
+        linux.subprocess,
+        "run",
+        lambda cmd, **_k: subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown action"),
+    )
+
+    assert linux._helper_features() == set()
 
 
 def test_helper_lives_where_the_deb_puts_it():

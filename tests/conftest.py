@@ -39,6 +39,11 @@ def firewall_calls(monkeypatch) -> list[tuple]:
         "src.core.connection.remove_firewall",
         lambda: calls.append(("remove",)) or (True, ""),
     )
+    # recover_network() при старте берёт его из фасада.
+    monkeypatch.setattr(
+        "src.sys.tun_firewall.remove_firewall",
+        lambda: calls.append(("remove",)) or (True, ""),
+    )
     return calls
 
 

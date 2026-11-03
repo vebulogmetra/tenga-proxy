@@ -83,24 +83,31 @@ def gtk_install_hint() -> str:
 
 
 def recover_network() -> None:
-    """Погасить ядро упавшего сеанса и вернуть маршрут по умолчанию.
+    """Погасить ядро упавшего сеанса, вернуть маршрут и снять таблицу nftables.
 
     Только у процесса, захватившего блокировку: второй экземпляр сейчас же
     завершится, а маршруты и ядро первого трогать нельзя. Порядок важен:
     маршрут, возвращённый под живым ядром, снова уведёт трафик мимо него.
     """
     from src.core.core_pid import kill_orphan
+    from src.sys.tun_firewall import remove_firewall
     from src.sys.tun_route import recover_tun_routes
 
     log = logging.getLogger("startup")
     try:
         kill_orphan()
         ok, error = recover_tun_routes()
+        if not ok:
+            log.warning("Failed to recover TUN routes: %s", error)
     except Exception:
         log.exception("TUN route recovery crashed")
-        return
-    if not ok:
-        log.warning("Failed to recover TUN routes: %s", error)
+    # Отдельно от маршрутов: сбой одного шага не должен оставить систему закрытой.
+    try:
+        ok, error = remove_firewall()
+        if not ok:
+            log.warning("Failed to remove the firewall table: %s", error)
+    except Exception:
+        log.exception("Firewall recovery crashed")
 
 
 def cleanup_legacy_install() -> None:

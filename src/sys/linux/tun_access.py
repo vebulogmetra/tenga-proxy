@@ -4,7 +4,8 @@ TUN держится на двух правах: xray создаёт интер�
 выдаёт `setcap` в postinst deb-пакета), а приложение переключает маршрут по
 умолчанию через `sudo -n` — помощником из sudoers или самой `ip`. Без них
 подключение падает с невнятной ошибкой ядра или sudo; здесь те же условия
-проверяются заранее и описываются словами, с командой для исправления.
+проверяются заранее и описываются словами, с командой для исправления. Сюда же
+входит таблица nftables, которой приложение закрывает трафик мимо туннеля.
 """
 
 from __future__ import annotations
@@ -17,6 +18,17 @@ from collections.abc import Callable
 
 from src.sys.linux.tun_route import HELPER_PATH
 
+# У обычного пользователя /usr/sbin может не быть в PATH, а у sudo он есть всегда.
+NFT_PATH = "/usr/sbin/nft"
+NO_NFT = (
+    "Нет nftables: без него не закрыт IPv6 и не работает блокировка трафика при обрыве. "
+    "Выполните: sudo apt install nftables"
+)
+OLD_HELPER = (
+    "Установленный помощник tun-route-helper не умеет закрывать трафик: "
+    "обновите его командой sudo apt install --reinstall tenga-proxy"
+)
+
 CAP_NET_ADMIN = 12
 _VFS_CAP_FLAGS_EFFECTIVE = 0x1
 
@@ -26,6 +38,21 @@ def _sudo_allows(cmd: list[str]) -> bool:
         return subprocess.run(cmd, capture_output=True, timeout=5, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
+
+
+def _helper_features() -> set[str]:
+    """Что умеет установленный помощник; у старого такого действия нет."""
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", HELPER_PATH, "features"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(result.stdout.split()) if result.returncode == 0 else set()
 
 
 def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] | None = None) -> bool:
@@ -53,14 +80,18 @@ def tun_problems(
     sudo_allows: Callable[[list[str]], bool] = _sudo_allows,
     exists: Callable[[str], bool] = os.path.exists,
     which: Callable[[str], str | None] = shutil.which,
+    helper_features: Callable[[], set[str]] = _helper_features,
 ) -> list[str]:
     """Причины, по которым TUN не заработает; пустой список — всё на месте."""
+    problems = []
+    if not which("nft") and not exists(NFT_PATH):
+        problems.append(NO_NFT)
+
     # os.geteuid и os.getxattr есть только на POSIX: берутся при вызове, чтобы
     # модуль импортировался и на Windows, где его проверяют тесты.
     if (geteuid or os.geteuid)() == 0:
-        return []
+        return problems
 
-    problems = []
     if xray_path and not has_net_admin(xray_path, getxattr):
         problems.append(
             "У xray-core нет права cap_net_admin: TUN-интерфейс не создать. "
@@ -83,4 +114,6 @@ def tun_problems(
             "добавьте пользователя в группу и перезайдите в сеанс. Если пакет "
             "стоит, а правила нет: sudo apt install --reinstall tenga-proxy"
         )
+    elif exists(HELPER_PATH) and "firewall" not in helper_features():
+        problems.append(OLD_HELPER)
     return problems

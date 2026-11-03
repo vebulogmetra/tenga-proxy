@@ -75,11 +75,33 @@ def test_recover_network_stops_the_orphan_before_restoring_routes(entry, monkeyp
     assert order == ["orphan", "routes"]
 
 
-def test_recover_network_never_blocks_the_start(entry, monkeypatch):
+def test_recover_network_removes_the_table_left_by_a_crash(entry, monkeypatch, firewall_calls):
+    """Таблица снимается по факту старта, а не по журналу: она общесистемная."""
+    monkeypatch.setattr("src.core.core_pid.kill_orphan", lambda: False)
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", lambda: (True, ""))
+
+    entry.recover_network()
+
+    assert firewall_calls == [("remove",)]
+
+
+def test_recover_network_never_blocks_the_start(entry, monkeypatch, firewall_calls):
     def boom():
         raise OSError("ip not found")
 
     monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", boom)
+
+    entry.recover_network()
+
+    assert firewall_calls == [("remove",)]
+
+
+def test_table_removal_failure_does_not_block_the_start(entry, monkeypatch):
+    def boom():
+        raise OSError("sudo not found")
+
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", lambda: (True, ""))
+    monkeypatch.setattr("src.sys.tun_firewall.remove_firewall", boom)
 
     entry.recover_network()
 
