@@ -25,6 +25,7 @@ def pytest_collection_modifyitems(config, items):
 def _core_pid_file_in_tmp(monkeypatch, tmp_path):
     """Pid-файл настоящего ядра разработчика тестам не принадлежит."""
     monkeypatch.setattr("src.core.core_pid.PID_FILE", tmp_path / "xray.pid")
+    monkeypatch.setattr("src.core.core_pid.BLOCK_FILE", tmp_path / "traffic-block")
 
 
 @pytest.fixture(autouse=True)

@@ -22,6 +22,9 @@ from src.core.config import CORE_DIR
 logger = logging.getLogger("tenga.core.core_pid")
 
 PID_FILE: Path = CORE_DIR / "xray.pid"
+# Таблица общесистемная и помощник не говорит, стояла ли она. Метка нужна только
+# затем, чтобы при следующем старте сказать пользователю, что блокировка снята.
+BLOCK_FILE: Path = CORE_DIR / "traffic-block"
 
 _TERMINATE_TIMEOUT = 5.0
 _POLL_INTERVAL = 0.1
@@ -37,6 +40,23 @@ def remember(pid: int, binary: str) -> None:
 
 def forget() -> None:
     PID_FILE.unlink(missing_ok=True)
+
+
+def remember_block() -> None:
+    """Запомнить, что стоит уровень `full`: при падении приложения сеть закрыта."""
+    try:
+        BLOCK_FILE.touch()
+    except OSError:
+        logger.debug("Cannot write the block marker", exc_info=True)
+
+
+def forget_block() -> bool:
+    """Забыть об уровне `full`; True — он был."""
+    try:
+        BLOCK_FILE.unlink()
+    except OSError:
+        return False
+    return True
 
 
 def _process_binary(pid: int) -> str | None:

@@ -29,6 +29,12 @@ class ProxyState:
     # Служебный inbound работающего ядра: через него монитор проверяет сервер.
     health_endpoint: ProbeEndpoint | None = None
     applied_settings: str | None = None
+    # Трафик закрыт, а сеанса нет: ядро упало или смена сервера не удалась.
+    # `set_stopped` этого не трогает: состояние как раз переживает остановку.
+    traffic_blocked: bool = False
+    blocked_profile_id: int = -1
+    # Настройка блокировки включена, но порт 53 закрыть не удалось.
+    dns_unprotected: bool = False
 
     # Listeners
     _state_listeners: list[Callable[[ProxyState], None]] = field(default_factory=list)
