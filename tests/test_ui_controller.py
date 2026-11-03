@@ -1181,3 +1181,11 @@ def test_vpn_watch_starts_once_and_stops_on_shutdown(made):
     handle = loop.scheduled[0]
     controller.shutdown()
     assert handle in loop.cancelled
+
+
+def test_disconnect_clears_a_stale_error_in_the_tray(made):
+    controller, shell, _ = made
+
+    controller._on_disconnection_done(ConnectionResult(True))
+
+    assert shell.tray[-1] == (ConnectionState.DISCONNECTED, "")

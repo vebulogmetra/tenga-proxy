@@ -456,6 +456,7 @@ class AppController:
     def _on_disconnection_done(self, result) -> None:
         if result.ok:
             self.toast("Отключено")
+            self._shell.set_tray_state(ConnectionState.DISCONNECTED, "")
         else:
             self.toast(f"Не удалось отключиться: {result.error}")
         self._refresh_window()

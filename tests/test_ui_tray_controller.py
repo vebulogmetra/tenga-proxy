@@ -237,7 +237,7 @@ def test_stopped_proxy_with_closed_traffic_shows_blocked(controller, context):
     tray, item, _app = controller
     context.proxy_state.traffic_blocked = True
 
-    tray._apply_proxy_state(False, -1)
+    tray._apply_proxy_state()
 
     assert tray._state is ConnectionState.BLOCKED
     assert item.tooltips[-1] == "Veblock: трафик заблокирован"
@@ -249,6 +249,57 @@ def test_proxy_stopped_normally_is_disconnected(controller, context):
     tray, _item, _app = controller
     context.proxy_state.traffic_blocked = False
 
-    tray._apply_proxy_state(False, -1)
+    tray._apply_proxy_state()
 
     assert tray._state is ConnectionState.DISCONNECTED
+
+
+def _queued_tray(context):
+    """Трей с настоящей очередью: уведомления выполняются позже, как в главном цикле."""
+    queue: list = []
+    item = FakeTrayItem()
+    tray = TrayController(FakeApp(), context, item=item, dispatch=lambda fn, *_a: queue.append(fn))
+    tray.start()
+    queue.clear()
+    return tray, queue
+
+
+def test_error_survives_a_stop_notification_delivered_after_it(context):
+    from src.ui.logic.status import ConnectionState
+
+    tray, queue = _queued_tray(context)
+    context.proxy_state.set_stopped()
+    tray.set_state(ConnectionState.ERROR, "")
+
+    for deliver in queue:
+        deliver()
+
+    assert tray._state is ConnectionState.ERROR
+    tray.stop()
+
+
+def test_stale_start_notification_does_not_replace_the_error(context):
+    """Ядро упало сразу после старта: в очереди ещё лежит уведомление о запуске."""
+    from src.ui.logic.status import ConnectionState
+
+    tray, queue = _queued_tray(context)
+    context.proxy_state.set_running(profile_id=1)
+    context.proxy_state.set_stopped()
+    tray.set_state(ConnectionState.ERROR, "")
+
+    for deliver in queue:
+        deliver()
+
+    assert tray._state is ConnectionState.ERROR
+    tray.stop()
+
+
+def test_new_session_replaces_the_error(controller, context):
+    from src.ui.logic.status import ConnectionState
+
+    tray, _item, _app = controller
+    tray.set_state(ConnectionState.ERROR, "")
+
+    context.proxy_state.set_running(profile_id=1)
+
+    assert tray._state is ConnectionState.CONNECTED

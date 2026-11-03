@@ -122,19 +122,21 @@ class TrayController:
     def _on_proxy_state(self, state) -> None:
         # Состояние меняет поток подключения, а работа с D-Bus должна идти из
         # главного цикла.
-        self._dispatch(self._apply_proxy_state, state.is_running, state.started_profile_id)
+        self._dispatch(self._apply_proxy_state)
 
-    def _apply_proxy_state(self, is_running: bool, profile_id: int) -> None:
-        if is_running:
-            profile = self._context.profiles.get_profile(profile_id)
+    def _apply_proxy_state(self) -> None:
+        # Состояние читается здесь, а не в подписчике: к этому вызову из очереди главного
+        # цикла контроллер мог уже поставить флаг блокировки или перезапустить сеанс.
+        state = self._context.proxy_state
+        if state.is_running:
+            profile = self._context.profiles.get_profile(state.started_profile_id)
             self.set_state(ConnectionState.CONNECTED, profile.name if profile else "")
-        elif is_traffic_blocked(self._context.proxy_state):
-            # Читается здесь, а не в подписчике: контроллер ставит флаг уже после
-            # остановки, и к этому вызову из очереди главного цикла он на месте.
-            state = self._context.proxy_state
+        elif is_traffic_blocked(state):
             profile = self._context.profiles.get_profile(state.blocked_profile_id)
             self.set_state(ConnectionState.BLOCKED, profile.name if profile else "")
-        else:
+        elif self._state is not ConnectionState.ERROR:
+            # Ошибку ставит контроллер, и уведомление об остановке из очереди может прийти
+            # после неё. Снимают её новое подключение и отключение.
             self.set_state(ConnectionState.DISCONNECTED, "")
 
     def _on_menu_action(self, action: str, target: int | None) -> None:

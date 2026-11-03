@@ -655,3 +655,30 @@ def test_table_follows_the_vpn_under_the_block_too(world, firewall_calls):
 
     assert service.follow_vpn_interface("corp", "tun1") is True
     assert policies(firewall_calls)[-1].vpn_interface == "tun1"
+
+
+def test_session_without_the_setting_follows_the_vpn_without_a_table_change(world, firewall_calls):
+    """Правила про VPN в таблице нет, но соединение ядра привязано к его интерфейсу."""
+    context, profiles, service = world
+    context.config.tun_kill_switch = False
+    profiles[1].vpn_settings = FakeVpn()
+    assert service.connect(1).ok
+    assert service.watched_vpn() == "corp"
+    count = len(firewall_calls)
+
+    assert service.follow_vpn_interface("corp", "tun1") is True
+    assert service.follow_vpn_interface("corp", "tun1") is False
+    assert len(firewall_calls) == count
+
+
+def test_disconnect_after_a_core_exit_drops_the_vpn_we_raised(world, monkeypatch):
+    context, _, _ = world
+    service = _session_with_vpn(world)
+    context.proxy_state.vpn_auto_connected = True
+    dropped = []
+    monkeypatch.setattr("src.core.connection.disconnect_vpn", lambda n: dropped.append(n) or True)
+    service.handle_core_exit()
+
+    service.disconnect()
+
+    assert dropped == ["corp"]

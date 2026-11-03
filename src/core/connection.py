@@ -93,8 +93,10 @@ class ConnectionService:
         # Стоит ли наша таблица nftables: переживает сеанс, если ядро упало.
         self._block_held = False
         self._policy: FirewallPolicy | None = None
-        # VPN, чей интерфейс открыт в таблице: при переподключении имя может смениться.
-        self._block_vpn_name: str | None = None
+        # VPN сеанса и его интерфейс: при переподключении имя может смениться, а к нему
+        # привязано соединение ядра и, на уровне `full`, правило таблицы.
+        self._session_vpn: str | None = None
+        self._session_vpn_interface: str | None = None
         # Сервер сеанса, упавшего вместе с ядром: ему принадлежит поднятый VPN.
         self._crashed_profile_id = -1
 
@@ -220,6 +222,7 @@ class ConnectionService:
         if kill_switch:
             warnings.append(self._close_dns_window(dns_routed))
 
+        self._remember_session_vpn(profile)
         self._crashed_profile_id = -1
         self._clear_blocked_state()
 
@@ -283,16 +286,15 @@ class ConnectionService:
         )
         ok, error = self._apply_block(policy)
         if ok:
-            self._block_vpn_name = vpn_name if vpn_interface else None
+            self._session_vpn = vpn_name if vpn_interface else None
+            self._session_vpn_interface = vpn_interface
             return ""
         logger.error("Traffic block not applied: %s", error)
         return self._explain_tun_failure(KILL_SWITCH_NOT_APPLIED.format(error=error))
 
     def watched_vpn(self) -> str | None:
-        """VPN, за интерфейсом которого нужно следить: он открыт в таблице уровня `full`."""
-        if not self._holds_full_block() or self._policy is None or not self._policy.vpn_interface:
-            return None
-        return self._block_vpn_name
+        """VPN сеанса, за интерфейсом которого нужно следить."""
+        return self._session_vpn
 
     @staticmethod
     def probe_vpn_interface(name: str) -> str | None:
@@ -300,16 +302,27 @@ class ConnectionService:
         return vpn_tunnel_interface(name)
 
     def follow_vpn_interface(self, name: str, interface: str) -> bool:
-        """Открыть в таблице новый интерфейс VPN вместо старого. True — таблица изменилась."""
-        policy = self._policy
-        if name != self.watched_vpn() or policy is None or interface == policy.vpn_interface:
+        """Принять новый интерфейс VPN; на уровне `full` открыть его вместо старого.
+
+        True — интерфейс сменился и принят: соединение ядра пора привязать заново.
+        """
+        previous = self._session_vpn_interface
+        if name != self._session_vpn or interface == previous:
             return False
-        ok, error = self._apply_block(replace(policy, vpn_interface=interface))
-        if not ok:
-            logger.warning("VPN interface %s not opened: %s", interface, error)
-            return False
-        logger.info("VPN interface changed: %s -> %s", policy.vpn_interface, interface)
+        if self._holds_full_block() and self._policy is not None:
+            ok, error = self._apply_block(replace(self._policy, vpn_interface=interface))
+            if not ok:
+                logger.warning("VPN interface %s not opened: %s", interface, error)
+                return False
+        self._session_vpn_interface = interface
+        logger.info("VPN interface changed: %s -> %s", previous, interface)
         return True
+
+    def _remember_session_vpn(self, profile) -> None:
+        name = self._profile_vpn_name(profile)
+        interface = vpn_tunnel_interface(name) if name else None
+        self._session_vpn = name if interface else None
+        self._session_vpn_interface = interface
 
     def _profile_vpn_name(self, profile) -> str | None:
         """VPN, который будет работать в этом сеансе и которому нужны разрешения."""
@@ -383,13 +396,14 @@ class ConnectionService:
         return ConnectionResult(False, message)
 
     def _release_table(self) -> None:
+        self._session_vpn = None
+        self._session_vpn_interface = None
         if not self._block_held:
             return
         ok, error = remove_firewall()
         if ok:
             self._block_held = False
             self._policy = None
-            self._block_vpn_name = None
             core_pid.forget_block()
         else:
             logger.warning("Failed to remove the firewall table: %s", error)
@@ -546,7 +560,9 @@ class ConnectionService:
         # Сразу за ядром: VPN гасится до 30 с, а systemd при завершении сеанса
         # столько не ждёт и оставил бы систему закрытой.
         self._release_table()
-        profile_id = self._context.proxy_state.started_profile_id
+        # После падения ядра сеанса уже нет, а поднятый им VPN ещё держится.
+        crashed = self._crashed_profile_id
+        profile_id = crashed if crashed >= 0 else self._context.proxy_state.started_profile_id
         self._finish_session()
         self._auto_disconnect_vpn(profile_id)
         self._crashed_profile_id = -1
