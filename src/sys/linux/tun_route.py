@@ -16,6 +16,7 @@ from src.sys.addresses import resolve_ipv4
 
 logger = logging.getLogger("tenga.sys.tun_route")
 HELPER_PATH = "/usr/libexec/tenga-proxy/tun-route-helper"
+HELPER_MISSING = "helper not installed"
 
 # Маршрут по умолчанию, который нужно вернуть. Переживает падение приложения:
 # ядро умирает вместе с TUN, маршрут через него исчезает. Если у исходного
@@ -153,7 +154,7 @@ def _run_ip_batch_privileged(commands: list[list[str]], timeout: int = 20) -> tu
 def _run_helper(action: str, args: list[str], timeout: int = 15) -> tuple[bool, str]:
     """Run installed root helper via passwordless sudo if available."""
     if not os.path.exists(HELPER_PATH):
-        return False, "helper not installed"
+        return False, HELPER_MISSING
     if not shutil.which("sudo"):
         return False, "sudo not found"
 

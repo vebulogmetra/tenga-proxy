@@ -15,6 +15,7 @@ FACADES = [
     "tun_route",
     "tun_dns",
     "tun_access",
+    "tun_firewall",
     "single_instance",
 ]
 
