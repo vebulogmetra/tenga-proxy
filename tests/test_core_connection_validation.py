@@ -20,15 +20,3 @@ def test_connect_reports_why_the_config_was_refused(tmp_path, monkeypatch):
     assert not result.ok
     assert result.error == "Конфигурация отклонена: первый outbound — freedom"
     context.xray_manager.start.assert_not_called()
-
-
-def test_reload_reports_why_the_config_was_refused(tmp_path, monkeypatch):
-    context = make_context(tmp_path, FakeProfile())
-    context.proxy_state.is_running = True
-    monkeypatch.setattr("src.core.connection.build_session_config", refuse)
-
-    result = ConnectionService(context).reload_config()
-
-    assert not result.ok
-    assert "Конфигурация отклонена" in result.error
-    context.xray_manager.reload_config.assert_not_called()

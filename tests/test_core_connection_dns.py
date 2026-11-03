@@ -53,25 +53,3 @@ def test_failed_steering_does_not_fail_the_connection(tmp_path, monkeypatch):
     )
 
     assert connect(tmp_path, monkeypatch, INTERCEPTING).ok
-
-
-@pytest.mark.parametrize(
-    ("config", "mode", "reload_ok", "expected"),
-    [
-        (INTERCEPTING, "tun", True, ["xray0"]),
-        (PLAIN, "tun", True, []),
-        (INTERCEPTING, "system_proxy", True, []),
-        (INTERCEPTING, "tun", False, []),
-    ],
-)
-def test_reload_reapplies_dns_only_after_successful_tun_restart(
-    tmp_path, monkeypatch, steering, config, mode, reload_ok, expected
-):
-    context = make_context(tmp_path, FakeProfile())
-    context.config.proxy_mode = mode
-    context.proxy_state.is_running = True
-    context.proxy_state.started_profile_id = 1
-    context.xray_manager.reload_config.return_value = (reload_ok, "restart failed")
-    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: config)
-    assert ConnectionService(context).reload_config().ok == reload_ok
-    assert steering == expected

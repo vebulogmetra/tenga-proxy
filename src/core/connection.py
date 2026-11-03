@@ -39,7 +39,6 @@ logger = logging.getLogger("tenga.core.connection")
 
 PROFILE_NOT_FOUND = "Сервер не найден"
 NO_CONFIG = "Не удалось построить конфигурацию сервера"
-NOT_RUNNING = "Прокси не запущен"
 UNSAFE_CONFIG = "Конфигурация отклонена"
 
 # Сколько выход ждёт начатое подключение: VPN и маршруты укладываются в
@@ -49,7 +48,7 @@ SHUTDOWN_TIMEOUT = 10.0
 
 @dataclass(frozen=True)
 class ConnectionResult:
-    """Outcome of one connect, disconnect or reload."""
+    """Outcome of one connect or disconnect."""
 
     ok: bool
     error: str = ""
@@ -348,54 +347,3 @@ class ConnectionService:
                 context.proxy_state.vpn_auto_connected = False
             except Exception:
                 logger.debug("Proxy state does not track the VPN flag", exc_info=True)
-
-    # --- перезагрузка конфигурации ---
-
-    def reload_config(self) -> ConnectionResult:
-        """Push a freshly built configuration into the running core."""
-        context = self._context
-
-        if not context.proxy_state.is_running:
-            logger.debug("Proxy is not running, nothing to reload")
-            return ConnectionResult(False, NOT_RUNNING)
-
-        profile_id = context.proxy_state.started_profile_id
-        profile = context.profiles.get_profile(profile_id)
-        if profile is None:
-            logger.error("Profile %s not found for reload", profile_id)
-            return ConnectionResult(False, PROFILE_NOT_FOUND)
-
-        build_context, profile = self._session_inputs(profile)
-        settings = build_context.config
-        try:
-            config = build_session_config(build_context, profile)
-        except UnsafeConfigError as e:
-            return ConnectionResult(False, f"{UNSAFE_CONFIG}: {e}")
-        if not config:
-            logger.error("Failed to create configuration for reload")
-            return ConnectionResult(False, NO_CONFIG)
-
-        # Перезагрузка — это перезапуск процесса: порт и учётные данные новые.
-        applied_settings = runtime_snapshot(settings, profile)
-        health_endpoint = new_health_endpoint()
-        attach_health_inbound(config, health_endpoint)
-        self._write_debug_config(config, profile_id)
-
-        try:
-            reloaded, error = context.xray_manager.reload_config(config)
-        except Exception as e:
-            logger.exception("Error reloading xray-core: %s", e)
-            return ConnectionResult(False, str(e))
-
-        if not reloaded:
-            logger.error("Error reloading xray-core: %s", error)
-            return ConnectionResult(False, error or "Не удалось перезагрузить конфигурацию")
-
-        context.proxy_state.applied_settings = applied_settings
-        context.proxy_state.health_endpoint = health_endpoint
-        runtime_mode = normalize_proxy_mode(getattr(settings, "proxy_mode", None))
-        if runtime_mode == ProxyMode.TUN and intercepts_dns(config):
-            self._route_system_dns(getattr(settings, "tun_name", "xray0"))
-
-        logger.info("Configuration reloaded successfully")
-        return ConnectionResult(True)

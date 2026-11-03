@@ -345,25 +345,6 @@ class XrayManager:
         """Ещё один получатель строк ядра (служба пересылает их в GUI)."""
         self._core_logger().addHandler(handler)
 
-    def reload_config(self, config: dict[str, Any]) -> tuple[bool, str]:
-        """
-        Reload xray-core configuration without stopping the process.
-
-        Args:
-            config: New xray-core configuration
-
-        Returns:
-            (success, error_message)
-        """
-        if not self.is_running:
-            return self.start(config)
-
-        stop_success, stop_error = self.stop()
-        if not stop_success:
-            logger.warning("Error stopping xray-core during reload: %s", stop_error)
-
-        return self.start(config)
-
     def stop(self) -> tuple[bool, str]:
         """
         Stop xray-core.

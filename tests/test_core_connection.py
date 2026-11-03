@@ -255,33 +255,6 @@ def test_disconnect_restores_the_tun_routes(tmp_path, monkeypatch):
     assert restored == [None]
 
 
-def test_reload_without_a_running_proxy_is_refused(tmp_path):
-    context = make_context(tmp_path, FakeProfile())
-    context.proxy_state.is_running = False
-    assert not ConnectionService(context).reload_config().ok
-
-
-def test_reload_pushes_the_new_config(tmp_path, monkeypatch):
-    context = make_context(tmp_path, FakeProfile())
-    context.proxy_state.is_running = True
-    context.proxy_state.started_profile_id = 1
-    context.xray_manager.reload_config.return_value = (True, "")
-    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 2})
-    assert ConnectionService(context).reload_config().ok
-    context.xray_manager.reload_config.assert_called_once()
-
-
-def test_reload_reports_the_error(tmp_path, monkeypatch):
-    context = make_context(tmp_path, FakeProfile())
-    context.proxy_state.is_running = True
-    context.proxy_state.started_profile_id = 1
-    context.xray_manager.reload_config.return_value = (False, "bad config")
-    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 2})
-    result = ConnectionService(context).reload_config()
-    assert not result.ok
-    assert result.error == "bad config"
-
-
 def test_the_monitor_is_started_after_a_successful_connect(tmp_path, monkeypatch):
     context = make_context(tmp_path, FakeProfile())
     context.monitor = MagicMock()
@@ -349,21 +322,6 @@ def test_failed_start_does_not_publish_a_health_endpoint(tmp_path, monkeypatch):
     ConnectionService(context).connect(1)
 
     assert not isinstance(context.proxy_state.health_endpoint, ProbeEndpoint)
-
-
-def test_reload_renews_the_health_endpoint(tmp_path, monkeypatch):
-    context = make_context(tmp_path, FakeProfile())
-    context.proxy_state.is_running = True
-    context.proxy_state.started_profile_id = 1
-    context.xray_manager.reload_config.return_value = (True, "")
-    monkeypatch.setattr("src.core.connection.build_session_config", _session_config)
-
-    assert ConnectionService(context).reload_config().ok
-
-    reloaded = context.xray_manager.reload_config.call_args.args[0]
-    endpoint = context.proxy_state.health_endpoint
-    assert isinstance(endpoint, ProbeEndpoint)
-    assert reloaded["inbounds"][-1]["port"] == endpoint.port
 
 
 # --- завершение приложения ---

@@ -333,10 +333,6 @@ class FakeService:
         self._calls.append(("disconnect",))
         return self._result
 
-    def reload_config(self):
-        self._calls.append(("reload",))
-        return self._result
-
 
 def add_profile(app):
     from src.fmt import parse_link

@@ -3,7 +3,7 @@
 `WindowsXrayManager` стоит на месте `XrayManager` в `AppContext` и выбирает,
 кто запустит конфиг: TUN-интерфейс создать без прав администратора нельзя.
 Снаружи он неотличим от `XrayManager` по тем методам, которыми пользуется
-приложение (`start`, `stop`, `reload_config`, `is_running`, `get_traffic`,
+приложение (`start`, `stop`, `is_running`, `get_traffic`,
 `binary_path`, `_check_process_alive`).
 """
 
@@ -101,9 +101,6 @@ class WindowsXrayManager:
         if active is None:
             return True, ""
         return active.stop()
-
-    def reload_config(self, config: dict) -> tuple[bool, str]:
-        return self.start(config)
 
     @property
     def is_running(self) -> bool:
