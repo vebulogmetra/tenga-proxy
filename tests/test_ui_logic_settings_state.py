@@ -19,3 +19,13 @@ def test_snapshot_tracks_runtime_changes_and_ignores_theme(tmp_path):
     before = runtime_snapshot(config, profile, geo_paths=[geo])
     geo.write_bytes(b"second")
     assert runtime_snapshot(config, profile, geo_paths=[geo]) != before
+
+
+def test_kill_switch_change_asks_for_a_new_session():
+    config = DataStore()
+    profile = ProfileEntry(id=1, group_id=1, bean=VLESSBean())
+    before = runtime_snapshot(config, profile, geo_paths=[])
+
+    config.tun_kill_switch = True
+
+    assert runtime_snapshot(config, profile, geo_paths=[]) != before

@@ -13,6 +13,7 @@ _RUNTIME_KEYS = (
     "proxy_mode",
     "tun_name",
     "tun_mtu",
+    "tun_kill_switch",
     "log_level",
     "mux_protocol",
     "mux_padding",

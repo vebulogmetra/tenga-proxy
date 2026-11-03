@@ -37,6 +37,7 @@ class DataStore(ConfigBase):
     proxy_mode: str = ProxyMode.TUN
     tun_name: str = "xray0"
     tun_mtu: int = 1500
+    tun_kill_switch: bool = False
     # Logging
     log_level: str = "info"
     log_ignore: list[str] = field(default_factory=list)

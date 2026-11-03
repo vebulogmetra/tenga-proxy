@@ -135,3 +135,12 @@ def test_qt_window_preferences_default_on():
 
     assert store.close_to_tray is True
     assert store.monitoring_panel is True
+
+
+def test_kill_switch_is_off_by_default_and_survives_a_round_trip():
+    store = DataStore()
+    assert store.tun_kill_switch is False
+
+    store.tun_kill_switch = True
+
+    assert DataStore.from_dict(store.to_dict()).tun_kill_switch is True
