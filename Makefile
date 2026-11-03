@@ -1,4 +1,4 @@
-.PHONY: install dev-install run cli gui test test-gtk test-tray test-qt lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
+.PHONY: install dev-install run cli gui test test-gtk test-tray test-qt test-firewall lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
 
 # Переменные
 PYTHON := uv run python
@@ -125,6 +125,13 @@ QT_TESTS := $(wildcard tests/test_ui_qt_*.py)
 
 test-qt:
 	QT_QPA_PLATFORM=offscreen uv run --extra windows --extra dev pytest -m qt $(QT_TESTS) -p no:cacheprovider --no-cov
+
+# Настоящие правила nftables: от root, в отдельном сетевом пространстве. Таблица
+# общая на систему, поэтому сами тесты вне такого пространства не работают.
+# AppArmor Ubuntu не пускает непривилегированные user namespaces, отсюда sudo.
+test-firewall:
+	sudo env TENGA_FIREWALL_TESTS=1 PYTHONDONTWRITEBYTECODE=1 unshare -n \
+		$$(uv run which python) -m pytest -m firewall tests/firewall -p no:cacheprovider --no-cov -q
 
 # Utilities
 clean:

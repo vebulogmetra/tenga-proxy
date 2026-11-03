@@ -170,16 +170,21 @@ case "$action" in
         [ -z "$v6" ] || echo "    ip6 daddr { $v6 } accept"
         # До локальных сетей: иначе запрос на роутер пройдёт по их разрешению.
         if [ "$level" = full ] && [ "$dns" = closed ]; then
-          echo '    meta l4proto { tcp, udp } th dport 53 reject with icmpx type admin-prohibited'
+          echo '    tcp dport 53 reject with tcp reset'
+          echo '    udp dport 53 reject with icmpx type admin-prohibited'
         fi
         # DHCP: DISCOVER идёт мимо netfilter, а продление — unicast'ом через output.
         [ "$chain" != output ] || echo '    udp sport 68 udp dport 67 accept'
         echo '    icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept'
         echo '    ip daddr { 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 224.0.0.0/4, 255.255.255.255 } accept'
         echo '    ip6 daddr { ::1/128, fc00::/7, fe80::/10, ff00::/8 } accept'
+        # TCP отказывается сбросом: ICMP-ошибку на первый SYN по IPv6 ядро считает
+        # мягкой, и connect() ждал бы повтора SYN, около секунды на каждый адрес.
         if [ "$level" = full ]; then
+          echo '    meta l4proto tcp reject with tcp reset'
           echo '    reject with icmpx type admin-prohibited'
         else
+          echo '    meta nfproto ipv6 meta l4proto tcp reject with tcp reset'
           echo '    meta nfproto ipv6 reject with icmpx type admin-prohibited'
         fi
         echo '  }'

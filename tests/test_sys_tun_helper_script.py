@@ -105,9 +105,11 @@ def test_firewall_apply_full_writes_one_atomic_script(fakebin, tmp_path):
     assert 'oifname "tun0" accept' in log
     assert "ip daddr { 203.0.113.5 } accept" in log
     assert "ip6 daddr { 2001:db8::5 } accept" in log
-    assert "th dport 53 reject" in log
+    assert "tcp dport 53 reject with tcp reset" in log
+    assert "udp dport 53 reject with icmpx type admin-prohibited" in log
     assert "meta mark 0x7e6a accept" in log
-    assert "reject with icmpx type admin-prohibited" in log
+    assert "\n    meta l4proto tcp reject with tcp reset\n" in log
+    assert "\n    reject with icmpx type admin-prohibited\n" in log
     assert "nfproto ipv6" not in log
     assert log.rstrip().endswith("}")
 
@@ -149,8 +151,10 @@ def test_firewall_ipv6_only_touches_only_ipv6(fakebin, tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
+    assert "meta nfproto ipv6 meta l4proto tcp reject with tcp reset" in log
     assert "meta nfproto ipv6 reject with icmpx type admin-prohibited" in log
     assert "\n    reject with" not in log
+    assert "\n    meta l4proto tcp reject" not in log
     assert "dport 53" not in log
     assert 'oifname "tun0"' not in log
 
@@ -222,3 +226,41 @@ def test_unknown_action_is_refused(fakebin, tmp_path):
 
     assert result.returncode == 1
     assert log == ""
+
+
+# --- prerm: find и nft подменены, настоящая установка не затрагивается ---
+
+PRERM = HELPER.parents[2] / "packaging/linux/prerm"
+
+
+def run_prerm(fakebin, tmp_path, *args):
+    _fake(fakebin, "find", 'echo "find" >> "$FAKE_LOG"')
+    log = tmp_path / "commands.log"
+    env = {**os.environ, "PATH": f"{fakebin}:{os.environ['PATH']}", "FAKE_LOG": str(log)}
+    result = subprocess.run(["sh", str(PRERM), *args], env=env, capture_output=True, text=True)
+    return result, (log.read_text() if log.exists() else "")
+
+
+@pytest.mark.parametrize("action", ["remove", "purge"])
+def test_prerm_removes_the_table_when_the_package_goes_away(fakebin, tmp_path, action):
+    result, log = run_prerm(fakebin, tmp_path, action)
+
+    assert result.returncode == 0
+    assert "delete table inet veblock" in log
+
+
+@pytest.mark.parametrize("action", ["upgrade", "failed-upgrade", "deconfigure"])
+def test_prerm_keeps_the_table_on_upgrade(fakebin, tmp_path, action):
+    """Трафик не должен открыться посреди apt upgrade у идущего сеанса."""
+    result, log = run_prerm(fakebin, tmp_path, action)
+
+    assert result.returncode == 0
+    assert "veblock" not in log
+
+
+def test_prerm_survives_a_missing_table(fakebin, tmp_path):
+    _fake(fakebin, "nft", "exit 1")
+
+    result, _ = run_prerm(fakebin, tmp_path, "remove")
+
+    assert result.returncode == 0

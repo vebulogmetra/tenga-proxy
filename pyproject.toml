@@ -61,7 +61,7 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-report=html",
     "-m",
-    "not gtk and not qt",
+    "not gtk and not qt and not firewall",
 ]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -69,6 +69,7 @@ markers = [
     "gtk: requires a display, run through make test-gtk",
     "windows: requires real Windows, skipped elsewhere",
     "qt: Qt widgets, run through make test-qt",
+    "firewall: real nftables in a network namespace, run through make test-firewall",
 ]
 
 [tool.ruff]

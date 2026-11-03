@@ -18,7 +18,7 @@ env:
   # системы: ubuntu-24.04 даёт libadwaita 1.5, как у разработчика.
   APT_PACKAGES: >-
     libgirepository-2.0-dev libcairo2-dev pkg-config
-    gir1.2-gtk-4.0 gir1.2-adw-1 xvfb dbus dbus-x11
+    gir1.2-gtk-4.0 gir1.2-adw-1 xvfb dbus dbus-x11 nftables
 
 jobs:
   test:
@@ -47,6 +47,9 @@ jobs:
       # Трей поднимает собственную шину через Gio.TestDBus.
       - name: Tray tests
         run: make test-tray
+
+      - name: Firewall rules
+        run: make test-firewall
 
       # Qt-интерфейс Windows: платформа offscreen, без дисплея. Библиотеки —
       # то, что грузят платформенный плагин и QtGui из PySide6.

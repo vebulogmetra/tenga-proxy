@@ -120,11 +120,13 @@ table inet veblock {
     oifname "xray0" accept
     oifname "tun0" accept                # если есть VPN
     ip daddr <адреса VPN-сервера> accept # если есть VPN; ip6 daddr для IPv6
-    meta l4proto { tcp, udp } th dport 53 reject   # только после закрытия окна DNS
+    tcp dport 53 reject with tcp reset   # только после закрытия окна DNS
+    udp dport 53 reject with icmpx type admin-prohibited
     udp sport 68 udp dport 67 accept     # DHCP: продление unicast'ом, DISCOVER идёт мимо netfilter
     icmpv6 type { nd-router-solicit, nd-neighbor-solicit, nd-neighbor-advert } accept
     ip daddr { локальные сети, 224.0.0.0/4, 255.255.255.255 } accept
     ip6 daddr { fc00::/7, fe80::/10, ff00::/8 } accept
+    meta l4proto tcp reject with tcp reset
     reject with icmpx type admin-prohibited
   }
   chain forward { ... }   # те же разрешения, кроме метки и DHCP
@@ -135,10 +137,14 @@ table inet veblock {
 таймаута SYN (около двух минут), а клиенты без Happy Eyeballs (curl, apt, pip, ssh, requests)
 при `ipv6_only` минутами ждут по AAAA и только потом идут по A. `reject` даёт немедленную
 ошибку, приложения сразу переходят на IPv4, а после падения ядра вкладки показывают ошибку,
-а не крутятся. Наружу при `reject` ничего не уходит: ICMP-ошибка локальная.
+а не крутятся. Наружу при `reject` ничего не уходит: ответ локальный.
 
-Уровень `ipv6_only` отличается так: нет правила DNS, последняя строка —
-`meta nfproto ipv6 reject with icmpx type admin-prohibited`. IPv4 не затрагивается.
+**TCP отказывается сбросом.** ICMP-ошибку на первый SYN по IPv6 ядро считает мягкой, пока
+`connect()` держит сокет, и `connect()` падает только на повторе SYN, примерно через секунду
+(проверено в `make test-firewall`). `reject with tcp reset` даёт `ECONNREFUSED` сразу.
+
+Уровень `ipv6_only` отличается так: нет правила DNS, обе последние строки только для IPv6
+(`meta nfproto ipv6 …`). IPv4 не затрагивается.
 
 Метка в `forward` не нужна: при переходе через veth она стирается.
 
