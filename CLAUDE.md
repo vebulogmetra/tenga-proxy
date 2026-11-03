@@ -349,6 +349,10 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   тесты окна пропускаются с объяснением, а не падают
 - Настоящие правила nftables — `make test-firewall`: маркер `firewall`, root и
   отдельное сетевое пространство, вне его тесты отказываются работать
+- Настоящий TUN на установленном deb — `make test-vm` (`tests/vm/`): собирает пакет,
+  создаёт виртуалку QEMU, проверяет сценарии через настоящий GUI и удаляет виртуалку.
+  Сеть хоста не трогает, поэтому безопасен рядом с живым сеансом. Журналы — в
+  `/var/tmp/veblock-vm/results-*`; один сценарий: `make test-vm ARGS="-- -k docker"`
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
 - Тесты Qt-интерфейса — `make test-qt`: маркер `qt`, платформа offscreen,

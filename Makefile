@@ -1,4 +1,4 @@
-.PHONY: install dev-install run cli gui test test-gtk test-tray test-qt test-firewall lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
+.PHONY: install dev-install run cli gui test test-gtk test-tray test-qt test-firewall test-vm lint format lint-all setup build install-app uninstall-app setup-dev bump-version clean clean-logs
 
 # Переменные
 PYTHON := uv run python
@@ -132,6 +132,10 @@ test-qt:
 test-firewall:
 	sudo env TENGA_FIREWALL_TESTS=1 PYTHONDONTWRITEBYTECODE=1 unshare -n \
 		$$(uv run which python) -m pytest -m firewall tests/firewall -p no:cacheprovider --no-cov -q
+
+# Настоящий TUN на установленном пакете: виртуалка создаётся и удаляется целиком
+test-vm:
+	uv run python tests/vm/run_vm_tests.py $(ARGS)
 
 # Utilities
 clean:
