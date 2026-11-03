@@ -6,7 +6,7 @@ set -eu
 #   tun-route-helper apply <tun_name> <proxy_ip> <gateway|- > <dev> <metric|->
 #   tun-route-helper restore <proxy_ip> <gateway|- > <dev> <metric|->
 #   tun-route-helper dns <tun_name>
-#   tun-route-helper firewall-apply <full|ipv6_only> <tun_name> <vpn_if|-> <vpn_addrs|-> <open|closed>
+#   tun-route-helper firewall-apply <full|ipv6_only> <tun_name> <vpn_if|-> <vpn_addrs|-> <open|closed> [dns_addrs]
 #   tun-route-helper firewall-remove
 #   tun-route-helper features
 
@@ -119,7 +119,7 @@ case "$action" in
     # Правила собирает сам помощник: от root без пароля нельзя принимать готовый
     # текст. Скрипт для `nft -f` один: создать-если-нет, очистить, наполнить —
     # переустановка атомарна, и щели с policy accept нет.
-    [ $# -eq 5 ] || die "firewall-apply requires 5 args"
+    [ $# -eq 5 ] || [ $# -eq 6 ] || die "firewall-apply requires 5 or 6 args"
     level="$1"
     tun_name="$2"
     vpn_if="$3"
@@ -130,6 +130,19 @@ case "$action" in
     is_ifname "$tun_name" || die "invalid tun_name"
     [ "$vpn_if" = "-" ] || is_ifname "$vpn_if" || die "invalid vpn_if"
     case "$dns" in open | closed) ;; *) die "invalid dns state" ;; esac
+
+    dns_v4=""
+    if [ $# -eq 6 ]; then
+      [ "$level" = full ] && [ "$dns" = open ] || die "dns addresses need the open full window"
+      [ -n "$6" ] || die "invalid dns address"
+      rest="$6,"
+      while [ -n "$rest" ]; do
+        addr="${rest%%,*}"
+        rest="${rest#*,}"
+        is_ipv4 "$addr" || die "invalid dns address"
+        dns_v4="$dns_v4${dns_v4:+, }$addr"
+      done
+    fi
 
     v4=""
     v6=""
@@ -172,6 +185,12 @@ case "$action" in
         if [ "$level" = full ] && [ "$dns" = closed ]; then
           echo '    tcp dport 53 reject with tcp reset'
           echo '    udp dport 53 reject with icmpx type admin-prohibited'
+        fi
+        # Окно DNS: имя сервера разрешает DNS сети, а он бывает и публичным. Только эта
+        # машина и только эти адреса; контейнерам окно не нужно.
+        if [ -n "$dns_v4" ] && [ "$chain" = output ]; then
+          echo "    ip daddr { $dns_v4 } udp dport 53 accept"
+          echo "    ip daddr { $dns_v4 } tcp dport 53 accept"
         fi
         # DHCP: DISCOVER идёт мимо netfilter, а продление — unicast'ом через output.
         [ "$chain" != output ] || echo '    udp sport 68 udp dport 67 accept'

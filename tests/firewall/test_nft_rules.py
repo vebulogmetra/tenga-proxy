@@ -150,6 +150,17 @@ def test_closed_dns_blocks_the_router_and_open_dns_does_not(lab):
     assert connect_errno("192.168.77.1", 53) in REJECTED
 
 
+def test_open_window_reaches_only_the_public_dns_of_the_network(lab):
+    helper("firewall-apply", "full", "x0", "-", "-", "open", "203.0.113.53")
+
+    assert connect_errno("203.0.113.53", 53) == errno.ETIMEDOUT
+    assert connect_errno("203.0.113.54", 53) in REJECTED
+    assert connect_errno("203.0.113.53", 443) in REJECTED
+
+    helper("firewall-apply", "full", "x0", "-", "-", "closed")
+    assert connect_errno("203.0.113.53", 53) in REJECTED
+
+
 def test_vpn_server_address_stays_reachable(lab):
     helper("firewall-apply", "full", "x0", "-", "203.0.113.5,2001:db8:5::5", "closed")
 

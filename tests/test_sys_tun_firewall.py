@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from src.sys.firewall_policy import FirewallPolicy, Level
 from src.sys.linux import tun_firewall
 
@@ -22,6 +24,19 @@ def test_full_policy_with_vpn_and_closed_dns():
     )
 
     assert policy.helper_args() == ["full", "xray0", "tun0", "203.0.113.5,2001:db8::5", "closed"]
+
+
+def test_network_dns_is_passed_only_while_the_window_is_open():
+    policy = FirewallPolicy(Level.FULL, "xray0", dns_addresses=("203.0.113.53", "8.8.8.8"))
+
+    assert policy.helper_args() == ["full", "xray0", "-", "-", "open", "203.0.113.53,8.8.8.8"]
+    assert replace(policy, dns_closed=True).helper_args() == [
+        "full",
+        "xray0",
+        "-",
+        "-",
+        "closed",
+    ]
 
 
 def _helper_answers(monkeypatch, answer):

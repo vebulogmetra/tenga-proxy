@@ -25,12 +25,17 @@ class FirewallPolicy:
     vpn_interface: str | None = None
     vpn_addresses: tuple[str, ...] = ()
     dns_closed: bool = False
+    # DNS сети: пока окно открыто, до него можно достучаться и вне локальных адресов.
+    dns_addresses: tuple[str, ...] = ()
 
     def helper_args(self) -> list[str]:
-        return [
+        args = [
             str(self.level),
             self.tun_name,
             self.vpn_interface or "-",
             ",".join(self.vpn_addresses) or "-",
             "closed" if self.dns_closed else "open",
         ]
+        if self.dns_addresses and not self.dns_closed:
+            args.append(",".join(self.dns_addresses))
+        return args

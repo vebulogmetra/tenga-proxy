@@ -77,6 +77,8 @@ def _no_system_probing(monkeypatch) -> None:
 
     monkeypatch.setattr(config_builder, "get_default_interface", lambda *_a, **_k: None)
     monkeypatch.setattr(config_builder, "system_dns_servers", lambda _interface: [])
+    monkeypatch.setattr("src.core.connection.get_default_interface", lambda *_a, **_k: None)
+    monkeypatch.setattr("src.core.connection.system_dns_servers", lambda _interface: [])
 
 
 @pytest.fixture(scope="session")

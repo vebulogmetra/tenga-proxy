@@ -139,6 +139,48 @@ def test_without_resolved_dns_stays_open_and_the_user_is_told(world, firewall_ca
     assert all(not policy.dns_closed for policy in policies(firewall_calls))
 
 
+def _network_uses_dns(monkeypatch, *servers):
+    monkeypatch.setattr("src.core.connection.get_default_interface", lambda **_k: "eth0")
+    monkeypatch.setattr("src.core.connection.system_dns_servers", lambda _iface: list(servers))
+
+
+def test_window_opens_for_the_dns_of_the_network(world, firewall_calls, monkeypatch):
+    """Имя сервера разрешает DNS сети, а публичный адрес не попадает в локальные сети."""
+    _, _, service = world
+    _network_uses_dns(monkeypatch, "8.8.8.8")
+
+    assert service.connect(1).ok
+
+    first, last = policies(firewall_calls)[0], policies(firewall_calls)[-1]
+    assert first.helper_args()[4:] == ["open", "8.8.8.8"]
+    assert last.helper_args()[4:] == ["closed"]
+
+
+def test_without_a_physical_interface_the_window_names_no_servers(world, firewall_calls):
+    _, _, service = world
+
+    assert service.connect(1).ok
+
+    assert policies(firewall_calls)[0].helper_args()[4:] == ["open"]
+
+
+def test_switching_opens_the_window_for_the_current_network(world, firewall_calls, monkeypatch):
+    """После смены сети DNS другой: адреса прошлого сеанса не годятся."""
+    _, _, service = world
+    _network_uses_dns(monkeypatch, "8.8.8.8")
+    assert service.connect(1).ok
+    _network_uses_dns(monkeypatch, "1.0.0.1")
+    seen = []
+    monkeypatch.setattr(
+        "src.core.connection.apply_tun_routes",
+        lambda *_: (seen.append(policies(firewall_calls)[-1].helper_args()), (True, "s", ""))[1],
+    )
+
+    assert service.connect(2).ok
+
+    assert seen[0][4:] == ["open", "1.0.0.1"]
+
+
 def test_failing_to_close_dns_is_a_warning(world, monkeypatch):
     _, _, service = world
     answers = iter([(True, ""), (False, "nft died")])

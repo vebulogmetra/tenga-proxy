@@ -26,6 +26,7 @@ from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
 from src.sys.firewall_policy import FirewallPolicy, Level
 from src.sys.proxy import clear_system_proxy, set_system_proxy
+from src.sys.resolver import system_dns_servers
 from src.sys.tun_access import tun_problems
 from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_firewall import apply_firewall, remove_firewall
@@ -33,6 +34,7 @@ from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import (
     connect_vpn,
     disconnect_vpn,
+    get_default_interface,
     is_vpn_active,
     vpn_connection_type,
     vpn_server_addresses,
@@ -153,7 +155,15 @@ class ConnectionService:
                 )
             if self._block_held:
                 # Таблица прошлого сеанса закрыла бы сам VPN нового сервера.
-                self._apply_block(FirewallPolicy(Level.FULL, tun_name, None, vpn_addresses))
+                self._apply_block(
+                    FirewallPolicy(
+                        Level.FULL,
+                        tun_name,
+                        None,
+                        vpn_addresses,
+                        dns_addresses=self._network_dns(tun_name),
+                    )
+                )
 
         self._auto_connect_vpn(profile, profile_id)
 
@@ -263,7 +273,11 @@ class ConnectionService:
 
         # VPN не поднялся: подключаемся без него, и его сервер открывать незачем.
         policy = FirewallPolicy(
-            Level.FULL, tun_name, vpn_interface, vpn_addresses if vpn_interface else ()
+            Level.FULL,
+            tun_name,
+            vpn_interface,
+            vpn_addresses if vpn_interface else (),
+            dns_addresses=self._network_dns(tun_name),
         )
         ok, error = self._apply_block(policy)
         if ok:
@@ -292,9 +306,21 @@ class ConnectionService:
     def _open_dns_window(self) -> None:
         """Подключению нужен DNS: имя сервера разрешается системным резолвером."""
         if self._block_held and self._policy is not None and self._policy.dns_closed:
-            ok, error = self._apply_block(replace(self._policy, dns_closed=False))
+            ok, error = self._apply_block(
+                replace(
+                    self._policy,
+                    dns_closed=False,
+                    dns_addresses=self._network_dns(self._policy.tun_name),
+                )
+            )
             if not ok:
                 logger.warning("Could not open the DNS window: %s", error)
+
+    @staticmethod
+    def _network_dns(tun_name: str) -> tuple[str, ...]:
+        """DNS-серверы текущей сети: их спросит системный резолвер, пока окно открыто."""
+        interface = get_default_interface(exclude=(tun_name,))
+        return tuple(system_dns_servers(interface)) if interface else ()
 
     def _close_dns_window(self, dns_routed: bool) -> str:
         """Закрыть порт 53; возвращает предупреждение, если DNS остаётся открытым.

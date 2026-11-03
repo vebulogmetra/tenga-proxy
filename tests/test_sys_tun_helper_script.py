@@ -168,6 +168,44 @@ def test_firewall_with_open_dns_has_no_dns_rule(fakebin, tmp_path):
     assert "dport 53" not in log
 
 
+def test_firewall_open_window_lets_the_cores_host_reach_only_the_network_dns(fakebin, tmp_path):
+    result, log = run_helper(
+        fakebin, tmp_path, "firewall-apply", "full", "xray0", "-", "-", "open", "8.8.8.8,1.0.0.1"
+    )
+
+    assert result.returncode == 0, result.stderr
+    output = log[log.index("chain output") : log.index("chain forward")]
+    assert "ip daddr { 8.8.8.8, 1.0.0.1 } udp dport 53 accept" in output
+    assert "ip daddr { 8.8.8.8, 1.0.0.1 } tcp dport 53 accept" in output
+    assert output.index("dport 53") < output.index("meta l4proto tcp reject")
+    # Контейнерам окно не нужно: имя сервера разрешает сама машина.
+    assert "dport 53" not in log[log.index("chain forward") :]
+
+
+@pytest.mark.parametrize("addresses", ["8.8.8.8;id", "8.8.8.8 1.1.1.1", "dns.google", ""])
+def test_firewall_refuses_a_bad_network_dns(fakebin, tmp_path, addresses):
+    result, log = run_helper(
+        fakebin, tmp_path, "firewall-apply", "full", "xray0", "-", "-", "open", addresses
+    )
+
+    assert result.returncode != 0
+    assert log == ""
+
+
+@pytest.mark.parametrize(
+    ("level", "dns"), [("full", "closed"), ("ipv6_only", "open"), ("ipv6_only", "closed")]
+)
+def test_firewall_network_dns_makes_sense_only_in_the_open_full_window(
+    fakebin, tmp_path, level, dns
+):
+    result, log = run_helper(
+        fakebin, tmp_path, "firewall-apply", level, "xray0", "-", "-", dns, "8.8.8.8"
+    )
+
+    assert result.returncode != 0
+    assert log == ""
+
+
 def test_firewall_local_networks_match_the_routing_list(fakebin, tmp_path):
     from src.db.config import LOCAL_NETWORKS
 
