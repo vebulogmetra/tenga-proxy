@@ -27,6 +27,7 @@ class ServiceCoreRunner:
         self._client = client
         self._log_sink = log_sink or core_output_logger().info
         self._on_stop = None
+        self._on_unexpected_exit = None
 
     def start(self, config: dict) -> tuple[bool, str]:
         try:
@@ -63,6 +64,11 @@ class ServiceCoreRunner:
 
     def set_on_stop_callback(self, callback) -> None:
         self._on_stop = callback
+
+    def set_on_unexpected_exit(self, callback) -> None:
+        # Служба сама откатывает сеть при падении ядра и GUI об этом пока не
+        # сообщает: колбэк появится вместе с блокировкой трафика на Windows.
+        self._on_unexpected_exit = callback
 
 
 class WindowsXrayManager:
@@ -108,3 +114,7 @@ class WindowsXrayManager:
     def set_on_stop_callback(self, callback) -> None:
         self._local.set_on_stop_callback(callback)
         self._service.set_on_stop_callback(callback)
+
+    def set_on_unexpected_exit(self, callback) -> None:
+        self._local.set_on_unexpected_exit(callback)
+        self._service.set_on_unexpected_exit(callback)

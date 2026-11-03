@@ -112,6 +112,12 @@ class XrayManager:
         self._on_stop_callback: Callable[[], None] | None = None
         self._core_log: logging.Logger | None = None
         self._log_pump: threading.Thread | None = None
+        self._on_unexpected_exit: Callable[[], None] | None = None
+        # Конец вывода и граница окна готовности разбираются под блокировкой,
+        # иначе ядро, умершее на границе, стало бы и ошибкой start(), и обрывом.
+        self._exit_lock = threading.Lock()
+        self._stopping = False
+        self._started = False
 
         # Cache xray version on initialization
         self._version_cache = self._fetch_version()
@@ -169,6 +175,42 @@ class XrayManager:
     def set_on_stop_callback(self, callback: Callable[[], None] | None) -> None:
         """Set callback for process stop."""
         self._on_stop_callback = callback
+
+    def set_on_unexpected_exit(self, callback: Callable[[], None] | None) -> None:
+        """Колбэк на выход ядра, которого не просили. Зовётся из потока чтения вывода.
+
+        Колбэк только сигналит: поток чтения не может ждать сам себя в
+        `_cleanup`, а решение о перезапуске принимает главный поток.
+        """
+        self._on_unexpected_exit = callback
+
+    def _pump_and_report(
+        self, stream: IO[bytes] | None, sink: logging.Logger, process: subprocess.Popen
+    ) -> None:
+        _pump_core_output(stream, sink)
+        # Pipe закрывается чуть раньше, чем процесс можно собрать. Дождавшись
+        # выхода, блокировку берём уже тогда, когда poll() на границе видит смерть.
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            logger.warning("xray-core closed its output but has not exited")
+        with self._exit_lock:
+            # Поток прошлого ядра мог задержаться: чужой конец вывода не считается.
+            if process is not self._process:
+                return
+            unexpected = self._started and not self._stopping
+        if unexpected and self._on_unexpected_exit:
+            try:
+                self._on_unexpected_exit()
+            except Exception:
+                logger.exception("Error in unexpected-exit callback")
+
+    def _survived_startup(self) -> bool:
+        with self._exit_lock:
+            if self._process is None or self._process.poll() is not None:
+                return False
+            self._started = True
+            return True
 
     def _inject_stats_api(self, config: dict[str, Any]) -> dict[str, Any]:
         """
@@ -250,6 +292,9 @@ class XrayManager:
             self._cleanup()
             return False, f"Error writing configuration: {e}"
 
+        self._stopping = False
+        self._started = False
+
         # Start process
         try:
             # Ядро пишет в pipe, а не в файл: файл, открытый работающим
@@ -262,14 +307,14 @@ class XrayManager:
                 **no_window(),
             )
             self._log_pump = threading.Thread(
-                target=_pump_core_output,
-                args=(self._process.stdout, self._core_logger()),
+                target=self._pump_and_report,
+                args=(self._process.stdout, self._core_logger(), self._process),
                 name="xray-log",
                 daemon=True,
             )
             self._log_pump.start()
 
-            if not self._wait_for_process_ready(timeout=2.0):
+            if not self._wait_for_process_ready(timeout=2.0) or not self._survived_startup():
                 self._cleanup()
                 return False, f"xray-core exited with error: see log file: {XRAY_LOG_FILE}"
 
@@ -324,6 +369,7 @@ class XrayManager:
         if self._process is None:
             return True, ""
 
+        self._stopping = True
         try:
             self._process.terminate()
             try:

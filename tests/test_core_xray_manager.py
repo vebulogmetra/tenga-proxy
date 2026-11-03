@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+import threading
+from unittest.mock import MagicMock
 
 from src.core.xray_manager import TrafficStats, XrayManager
 
@@ -215,6 +218,9 @@ def test_core_is_started_without_console_window(monkeypatch, tmp_path):
         def poll(self):
             return None
 
+        def wait(self, timeout=None):
+            return 0
+
     monkeypatch.setattr(xray_manager.subprocess, "Popen", FakePopen)
     monkeypatch.setattr(XrayManager, "_core_logger", lambda _self: xray_manager.logger)
     monkeypatch.setattr(XrayManager, "_wait_for_process_ready", lambda _self, **_kwargs: True)
@@ -243,3 +249,107 @@ def test_stats_query_runs_without_console_window(monkeypatch):
     manager.get_traffic()
 
     assert seen.get("creationflags") == platform_info.CREATE_NO_WINDOW
+
+
+class _FakeCore:
+    """Процесс ядра: stdout — настоящий pipe, конец вывода приходит при смерти."""
+
+    pid = 4242
+
+    def __init__(self) -> None:
+        read_end, write_end = os.pipe()
+        self.stdout = os.fdopen(read_end, "rb")
+        self._write_end = os.fdopen(write_end, "wb")
+        self.returncode = None
+
+    def poll(self):
+        return self.returncode
+
+    def die(self, code: int = 1) -> None:
+        self.returncode = code
+        self._write_end.close()
+
+    def terminate(self) -> None:
+        if self.returncode is None:
+            self.die(0)
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+
+def _start_with(monkeypatch, manager, process, ready=True):
+    monkeypatch.setattr("src.core.xray_manager.subprocess.Popen", lambda *_a, **_k: process)
+    monkeypatch.setattr(manager, "_wait_for_process_ready", lambda **_k: ready)
+    monkeypatch.setattr(manager, "_core_logger", lambda: MagicMock())
+    return manager.start({"inbounds": [], "outbounds": []})
+
+
+def _watched_manager(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    fired = threading.Event()
+    manager.set_on_unexpected_exit(fired.set)
+    return manager, fired
+
+
+def test_core_death_after_a_successful_start_is_reported(monkeypatch):
+    manager, fired = _watched_manager(monkeypatch)
+    core = _FakeCore()
+
+    ok, _ = _start_with(monkeypatch, manager, core)
+    assert ok
+    assert not fired.is_set()
+
+    core.die()
+
+    assert fired.wait(1.0)
+
+
+def test_exit_during_startup_is_not_an_unexpected_exit(monkeypatch):
+    """Ядро, упавшее в окне готовности, — ошибка start(), а не обрыв."""
+    manager, fired = _watched_manager(monkeypatch)
+    core = _FakeCore()
+    core.die()
+
+    ok, _ = _start_with(monkeypatch, manager, core, ready=False)
+
+    assert not ok
+    assert not fired.wait(0.2)
+
+
+def test_exit_right_after_the_ready_window_fails_the_start_without_a_report(monkeypatch):
+    """Ядро умерло на границе окна: start() и сигнал не должны сработать оба."""
+    manager, fired = _watched_manager(monkeypatch)
+    core = _FakeCore()
+    core.die()
+
+    ok, error = _start_with(monkeypatch, manager, core, ready=True)
+
+    assert not ok
+    assert "exited" in error
+    assert not fired.wait(0.2)
+
+
+def test_requested_stop_is_not_an_unexpected_exit(monkeypatch):
+    manager, fired = _watched_manager(monkeypatch)
+    assert _start_with(monkeypatch, manager, _FakeCore())[0]
+
+    manager.stop()
+
+    assert not fired.wait(0.2)
+
+
+def test_failing_callback_does_not_escape_the_pump(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    called = threading.Event()
+
+    def explode():
+        called.set()
+        raise RuntimeError("boom")
+
+    manager.set_on_unexpected_exit(explode)
+    core = _FakeCore()
+    assert _start_with(monkeypatch, manager, core)[0]
+
+    core.die()
+
+    assert called.wait(1.0)

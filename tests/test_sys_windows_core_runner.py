@@ -126,3 +126,14 @@ def test_process_alive_check_follows_active_backend():
     manager.start(PROXY)
 
     assert manager._check_process_alive() is True
+
+
+def test_unexpected_exit_callback_reaches_the_local_manager():
+    local = FakeLocal()
+    local.set_on_unexpected_exit = lambda callback: setattr(local, "on_exit", callback)
+    service = ServiceCoreRunner(client=FakeClient(), log_sink=ignore)
+    manager = WindowsXrayManager(local, service)
+
+    manager.set_on_unexpected_exit(ignore)
+
+    assert local.on_exit is ignore

@@ -16,6 +16,9 @@ def start_and_capture_env(monkeypatch, tmp_path, asset_dir):
         def poll(self):
             return None
 
+        def wait(self, timeout=None):
+            return 0
+
     def popen(_cmd, **kwargs):
         captured.update(kwargs)
         return FakeProcess()
