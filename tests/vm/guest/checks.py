@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import subprocess
@@ -411,6 +412,14 @@ def reconnect_vpn_on_tun1() -> None:
     )
 
 
+def core_vpn_interface() -> str | None:
+    config = json.loads((lab.CONFIG / "current_config.json").read_text(encoding="utf-8"))
+    for outbound in config["outbounds"]:
+        if outbound.get("tag") == "vpn":
+            return outbound["streamSettings"]["sockopt"]["interface"]
+    return None
+
+
 def test_table_follows_the_vpn_to_another_interface_under_the_block(guarded):
     guarded.connect("V", EXIT_B)
     first = kill_core()
@@ -438,6 +447,7 @@ def test_live_session_follows_the_vpn_to_another_interface(guarded):
         lab.sh("nmcli", "connection", "up", VPN_NAME, timeout=60)
         wait_until(lambda: lab.try_get(VPN_PEER) == VPN_SELF, "VPN работает на новом интерфейсе")
         assert 'oifname "tun1"' in table()
+        wait_until(lambda: core_vpn_interface() == "tun1", "ядро привязано к интерфейсу VPN")
         guarded.wait_for_exit(EXIT_B)
         guarded.wait_state("V")
 

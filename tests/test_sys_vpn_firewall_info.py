@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import subprocess
+from types import SimpleNamespace
 
 import pytest
 
@@ -147,3 +148,29 @@ def test_address_on_no_interface_gives_no_tunnel(monkeypatch):
     fake_nmcli(monkeypatch, {"IP4.ADDRESS": "10.99.0.1/24"}, addr_output=ADDR_OUTPUT)
 
     assert vpn.vpn_tunnel_interface("corp") is None
+
+
+def test_core_gets_the_tunnel_of_the_connection_and_not_a_foreign_one(monkeypatch):
+    """Чужой tun0 стоит раньше: ядро не должно привязаться к нему."""
+    monkeypatch.setattr(vpn, "is_vpn_active", lambda _name: True)
+    monkeypatch.setattr(vpn, "vpn_tunnel_interface", lambda _name: "tun1")
+
+    def must_not_search(*_args, **_kwargs):
+        raise AssertionError("Интерфейс уже известен, искать tun* незачем")
+
+    monkeypatch.setattr(vpn.subprocess, "run", must_not_search)
+
+    assert vpn.get_vpn_interface("corp") == "tun1"
+
+
+def test_unknown_tunnel_falls_back_to_the_search(monkeypatch):
+    monkeypatch.setattr(vpn, "is_vpn_active", lambda _name: True)
+    monkeypatch.setattr(vpn, "vpn_tunnel_interface", lambda _name: None)
+    links = "5: tun3: <POINTOPOINT,UP> mtu 1500"
+
+    def run(command, **_kwargs):
+        return SimpleNamespace(returncode=0, stdout=links if command[0] == "ip" else "", stderr="")
+
+    monkeypatch.setattr(vpn.subprocess, "run", run)
+
+    assert vpn.get_vpn_interface("corp") == "tun3"

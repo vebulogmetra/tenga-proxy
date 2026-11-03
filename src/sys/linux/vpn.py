@@ -100,6 +100,11 @@ def get_vpn_interface(connection_name: str) -> str | None:
     if not is_vpn_active(connection_name):
         return None
 
+    # Адрес подключения называет его туннель точно; поиск ниже нашёл бы и чужой tun*.
+    tunnel = vpn_tunnel_interface(connection_name)
+    if tunnel:
+        return tunnel
+
     try:
         # Get device name from nmcli
         result = subprocess.run(
