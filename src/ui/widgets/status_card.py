@@ -29,6 +29,7 @@ _STATE_CLASSES = (
     "status-connecting",
     "status-connected",
     "status-error",
+    "status-blocked",
 )
 
 
@@ -152,7 +153,7 @@ class StatusCard(Gtk.Box):
         self._summary.set_visible(bool(summary))
 
         self._set_logo(view)
-        self._warning.set_visible(view.css_class == "status-error")
+        self._warning.set_visible(view.css_class in ("status-error", "status-blocked"))
 
         self._spinner.set_visible(view.show_spinner)
         if view.show_spinner:

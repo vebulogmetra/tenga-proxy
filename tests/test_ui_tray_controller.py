@@ -229,3 +229,26 @@ def test_a_state_change_is_delivered_through_the_dispatcher(context):
     context.proxy_state.set_running(profile_id=1)
 
     assert len(delivered) == 1
+
+
+def test_stopped_proxy_with_closed_traffic_shows_blocked(controller, context):
+    from src.ui.logic.status import ConnectionState
+
+    tray, item, _app = controller
+    context.proxy_state.traffic_blocked = True
+
+    tray._apply_proxy_state(False, -1)
+
+    assert tray._state is ConnectionState.BLOCKED
+    assert item.tooltips[-1] == "Veblock: трафик заблокирован"
+
+
+def test_proxy_stopped_normally_is_disconnected(controller, context):
+    from src.ui.logic.status import ConnectionState
+
+    tray, _item, _app = controller
+    context.proxy_state.traffic_blocked = False
+
+    tray._apply_proxy_state(False, -1)
+
+    assert tray._state is ConnectionState.DISCONNECTED

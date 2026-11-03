@@ -37,6 +37,11 @@ from src.sub.device import ensure_hwid
 from src.sys import tun_access
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
+from src.ui.logic.platform_texts import (
+    KILL_SWITCH_HINT,
+    KILL_SWITCH_LABEL,
+    kill_switch_available,
+)
 from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TUN_NAME,
@@ -219,6 +224,9 @@ class SettingsDialog(QDialog):
         form.addRow("Имя интерфейса TUN", self.tun_name_edit)
         self.tun_mtu_spin = spin(576, 9000)
         form.addRow("MTU", self.tun_mtu_spin)
+        self.kill_switch_check = check(KILL_SWITCH_LABEL, KILL_SWITCH_HINT)
+        self.kill_switch_check.setVisible(kill_switch_available())
+        form.addRow(self.kill_switch_check)
         self.tun_access_label = QLabel()
         self.tun_access_label.setWordWrap(True)
         self.tun_access_label.setProperty("error", True)
@@ -375,6 +383,7 @@ class SettingsDialog(QDialog):
             self.mode_combo,
             self.tun_name_edit,
             self.tun_mtu_spin,
+            self.kill_switch_check,
             self.theme_combo,
             self.close_to_tray_check,
             self.log_level_combo,
@@ -417,6 +426,7 @@ class SettingsDialog(QDialog):
         tun = self.mode_combo.selected() == ProxyMode.TUN
         self.tun_name_edit.setEnabled(tun)
         self.tun_mtu_spin.setEnabled(tun)
+        self.kill_switch_check.setEnabled(tun)
         if tun and self._tun_problems is None:
             self._check_tun_access()
         self._sync_tun_access()
@@ -466,6 +476,7 @@ class SettingsDialog(QDialog):
         self.mode_combo.select(getattr(config, "proxy_mode", ProxyMode.TUN))
         self.tun_name_edit.setText(getattr(config, "tun_name", DEFAULT_TUN_NAME))
         self.tun_mtu_spin.setValue(int(getattr(config, "tun_mtu", 1500)))
+        self.kill_switch_check.setChecked(bool(getattr(config, "tun_kill_switch", False)))
         self._sync_mode()
         self.theme_combo.blockSignals(True)
         self.theme_combo.select(normalize_theme(getattr(config, "theme", None)))
@@ -509,6 +520,7 @@ class SettingsDialog(QDialog):
         config.proxy_mode = self.mode_combo.selected()
         config.tun_name = self.tun_name_edit.text().strip()
         config.tun_mtu = self.tun_mtu_spin.value()
+        config.tun_kill_switch = self.kill_switch_check.isChecked()
         config.log_level = self.log_level_combo.selected()
         config.theme = self.theme_combo.selected()
         config.close_to_tray = self.close_to_tray_check.isChecked()

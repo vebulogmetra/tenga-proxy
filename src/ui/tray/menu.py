@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from src.ui.logic.status import ConnectionState
+from src.ui.logic.status import RELEASE_BLOCK_LABEL, ConnectionState
 from src.ui.tray.dbusmenu import MenuItem, separator
 
 # Больше двух десятков пунктов панель растягивает на весь экран; полный список
@@ -31,17 +31,25 @@ def _status_label(state: ConnectionState, profile_name: str) -> str:
         return "Статус: подключение…"
     if state is ConnectionState.ERROR:
         return "Статус: ошибка"
+    if state is ConnectionState.BLOCKED:
+        return "Статус: трафик заблокирован"
     return "Статус: Отключено"
 
 
-def _connection_entry(state: ConnectionState) -> MenuItem:
+def _connection_entries(state: ConnectionState) -> list[MenuItem]:
     if state is ConnectionState.CONNECTED:
-        return MenuItem("Отключить", action="app.disconnect")
+        return [MenuItem("Отключить", action="app.disconnect")]
     if state is ConnectionState.CONNECTING:
         # Начатое подключение контроллер не прерывает, поэтому пункт только
         # сообщает о нём: «Отменить» лишь показал бы тост «уже выполняется».
-        return MenuItem("Подключение…", enabled=False)
-    return MenuItem("Подключить", action="app.connect")
+        return [MenuItem("Подключение…", enabled=False)]
+    if state is ConnectionState.BLOCKED:
+        # Как логотип: подключает сервер прошлого сеанса, а не выбранный в списке.
+        return [
+            MenuItem("Переподключить", action="app.toggle-connection"),
+            MenuItem(RELEASE_BLOCK_LABEL, action="app.release-block"),
+        ]
+    return [MenuItem("Подключить", action="app.connect")]
 
 
 def _profile_entries(profiles: Sequence, active_profile_id: int | None) -> list[MenuItem]:
@@ -89,7 +97,7 @@ def build_menu(
     return [
         MenuItem(_status_label(state, profile_name), enabled=False),
         separator(),
-        _connection_entry(state),
+        *_connection_entries(state),
         separator(),
         MenuItem("Серверы", children=_profile_entries(profiles, active_profile_id)),
         MenuItem("Добавить сервер…", action="app.add-profile"),

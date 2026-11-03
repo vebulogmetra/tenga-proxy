@@ -23,10 +23,13 @@ class ConnectionState(StrEnum):
     CONNECTING = "connecting"
     CONNECTED = "connected"
     ERROR = "error"
+    BLOCKED = "blocked"
 
 
 SWITCH_LABEL = "Переключить на выбранный"
 EMPTY_TITLE = "Добавьте сервер или подписку"
+BLOCKED_BANNER = "Соединение потеряно. Трафик закрыт, локальная сеть доступна"
+RELEASE_BLOCK_LABEL = "Снять блокировку"
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,8 @@ def action_hint(view: StatusView) -> str:
         return "Нажмите на логотип для отключения"
     if view.css_class == "status-error":
         return "Нажмите на логотип для повторного подключения"
+    if view.css_class == "status-blocked":
+        return "Нажмите на логотип, чтобы подключить сервер прошлого сеанса"
     return "Нажмите на логотип для подключения"
 
 
@@ -139,6 +144,18 @@ def status_view(
             icon_name="dialog-warning-symbolic",
             css_class="status-error",
             button_label="Повторить",
+            show_spinner=False,
+            metric_items=metric_items,
+            mode=mode,
+        )
+
+    if state is ConnectionState.BLOCKED:
+        return StatusView(
+            title="Трафик заблокирован",
+            subtitle=profile_name,
+            icon_name="dialog-warning-symbolic",
+            css_class="status-blocked",
+            button_label="Переподключить",
             show_spinner=False,
             metric_items=metric_items,
             mode=mode,
@@ -227,6 +244,7 @@ class ConnectionPresentation:
         latency: int | None,
         has_profiles: bool = True,
         can_connect: bool = True,
+        blocked: bool = False,
     ) -> StatusView:
         snapshot = (running, active_id if running else None)
         if self.error_snapshot is not None and snapshot != self.error_snapshot:
@@ -255,6 +273,9 @@ class ConnectionPresentation:
                 download_bytes=download,
                 latency_ms=latency,
             )
+        if blocked:
+            # Важнее ошибки: причина видна в строке проверки, а закрытый трафик — нет.
+            return status_view(ConnectionState.BLOCKED, profile_name=profile_name, mode=mode)
         state = ConnectionState.ERROR if self.error else ConnectionState.DISCONNECTED
         view = replace(
             status_view(state, profile_name=profile_name, mode=mode), action_enabled=can_connect
@@ -262,3 +283,8 @@ class ConnectionPresentation:
         if not has_profiles and not self.error:
             view = replace(view, title=EMPTY_TITLE)
         return view
+
+
+def is_traffic_blocked(state) -> bool:
+    """Показывать ли «Трафик заблокирован»: закрыто, а сеанса нет."""
+    return bool(state.traffic_blocked) and not state.is_running

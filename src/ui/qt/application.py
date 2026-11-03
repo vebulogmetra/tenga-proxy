@@ -212,6 +212,7 @@ class QtApplication:
             "hide-window": self._hide_window,
             "activate-window": self.activate,
             "restore-routing": lambda: self.controller.restore_routing(),
+            "release-block": lambda: self.controller.release_block(),
         }
         for name, handler in handlers.items():
             action = QAction(name, self.qt)
@@ -499,6 +500,7 @@ class QtApplication:
         """То, что GTK делает в `do_startup`: тема, failover, трей, активация."""
         apply_theme(getattr(self.context.config, "theme", None))
         self.controller.watch_monitor()
+        self.controller.report_recovery()
         if self._with_tray:
             self.start_tray()
         self._start_activation_server()

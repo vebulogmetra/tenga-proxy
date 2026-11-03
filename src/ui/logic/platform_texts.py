@@ -18,6 +18,18 @@ def vpn_group_description() -> str:
     return "Для сервера можно поднимать VPN перед запуском прокси"
 
 
+def kill_switch_available() -> bool:
+    """Блокировку трафика при обрыве умеет только Linux."""
+    return not platform_info.IS_WINDOWS
+
+
+KILL_SWITCH_LABEL = "Блокировать трафик при обрыве"
+KILL_SWITCH_HINT = (
+    "Если соединение прервётся, трафик не пойдёт напрямую. Локальная сеть останется доступной. "
+    "Нужен перехват DNS; VPN вне сервера работать не будет"
+)
+
+
 def missing_release_asset() -> str:
     if platform_info.IS_WINDOWS:
         return "установщик для этой системы отсутствует"

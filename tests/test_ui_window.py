@@ -468,3 +468,19 @@ def test_connecting_and_disconnecting_rebuild_the_pages(window, adw_app):
     state.set_stopped()
     _drain_main_loop()
     assert window.profiles_page.get_active_titles() == []
+
+
+def test_blocked_banner_follows_the_traffic_state(window):
+    state = window._context.proxy_state
+    assert not window.blocked_banner.get_revealed()
+
+    state.traffic_blocked = True
+    window.refresh_status()
+
+    assert window.blocked_banner.get_revealed()
+    assert window.status_card._title.get_text() == "Трафик заблокирован"
+
+    state.traffic_blocked = False
+    window.refresh_status()
+
+    assert not window.blocked_banner.get_revealed()

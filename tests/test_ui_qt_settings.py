@@ -391,3 +391,32 @@ def test_a_normal_update_has_no_fallback_mark(app):
     dialog = _open(app)
 
     assert "запасной" not in dialog.subscriptions.tree.topLevelItem(0).text(3)
+
+
+def test_kill_switch_follows_the_tun_mode(app):
+    app.context.config.proxy_mode = ProxyMode.SYSTEM_PROXY
+
+    dialog = _open(app)
+
+    assert not dialog.kill_switch_check.isEnabled()
+    dialog.mode_combo.select(ProxyMode.TUN)
+    assert dialog.kill_switch_check.isEnabled()
+
+
+def test_kill_switch_round_trips(app):
+    app.context.config.proxy_mode = ProxyMode.TUN
+    dialog = _open(app)
+
+    dialog.kill_switch_check.setChecked(True)
+    dialog.save()
+
+    assert app.context.config.tun_kill_switch is True
+    assert _saved(app)["tun_kill_switch"] is True
+
+
+def test_kill_switch_is_hidden_where_it_does_not_work(app, monkeypatch):
+    monkeypatch.setattr("src.ui.qt.dialogs.settings.kill_switch_available", lambda: False)
+
+    dialog = _open(app)
+
+    assert dialog.kill_switch_check.isHidden()

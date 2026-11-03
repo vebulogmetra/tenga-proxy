@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import pytest
+
 from src.ui.logic.status import ConnectionState
 from src.ui.tray.menu import MAX_PROFILES, build_menu
 
@@ -225,3 +227,24 @@ def test_the_error_state_offers_to_connect_again():
     items = build_menu(ConnectionState.ERROR, [], profile_name="")
 
     assert _find(items, "Подключить") is not None
+
+
+def test_blocked_state_has_its_own_status_line():
+    items = build_menu(ConnectionState.BLOCKED, [], profile_name="")
+
+    assert items[0].label == "Статус: трафик заблокирован"
+
+
+def test_blocked_state_offers_both_ways_out():
+    items = build_menu(ConnectionState.BLOCKED, [], profile_name="")
+
+    assert _find(items, "Переподключить").action == "app.toggle-connection"
+    assert _find(items, "Снять блокировку").action == "app.release-block"
+    assert _find(items, "Подключить") is None
+
+
+@pytest.mark.parametrize(
+    "state", [ConnectionState.DISCONNECTED, ConnectionState.CONNECTED, ConnectionState.ERROR]
+)
+def test_other_states_do_not_offer_to_release_the_block(state):
+    assert _find(build_menu(state, [], profile_name=""), "Снять блокировку") is None

@@ -85,6 +85,41 @@ def test_recover_network_removes_the_table_left_by_a_crash(entry, monkeypatch, f
     assert firewall_calls == [("remove",)]
 
 
+def test_recover_network_reports_a_full_block_left_by_a_crash(entry, monkeypatch):
+    from src.core import core_pid
+
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", lambda: (True, ""))
+    core_pid.remember_block()
+
+    entry.recover_network()
+
+    assert core_pid.take_block_released() is True
+    assert not core_pid.BLOCK_FILE.exists()
+
+
+def test_recover_network_is_silent_when_nothing_was_blocked(entry, monkeypatch):
+    from src.core import core_pid
+
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", lambda: (True, ""))
+
+    entry.recover_network()
+
+    assert core_pid.take_block_released() is False
+
+
+def test_failed_table_removal_keeps_the_marker(entry, monkeypatch):
+    from src.core import core_pid
+
+    monkeypatch.setattr("src.sys.tun_route.recover_tun_routes", lambda: (True, ""))
+    monkeypatch.setattr("src.sys.tun_firewall.remove_firewall", lambda: (False, "sudo"))
+    core_pid.remember_block()
+
+    entry.recover_network()
+
+    assert core_pid.take_block_released() is False
+    assert core_pid.BLOCK_FILE.exists()
+
+
 def test_recover_network_never_blocks_the_start(entry, monkeypatch, firewall_calls):
     def boom():
         raise OSError("ip not found")

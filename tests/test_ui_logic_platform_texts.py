@@ -50,3 +50,15 @@ def test_settings_page_titles(monkeypatch, windows, expected):
     ]
 
     assert titles == expected
+
+
+def test_kill_switch_is_offered_on_linux(monkeypatch):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+
+    assert platform_texts.kill_switch_available()
+
+
+def test_kill_switch_is_hidden_on_windows(monkeypatch):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+
+    assert not platform_texts.kill_switch_available()

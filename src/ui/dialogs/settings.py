@@ -22,6 +22,11 @@ from src.sys import tun_access
 from src.ui.logic import platform_texts
 from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
+from src.ui.logic.platform_texts import (
+    KILL_SWITCH_HINT,
+    KILL_SWITCH_LABEL,
+    kill_switch_available,
+)
 from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
@@ -159,6 +164,10 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_mtu_row = Adw.SpinRow.new_with_range(576, 9000, 1)
         self.tun_mtu_row.set_title("MTU")
         runtime.add(self.tun_mtu_row)
+
+        self.kill_switch_row = Adw.SwitchRow(title=KILL_SWITCH_LABEL, subtitle=KILL_SWITCH_HINT)
+        self.kill_switch_row.set_visible(kill_switch_available())
+        runtime.add(self.kill_switch_row)
 
         self.tun_access_row = Adw.ActionRow(title="TUN не заработает")
         self.tun_access_row.add_prefix(Gtk.Image.new_from_icon_name("dialog-warning-symbolic"))
@@ -429,6 +438,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         tun = self._mode.selected() == ProxyMode.TUN
         self.tun_name_row.set_sensitive(tun)
         self.tun_mtu_row.set_sensitive(tun)
+        self.kill_switch_row.set_sensitive(tun)
         if tun and self._tun_problems is None:
             self._check_tun_access()
         self._sync_tun_access()
@@ -475,6 +485,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._mode.select(getattr(config, "proxy_mode", ProxyMode.TUN))
         self.tun_name_row.set_text(getattr(config, "tun_name", DEFAULT_TUN_NAME))
         self.tun_mtu_row.set_value(float(getattr(config, "tun_mtu", 1500)))
+        self.kill_switch_row.set_active(bool(getattr(config, "tun_kill_switch", False)))
         self._sync_mode()
 
         self._log_level.select(getattr(config, "log_level", DEFAULT_LOG_LEVEL))
@@ -519,6 +530,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         # An empty/invalid interface name is reported before committing.
         config.tun_name = self.tun_name_row.get_text().strip()
         config.tun_mtu = int(self.tun_mtu_row.get_value())
+        config.tun_kill_switch = self.kill_switch_row.get_active()
 
         config.log_level = self._log_level.selected()
         config.theme = self._theme.selected()

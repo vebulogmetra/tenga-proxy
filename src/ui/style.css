@@ -19,7 +19,8 @@
   color: @accent_color;
 }
 
-.status-card.status-error .status-icon {
+.status-card.status-error .status-icon,
+.status-card.status-blocked .status-icon {
   color: @error_color;
 }
 

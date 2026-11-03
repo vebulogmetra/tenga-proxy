@@ -148,3 +148,11 @@ def test_button_click_emits_signal(card):
     card.logo_button.emit("clicked")
 
     assert seen == [True]
+
+
+def test_warning_is_shown_when_traffic_is_blocked(card):
+    from src.ui.logic.status import ConnectionState
+
+    card.update(_view(ConnectionState.BLOCKED, profile_name="X"))
+
+    assert card._warning.get_visible() is True

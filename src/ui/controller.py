@@ -18,11 +18,12 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
+from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
-from src.ui.logic.status import ConnectionState
+from src.ui.logic.status import BLOCKED_BANNER, ConnectionState, is_traffic_blocked
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version
 
@@ -41,6 +42,8 @@ CONFIRM_URL_CHANGE = "url-change"
 
 CORE_EXIT_RESTART = "Ядро остановилось, переподключаюсь"
 CORE_EXIT_GAVE_UP = "Ядро остановилось, трафик идёт напрямую"
+BLOCK_RELEASED = "Блокировка снята"
+BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился сбоем, блокировка трафика снята"
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
 CORE_RESTART_COOLDOWN = 60.0
 
@@ -365,10 +368,51 @@ class AppController:
         self.connect_profile(profile_id)
 
     def toggle_connection(self) -> None:
-        if self.context.proxy_state.is_running:
+        state = self.context.proxy_state
+        if state.is_running:
             self.disconnect_proxy()
             return
+        # Случайный клик не должен открыть трафик и увести на другой сервер.
+        if is_traffic_blocked(state) and self.context.profiles.get_profile(
+            state.blocked_profile_id
+        ):
+            self.connect_profile(state.blocked_profile_id)
+            return
         self.connect_selected()
+
+    def release_block(self) -> None:
+        """Снять блокировку трафика, оставшуюся без сеанса."""
+        if self.connection_busy():
+            self.toast("Подключение уже выполняется")
+            return
+        service = self._ensure_connection_service()
+        self.connection_thread = run_in_background(
+            service.release_block,
+            on_done=lambda _result: self._on_block_released(),
+            on_error=self._on_connection_failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-release-block",
+        )
+
+    def _on_block_released(self) -> None:
+        self.toast(BLOCK_RELEASED)
+        self._shell.set_tray_state(ConnectionState.DISCONNECTED, "")
+        self._refresh_window()
+        self._settle_core_exit()
+
+    def report_recovery(self) -> None:
+        """Сказать о блокировке, которую при старте пришлось снять за упавшим сеансом."""
+        if take_block_released():
+            self.notify_user(BLOCK_RELEASED_AFTER_CRASH)
+
+    def _show_failure_in_tray(self) -> None:
+        state = self.context.proxy_state
+        if is_traffic_blocked(state):
+            self.notify_user(BLOCKED_BANNER)
+            profile = self.context.profiles.get_profile(state.blocked_profile_id)
+            self._shell.set_tray_state(ConnectionState.BLOCKED, profile.name if profile else "")
+        else:
+            self._shell.set_tray_state(ConnectionState.ERROR, "")
 
     def reconnect_current(self) -> None:
         state = self.context.proxy_state
@@ -396,7 +440,7 @@ class AppController:
         else:
             self.toast(f"Не удалось подключиться: {result.error}")
             self._shell.show_error(result.error)
-            self._shell.set_tray_state(ConnectionState.ERROR, "")
+            self._show_failure_in_tray()
 
         self._refresh_window()
         self._settle_core_exit()
@@ -412,7 +456,7 @@ class AppController:
     def _on_connection_failed(self, error: BaseException) -> None:
         self.toast(f"Ошибка подключения: {error}")
         self._shell.show_error(str(error))
-        self._shell.set_tray_state(ConnectionState.ERROR, "")
+        self._show_failure_in_tray()
         self._refresh_window()
         self._settle_core_exit()
 
@@ -458,6 +502,10 @@ class AppController:
             return
         now = time.monotonic()
         if self._core_exit_at is not None and now - self._core_exit_at < CORE_RESTART_COOLDOWN:
+            if is_traffic_blocked(self.context.proxy_state):
+                self._show_failure_in_tray()
+                self._refresh_window()
+                return
             self._ensure_connection_service().release_block()
             self.notify_user(CORE_EXIT_GAVE_UP)
             self._shell.show_error(CORE_EXIT_GAVE_UP)

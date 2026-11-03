@@ -8,10 +8,13 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 
+from src.core import core_pid
 from src.core.connection import ConnectionResult
 from src.core.context import AppContext
 from src.core.main_loop import ImmediateLoop
 from src.ui.controller import (
+    BLOCK_RELEASED,
+    BLOCK_RELEASED_AFTER_CRASH,
     CONFIRM_DELETE,
     CONFIRM_URL_CHANGE,
     CORE_EXIT_GAVE_UP,
@@ -19,7 +22,7 @@ from src.ui.controller import (
     AppController,
     resume_monitoring,
 )
-from src.ui.logic.status import ConnectionState
+from src.ui.logic.status import BLOCKED_BANNER, ConnectionState
 
 LINK = "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба"
 
@@ -500,6 +503,116 @@ def test_stale_core_exit_does_not_touch_a_living_core(made, monkeypatch):
 
     service.handle_core_exit.assert_not_called()
     assert connected == []
+
+
+def test_core_exit_with_closed_traffic_gives_up_as_blocked(made, monkeypatch):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    on_exit, connected, now, _manager, service = _watch_core(
+        controller, monkeypatch, profile_id=entry.id
+    )
+    state = controller.context.proxy_state
+
+    on_exit()
+    state.traffic_blocked = True
+    state.blocked_profile_id = entry.id
+    now[0] += 30
+    on_exit()
+
+    assert connected == [entry.id]
+    service.release_block.assert_not_called()
+    assert BLOCKED_BANNER in shell.notifications
+    assert CORE_EXIT_GAVE_UP not in shell.notifications
+    assert shell.tray[-1] == (ConnectionState.BLOCKED, entry.name)
+
+
+def test_failed_switch_with_closed_traffic_is_blocked_not_error(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    state = controller.context.proxy_state
+    state.traffic_blocked = True
+    state.blocked_profile_id = entry.id
+
+    controller._on_connection_done(ConnectionResult(False, "нет ядра"), entry.id, entry.name)
+
+    assert shell.tray[-1] == (ConnectionState.BLOCKED, entry.name)
+    assert ("show_error", "нет ядра") in shell.calls
+
+
+def test_toggle_while_blocked_connects_the_lost_server_not_the_selected(made, monkeypatch):
+    """Случайный клик по логотипу не должен увести на другой сервер."""
+    controller, shell, _ = made
+    lost = add_profile(controller)
+    other = add_profile(controller)
+    shell.selected = other.id
+    state = controller.context.proxy_state
+    state.traffic_blocked = True
+    state.blocked_profile_id = lost.id
+    connected = []
+    monkeypatch.setattr(controller, "connect_profile", connected.append)
+
+    controller.toggle_connection()
+
+    assert connected == [lost.id]
+
+
+def test_toggle_while_blocked_on_a_deleted_server_falls_back_to_the_selected(made, monkeypatch):
+    controller, shell, _ = made
+    other = add_profile(controller)
+    shell.selected = other.id
+    state = controller.context.proxy_state
+    state.traffic_blocked = True
+    state.blocked_profile_id = 999
+    connected = []
+    monkeypatch.setattr(controller, "connect_profile", connected.append)
+
+    controller.toggle_connection()
+
+    assert connected == [other.id]
+
+
+def test_release_block_goes_through_the_service(made):
+    controller, shell, _ = made
+    service = MagicMock()
+    service.release_block.return_value = ConnectionResult(True)
+    controller.set_connection_service(service)
+
+    controller.release_block()
+    _wait(controller)
+
+    service.release_block.assert_called_once()
+    assert shell.last_toast == BLOCK_RELEASED
+    assert shell.tray[-1] == (ConnectionState.DISCONNECTED, "")
+
+
+def test_release_block_waits_for_a_running_connection(made, monkeypatch):
+    controller, shell, _ = made
+    service = MagicMock()
+    controller.set_connection_service(service)
+    monkeypatch.setattr(controller, "connection_busy", lambda: True)
+
+    controller.release_block()
+
+    service.release_block.assert_not_called()
+    assert shell.last_toast == "Подключение уже выполняется"
+
+
+def test_block_released_at_start_is_reported_once(made):
+    controller, shell, _ = made
+    core_pid.note_block_released()
+
+    controller.report_recovery()
+    controller.report_recovery()
+
+    assert shell.notifications == [BLOCK_RELEASED_AFTER_CRASH]
+
+
+def test_nothing_to_report_at_a_normal_start(made):
+    controller, shell, _ = made
+
+    controller.report_recovery()
+
+    assert shell.notifications == []
 
 
 def test_connection_warning_reaches_the_user(made):

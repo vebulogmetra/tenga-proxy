@@ -36,6 +36,7 @@ _BY_STATE = {
     # У ошибки своей иконки нет: состояние «не подключено», а причина видна
     # в подсказке и в окне.
     ConnectionState.ERROR: ICON_DISCONNECTED,
+    ConnectionState.BLOCKED: ICON_DISCONNECTED,
 }
 
 

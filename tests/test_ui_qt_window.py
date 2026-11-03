@@ -6,7 +6,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QLabel, QMessageBox
 
 from src.core.context import AppContext
 from src.fmt import parse_link
@@ -321,3 +321,30 @@ def test_journal_refresh_preserves_reading_position(made, tmp_path, monkeypatch)
     bar.setValue(bar.maximum())
     panel.refresh()
     assert bar.value() == bar.maximum()
+
+
+def test_blocked_traffic_is_shown_with_a_way_out(made):
+    from src.ui.logic.status import BLOCKED_BANNER
+
+    made.activate()
+    window = made.window
+    state = made.context.proxy_state
+    assert window.blocked_banner.isHidden()
+
+    state.traffic_blocked = True
+    window.refresh_status()
+
+    assert not window.blocked_banner.isHidden()
+    assert window.status_card.title.text() == "Трафик заблокирован"
+    assert any(
+        label.text() == BLOCKED_BANNER for label in window.blocked_banner.findChildren(QLabel)
+    )
+
+    called = []
+    made.controller.release_block = lambda: called.append(True)
+    window.release_block_button.click()
+    assert called == [True]
+
+    state.traffic_blocked = False
+    window.refresh_status()
+    assert window.blocked_banner.isHidden()

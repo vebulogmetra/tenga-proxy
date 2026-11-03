@@ -89,7 +89,7 @@ def recover_network() -> None:
     завершится, а маршруты и ядро первого трогать нельзя. Порядок важен:
     маршрут, возвращённый под живым ядром, снова уведёт трафик мимо него.
     """
-    from src.core.core_pid import kill_orphan
+    from src.core.core_pid import forget_block, kill_orphan, note_block_released
     from src.sys.tun_firewall import remove_firewall
     from src.sys.tun_route import recover_tun_routes
 
@@ -106,6 +106,9 @@ def recover_network() -> None:
         ok, error = remove_firewall()
         if not ok:
             log.warning("Failed to remove the firewall table: %s", error)
+        elif forget_block():
+            log.warning("Traffic block left by a crashed session was removed")
+            note_block_released()
     except Exception:
         log.exception("Firewall recovery crashed")
 

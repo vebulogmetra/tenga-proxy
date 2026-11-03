@@ -25,9 +25,12 @@ from src.ui.logic.geometry import (
 from src.ui.logic.menus import ADD_MENU, MAIN_MENU
 from src.ui.logic.monitoring_view import format_last_check, monitoring_view
 from src.ui.logic.status import (
+    BLOCKED_BANNER,
+    RELEASE_BLOCK_LABEL,
     ConnectionPresentation,
     ConnectionState,
     health_text,
+    is_traffic_blocked,
     mode_text,
     status_view,
 )
@@ -169,6 +172,16 @@ class MainWindow(Adw.ApplicationWindow):
             "button-clicked", lambda _banner: self.get_application().reconnect_current()
         )
         content.append(self.pending_banner)
+        self.blocked_banner = Adw.Banner(
+            title=BLOCKED_BANNER,
+            button_label=RELEASE_BLOCK_LABEL,
+            revealed=False,
+        )
+        self.blocked_banner.connect(
+            "button-clicked",
+            lambda _banner: self.get_application().activate_action("release-block", None),
+        )
+        content.append(self.blocked_banner)
 
         self.view_stack.set_vexpand(True)
         content.append(self.view_stack)
@@ -575,11 +588,16 @@ class MainWindow(Adw.ApplicationWindow):
 
         self.pending_banner.set_revealed(pending_settings(self._context))
         state = self._context.proxy_state
+        blocked = is_traffic_blocked(state)
+        self.blocked_banner.set_revealed(blocked)
         store = self._context.profiles
         selected_id = self.profiles_page.get_selected_profile_id()
         selected = store.get_profile(selected_id) if selected_id is not None else None
         if state.is_running:
             profile = store.get_profile(state.started_profile_id)
+        elif blocked:
+            # Тот же сервер, что подключит логотип.
+            profile = store.get_profile(state.blocked_profile_id)
         else:
             # Тот же порядок, что у connect_selected(): выделение, иначе последний.
             profile = selected or store.last_used_profile()
@@ -598,6 +616,7 @@ class MainWindow(Adw.ApplicationWindow):
             latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
             has_profiles=bool(store.profiles),
             can_connect=profile is not None,
+            blocked=blocked,
         )
         self.status_card.update(view)
 

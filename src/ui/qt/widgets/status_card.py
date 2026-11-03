@@ -50,6 +50,7 @@ def logo_pixmap(css_class: str, size: int = LOGO_SIZE) -> QPixmap:
     color = {
         "status-disconnected": b"#8a969d",
         "status-error": b"#e07078",
+        "status-blocked": b"#e07078",
         "status-connecting": b"#a9b8c4",
     }.get(css_class, b"#5ed3c7")
     if css_class != "status-connected":

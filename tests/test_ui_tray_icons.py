@@ -17,6 +17,7 @@ from src.ui.tray.icons import ICON_NAMES, icon_name_for, icons_directory
         (ConnectionState.CONNECTING, "tenga-proxy-connecting"),
         (ConnectionState.CONNECTED, "tenga-proxy-connected"),
         (ConnectionState.ERROR, "tenga-proxy-disconnected"),
+        (ConnectionState.BLOCKED, "tenga-proxy-disconnected"),
     ],
 )
 def test_every_state_maps_to_an_icon(state, expected):

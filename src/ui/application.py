@@ -198,6 +198,7 @@ class TengaApplication(Adw.Application):
         self._register_actions()
         self._setup_signal_handlers()
         self.watch_monitor()
+        self.controller.report_recovery()
         if self._with_tray:
             self.start_tray()
 
@@ -259,6 +260,7 @@ class TengaApplication(Adw.Application):
             "hide-window": self._hide_window,
             "activate-window": self._activate_window,
             "restore-routing": lambda: self.controller.restore_routing(),
+            "release-block": lambda: self.controller.release_block(),
         }
 
         for name, handler in handlers.items():

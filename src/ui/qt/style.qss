@@ -15,7 +15,8 @@
     color: #2e9d58;
 }
 
-#statusCard[state="status-error"] #statusTitle {
+#statusCard[state="status-error"] #statusTitle,
+#statusCard[state="status-blocked"] #statusTitle {
     color: #d13438;
 }
 

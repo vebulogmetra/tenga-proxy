@@ -26,6 +26,8 @@ PID_FILE: Path = CORE_DIR / "xray.pid"
 # затем, чтобы при следующем старте сказать пользователю, что блокировка снята.
 BLOCK_FILE: Path = CORE_DIR / "traffic-block"
 
+_block_released = False
+
 _TERMINATE_TIMEOUT = 5.0
 _POLL_INTERVAL = 0.1
 _DELETED_SUFFIX = " (deleted)"
@@ -57,6 +59,18 @@ def forget_block() -> bool:
     except OSError:
         return False
     return True
+
+
+def note_block_released() -> None:
+    """Запустивший процесс снял блокировку упавшего сеанса; сказать об этом окну."""
+    global _block_released
+    _block_released = True
+
+
+def take_block_released() -> bool:
+    global _block_released
+    released, _block_released = _block_released, False
+    return released
 
 
 def _process_binary(pid: int) -> str | None:

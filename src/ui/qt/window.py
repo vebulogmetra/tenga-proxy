@@ -42,10 +42,13 @@ from src.ui.logic.profiles_view import (
     build_profile_rows,
 )
 from src.ui.logic.status import (
+    BLOCKED_BANNER,
+    RELEASE_BLOCK_LABEL,
     SWITCH_LABEL,
     ConnectionPresentation,
     ConnectionState,
     health_text,
+    is_traffic_blocked,
     mode_text,
     status_view,
     switch_hint,
@@ -207,6 +210,18 @@ class MainWindow(QMainWindow):
         self.pending_banner.hide()
         layout.addWidget(self.pending_banner)
 
+        self.blocked_banner = QFrame()
+        self.blocked_banner.setObjectName("pendingBanner")
+        blocked = QHBoxLayout(self.blocked_banner)
+        blocked.addWidget(QLabel(BLOCKED_BANNER), 1)
+        self.release_block_button = QPushButton(RELEASE_BLOCK_LABEL)
+        self.release_block_button.clicked.connect(
+            lambda: self._app.activate_action("release-block")
+        )
+        blocked.addWidget(self.release_block_button)
+        self.blocked_banner.hide()
+        layout.addWidget(self.blocked_banner)
+
         self.library_container = QFrame()
         self.library_container.setObjectName("profileContainer")
         self.library_container.setMaximumWidth(CONTENT_MAX_WIDTH)
@@ -348,9 +363,13 @@ class MainWindow(QMainWindow):
 
         self.pending_banner.setVisible(pending_settings(self._context))
         state = self._context.proxy_state
+        blocked = is_traffic_blocked(state)
+        self.blocked_banner.setVisible(blocked)
         store = self._context.profiles
         selected = store.get_profile(self.selected_profile_id())
-        target = selected or store.last_used_profile()
+        # При блокировке — тот же сервер, что подключит логотип.
+        target = store.get_profile(state.blocked_profile_id) if blocked else None
+        target = target or selected or store.last_used_profile()
         profile = store.get_profile(state.started_profile_id) if state.is_running else target
         busy = self._app.controller.connection_busy()
         mode = state.started_mode if state.is_running else self._context.config.proxy_mode
@@ -365,6 +384,7 @@ class MainWindow(QMainWindow):
             latency=getattr(profile, "latency_ms", None) if profile and state.is_running else None,
             has_profiles=bool(store.profiles),
             can_connect=target is not None,
+            blocked=blocked,
         )
         self.status_card.update_view(view)
         selected_name = flagged(selected.name)[1] if selected else "Сервер не выбран"

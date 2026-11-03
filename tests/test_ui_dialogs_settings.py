@@ -119,6 +119,33 @@ def test_saving_writes_the_config_back(gtk_ready):
     assert config.inbound_socks_port == 3080
 
 
+def test_kill_switch_row_follows_the_tun_mode(gtk_ready):
+    dialog = make_dialog()
+    assert not dialog.kill_switch_row.get_sensitive()
+
+    dialog.select_mode("tun")
+
+    assert dialog.kill_switch_row.get_sensitive()
+
+
+def test_kill_switch_round_trips(gtk_ready):
+    config = make_config()
+    config.tun_kill_switch = False
+    dialog = make_dialog(config)
+    dialog.select_mode("tun")
+    dialog.kill_switch_row.set_active(True)
+    dialog.save()
+
+    assert config.tun_kill_switch is True
+    assert make_dialog(config).kill_switch_row.get_active() is True
+
+
+def test_kill_switch_row_is_hidden_where_it_does_not_work(gtk_ready, monkeypatch):
+    monkeypatch.setattr("src.ui.dialogs.settings.kill_switch_available", lambda: False)
+
+    assert not make_dialog().kill_switch_row.get_visible()
+
+
 def test_saving_writes_the_selected_mode(gtk_ready):
     config = make_config()
     dialog = make_dialog(config)

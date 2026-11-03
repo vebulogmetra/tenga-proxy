@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from src.ui.logic.status import (
@@ -9,6 +11,7 @@ from src.ui.logic.status import (
     ConnectionState,
     action_hint,
     health_text,
+    is_traffic_blocked,
     mode_text,
     status_view,
     summary_line,
@@ -280,3 +283,74 @@ def test_summary_skips_unknown_values():
     assert summary_line(status_view(ConnectionState.DISCONNECTED, mode="Режим TUN")) == (
         "Режим\u00a0TUN"
     )
+
+
+# --- трафик заблокирован ---
+
+
+def _resolve_blocked(presentation=None, **overrides):
+    arguments = {
+        "running": False,
+        "active_id": None,
+        "busy": False,
+        "profile_name": "Польша",
+        "mode": "TUN",
+        "upload": 0,
+        "download": 0,
+        "latency": None,
+        "blocked": True,
+    }
+    arguments.update(overrides)
+    return (presentation or ConnectionPresentation()).resolve(**arguments)
+
+
+def test_blocked_view_names_the_state_and_the_action():
+    view = status_view(ConnectionState.BLOCKED, profile_name="Польша")
+
+    assert view.title == "Трафик заблокирован"
+    assert view.subtitle == "Польша"
+    assert view.button_label == "Переподключить"
+    assert view.css_class == "status-blocked"
+    assert view.action_enabled
+
+
+def test_blocked_hint_says_which_server_the_logo_connects():
+    view = status_view(ConnectionState.BLOCKED, profile_name="Польша")
+
+    assert "прошлого сеанса" in action_hint(view)
+
+
+def test_blocked_is_more_important_than_an_error():
+    presentation = ConnectionPresentation()
+    presentation.fail("причина", (False, None))
+
+    assert _resolve_blocked(presentation).title == "Трафик заблокирован"
+
+
+def test_running_session_is_not_shown_as_blocked():
+    view = _resolve_blocked(running=True, active_id=1)
+
+    assert view.title == "Подключено"
+
+
+def test_connecting_while_blocked_shows_the_attempt():
+    view = _resolve_blocked(busy=True)
+
+    assert view.title == "Подключение…"
+
+
+def test_blocked_stays_clickable_without_a_selection():
+    view = _resolve_blocked(can_connect=False, has_profiles=False)
+
+    assert view.action_enabled
+    assert view.title == "Трафик заблокирован"
+
+
+@pytest.mark.parametrize(
+    ("traffic_blocked", "is_running", "expected"),
+    [(True, False, True), (True, True, False), (False, False, False)],
+)
+def test_traffic_is_blocked_only_without_a_session(traffic_blocked, is_running, expected):
+    state = SimpleNamespace(traffic_blocked=traffic_blocked, is_running=is_running)
+
+    assert is_traffic_blocked(state) is expected

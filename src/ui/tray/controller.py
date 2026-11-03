@@ -11,7 +11,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
-from src.ui.logic.status import ConnectionState
+from src.ui.logic.status import ConnectionState, is_traffic_blocked
 from src.ui.tray.icons import icon_name_for, icons_directory
 from src.ui.tray.menu import build_menu
 
@@ -106,6 +106,8 @@ class TrayController:
             return "Veblock: подключение…"
         if self._state is ConnectionState.ERROR:
             return "Veblock: ошибка"
+        if self._state is ConnectionState.BLOCKED:
+            return "Veblock: трафик заблокирован"
         return "Veblock: отключено"
 
     def _profiles(self) -> list:
@@ -126,6 +128,12 @@ class TrayController:
         if is_running:
             profile = self._context.profiles.get_profile(profile_id)
             self.set_state(ConnectionState.CONNECTED, profile.name if profile else "")
+        elif is_traffic_blocked(self._context.proxy_state):
+            # Читается здесь, а не в подписчике: контроллер ставит флаг уже после
+            # остановки, и к этому вызову из очереди главного цикла он на месте.
+            state = self._context.proxy_state
+            profile = self._context.profiles.get_profile(state.blocked_profile_id)
+            self.set_state(ConnectionState.BLOCKED, profile.name if profile else "")
         else:
             self.set_state(ConnectionState.DISCONNECTED, "")
 
