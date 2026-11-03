@@ -10,7 +10,7 @@ import shutil
 
 import pytest
 
-from src.core import config_builder
+from src.core import config_builder, platform_info
 from src.core.config_builder import build_session_config
 from src.db.config import DnsProvider, ProxyMode, VpnSettings
 from src.sys.firewall_policy import SOCKET_MARK
@@ -66,7 +66,8 @@ def outbound_tags(config: dict) -> set[str]:
     return {o.get("tag") for o in config["outbounds"]}
 
 
-def test_dns_queries_from_tun_are_handed_to_the_dns_module(context, profile, system):
+def test_dns_queries_from_tun_are_handed_to_the_dns_module(context, profile, system, monkeypatch):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     config = build_session_config(context, profile)
 
     # Первым: иначе адрес DNS-сервера совпал бы с каким-нибудь IP-правилом раньше.

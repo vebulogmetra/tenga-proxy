@@ -10,6 +10,7 @@ from __future__ import annotations
 import ipaddress
 import logging
 
+from src.core import platform_info
 from src.core.config_validator import exposed_inbounds, validate_session_config
 from src.core.context import AppContext
 from src.core.dns_config import DNS_TAG, REMOTE_DNS_TAG, build_dns, parse_dns_endpoint
@@ -434,7 +435,8 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
         if any(rule["outboundTag"] == BLOCK_TAG for rule in route_rules):
             outbounds.append({"protocol": "blackhole", "tag": BLOCK_TAG})
 
-        if runtime_mode == ProxyMode.TUN:
+        # На Windows TUN поднимает служба, блокировки там пока нет и метка не значит ничего.
+        if runtime_mode == ProxyMode.TUN and not platform_info.IS_WINDOWS:
             _prepare_tun_sockets(outbounds, outbound, profile.bean.server_address)
 
         if vpn_settings:

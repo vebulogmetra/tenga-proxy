@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from src.core import config_builder
+from src.core import config_builder, platform_info
 from src.core.config_builder import build_session_config
 from src.db.config import ProxyMode, VpnSettings
 from src.sys.firewall_policy import SOCKET_MARK
@@ -142,13 +142,18 @@ def sockopt(config: dict, tag: str) -> dict:
     return outbound(config, tag).get("streamSettings", {}).get("sockopt", {})
 
 
+@pytest.fixture
+def linux(monkeypatch):
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
+
+
 IP_LINK = (
     "vless://11111111-1111-1111-1111-111111111111@203.0.113.7:443"
     "?type=tcp&security=tls&sni=proxy.example.org#Test"
 )
 
 
-def test_tun_marks_every_socket_outbound(context, profile, physical, monkeypatch):
+def test_tun_marks_every_socket_outbound(context, profile, physical, monkeypatch, linux):
     monkeypatch.setattr(config_builder, "system_dns_servers", lambda _iface: ["192.168.0.1"])
     context.config.proxy_mode = ProxyMode.TUN
     context.config.dns.intercept = True
@@ -159,7 +164,7 @@ def test_tun_marks_every_socket_outbound(context, profile, physical, monkeypatch
         assert sockopt(config, tag)["mark"] == SOCKET_MARK, tag
 
 
-def test_tun_marks_the_vpn_outbound(context, profile, physical, monkeypatch):
+def test_tun_marks_the_vpn_outbound(context, profile, physical, monkeypatch, linux):
     monkeypatch.setattr(config_builder, "is_vpn_active", lambda _name: True)
     monkeypatch.setattr(config_builder, "get_vpn_interface", lambda _name: "tun0")
     context.config.proxy_mode = ProxyMode.TUN
@@ -171,6 +176,19 @@ def test_tun_marks_the_vpn_outbound(context, profile, physical, monkeypatch):
     assert sockopt(config, "vpn")["interface"] == "tun0"
 
 
+def test_windows_tun_is_left_as_it_was(context, profile, physical, monkeypatch):
+    """Конфиг идёт в службу, а блокировки на Windows нет."""
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    context.config.proxy_mode = ProxyMode.TUN
+
+    config = build_session_config(context, profile)
+
+    for out in config["outbounds"]:
+        options = out.get("streamSettings", {}).get("sockopt", {})
+        assert "mark" not in options
+        assert "domainStrategy" not in options
+
+
 def test_system_proxy_mode_does_not_mark(context, profile):
     context.config.proxy_mode = ProxyMode.SYSTEM_PROXY
 
@@ -180,7 +198,7 @@ def test_system_proxy_mode_does_not_mark(context, profile):
         assert "mark" not in out.get("streamSettings", {}).get("sockopt", {})
 
 
-def test_tun_resolves_a_named_server_through_the_core_dns(context, profile, physical):
+def test_tun_resolves_a_named_server_through_the_core_dns(context, profile, physical, linux):
     """Иначе имя сервера уходит системному резолверу без метки — под блокировку."""
     context.config.proxy_mode = ProxyMode.TUN
 

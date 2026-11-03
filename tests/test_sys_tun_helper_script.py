@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="POSIX sh и подмена PATH")
 
 HELPER = Path(__file__).resolve().parents[1] / "core/scripts/tun_route_helper.sh"
 

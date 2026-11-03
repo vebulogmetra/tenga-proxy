@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import signal
+import sys
 
 import pytest
 
 from src.core import core_pid
+
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="нужны /proc и SIGKILL")
 
 BINARY = "/usr/lib/tenga-proxy/core/bin/xray"
 
