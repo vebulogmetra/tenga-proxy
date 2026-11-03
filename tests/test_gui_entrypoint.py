@@ -63,15 +63,16 @@ def test_install_hint_mentions_installer_on_windows(entry, monkeypatch):
     assert "apt" not in entry.gtk_install_hint()
 
 
-def test_recover_network_restores_routes_left_by_a_crash(entry, monkeypatch):
-    called = []
+def test_recover_network_stops_the_orphan_before_restoring_routes(entry, monkeypatch):
+    order = []
+    monkeypatch.setattr("src.core.core_pid.kill_orphan", lambda: order.append("orphan"))
     monkeypatch.setattr(
-        "src.sys.tun_route.recover_tun_routes", lambda: (called.append(1), (True, ""))[1]
+        "src.sys.tun_route.recover_tun_routes", lambda: (order.append("routes"), (True, ""))[1]
     )
 
     entry.recover_network()
 
-    assert called == [1]
+    assert order == ["orphan", "routes"]
 
 
 def test_recover_network_never_blocks_the_start(entry, monkeypatch):

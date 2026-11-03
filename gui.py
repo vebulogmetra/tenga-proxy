@@ -83,15 +83,18 @@ def gtk_install_hint() -> str:
 
 
 def recover_network() -> None:
-    """Вернуть маршрут по умолчанию, если прошлый сеанс TUN упал.
+    """Погасить ядро упавшего сеанса и вернуть маршрут по умолчанию.
 
     Только у процесса, захватившего блокировку: второй экземпляр сейчас же
-    завершится, а маршруты первого трогать нельзя.
+    завершится, а маршруты и ядро первого трогать нельзя. Порядок важен:
+    маршрут, возвращённый под живым ядром, снова уведёт трафик мимо него.
     """
+    from src.core.core_pid import kill_orphan
     from src.sys.tun_route import recover_tun_routes
 
     log = logging.getLogger("startup")
     try:
+        kill_orphan()
         ok, error = recover_tun_routes()
     except Exception:
         log.exception("TUN route recovery crashed")

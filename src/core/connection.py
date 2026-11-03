@@ -15,6 +15,7 @@ import threading
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from src.core import core_pid
 from src.core.config_builder import UnsafeConfigError, build_session_config, intercepts_dns
 from src.core.health_probe import (
     attach_health_inbound,
@@ -120,6 +121,7 @@ class ConnectionService:
                 message = self._explain_tun_failure(message)
             return ConnectionResult(False, message)
 
+        self._remember_core()
         context.proxy_state.applied_settings = applied_settings
         context.proxy_state.health_endpoint = health_endpoint
         context.proxy_state.set_running(profile_id, mode=runtime_mode)
@@ -135,6 +137,11 @@ class ConnectionService:
             context.monitor.start()
 
         return ConnectionResult(True)
+
+    def _remember_core(self) -> None:
+        manager = self._context.xray_manager
+        if manager.pid is not None:
+            core_pid.remember(manager.pid, manager.binary_path)
 
     def _explain_tun_failure(self, error: str) -> str:
         """Заменить ошибку ядра или sudo тем, чего не хватает системе для TUN.
@@ -230,6 +237,7 @@ class ConnectionService:
                 context.xray_manager.stop()
             except Exception:
                 logger.debug("Rollback stop failed", exc_info=True)
+            core_pid.forget()
             context.proxy_state.set_stopped()
             return ConnectionResult(
                 False, self._explain_tun_failure(error or "Не удалось настроить маршруты TUN")
@@ -279,6 +287,7 @@ class ConnectionService:
 
     def _finish_session(self) -> None:
         context = self._context
+        core_pid.forget()
         started_mode = getattr(context.proxy_state, "started_mode", ProxyMode.TUN)
         if started_mode == ProxyMode.TUN:
             ok, error = restore_tun_routes(self._tun_route_state)

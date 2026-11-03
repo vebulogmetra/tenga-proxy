@@ -22,6 +22,12 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _core_pid_file_in_tmp(monkeypatch, tmp_path):
+    """Pid-файл настоящего ядра разработчика тестам не принадлежит."""
+    monkeypatch.setattr("src.core.core_pid.PID_FILE", tmp_path / "xray.pid")
+
+
+@pytest.fixture(autouse=True)
 def _no_system_dns_changes(monkeypatch) -> list[str]:
     """Подключение в тестах не трогает DNS машины."""
     calls: list[str] = []

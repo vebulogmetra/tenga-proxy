@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
+from src.core import core_pid
 from src.core.connection import ConnectionService
 from src.core.http_probe import ProbeEndpoint
 
@@ -31,6 +32,7 @@ def make_context(tmp_path, profile):
     context.config_dir = tmp_path
     context.profiles.get_profile.return_value = profile
     context.xray_manager.start.return_value = (True, "")
+    context.xray_manager.pid = None
     context.xray_manager.stop.return_value = (True, "")
     context.config.proxy_mode = "system_proxy"
     context.config.inbound_socks_port = 2080
@@ -425,6 +427,7 @@ def test_connection_uses_a_frozen_copy_when_settings_change_during_build(tmp_pat
     profile = context.profiles.add_profile(VLESSBean(server_address="example.com"))
     context._xray_manager = MagicMock()
     context._xray_manager.start.return_value = (True, "")
+    context._xray_manager.pid = None
     expected = runtime_snapshot(context.config, profile)
     seen = []
 
@@ -483,6 +486,34 @@ def test_reconnect_after_core_exit_keeps_ownership_of_the_vpn(tmp_path, monkeypa
     assert ConnectionService(context).connect(1).ok
 
     assert context.proxy_state.vpn_auto_connected is True
+
+
+def test_started_core_is_remembered_and_forgotten_with_the_session(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.pid = 4242
+    context.xray_manager.binary_path = "/opt/xray"
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: None)
+    service = ConnectionService(context)
+
+    assert service.connect(1).ok
+    assert '"pid": 4242' in core_pid.PID_FILE.read_text()
+
+    context.proxy_state.started_mode = "system_proxy"
+    service.disconnect()
+    assert not core_pid.PID_FILE.exists()
+
+
+def test_core_without_a_pid_is_not_remembered(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.xray_manager.pid = None
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+
+    assert ConnectionService(context).connect(1).ok
+
+    assert not core_pid.PID_FILE.exists()
 
 
 def test_core_exit_clears_the_system_proxy(tmp_path, monkeypatch):

@@ -81,6 +81,11 @@ class WindowsXrayManager:
     def binary_path(self) -> str:
         return self._local.binary_path
 
+    @property
+    def pid(self) -> int | None:
+        # Осиротевшее ядро ищут только на Linux: на Windows сетью управляет служба.
+        return None
+
     def get_version(self):
         return self._local.get_version()
 

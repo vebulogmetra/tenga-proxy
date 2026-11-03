@@ -166,6 +166,11 @@ class XrayManager:
         return self._binary_path
 
     @property
+    def pid(self) -> int | None:
+        """Pid of the running core process."""
+        return self._process.pid if self._process is not None else None
+
+    @property
     def is_running(self) -> bool:
         """Check if process is running."""
         if self._process is None:
