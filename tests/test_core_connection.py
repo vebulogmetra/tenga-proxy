@@ -471,6 +471,20 @@ def test_core_exit_restores_routes_and_stops_the_monitor_but_keeps_vpn(tmp_path,
     context.xray_manager.stop.assert_called_once()
 
 
+def test_reconnect_after_core_exit_keeps_ownership_of_the_vpn(tmp_path, monkeypatch):
+    """VPN подняли мы: и после перезапуска ядра отключение должно его погасить."""
+    profile = FakeProfile(vpn_settings=FakeVpn(enabled=True, auto_connect=True))
+    context = make_context(tmp_path, profile)
+    context.proxy_state.vpn_auto_connected = True
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+    monkeypatch.setattr("src.core.connection.is_vpn_active", lambda _name: True)
+
+    assert ConnectionService(context).connect(1).ok
+
+    assert context.proxy_state.vpn_auto_connected is True
+
+
 def test_core_exit_clears_the_system_proxy(tmp_path, monkeypatch):
     context = make_context(tmp_path, FakeProfile())
     context.proxy_state.is_running = True

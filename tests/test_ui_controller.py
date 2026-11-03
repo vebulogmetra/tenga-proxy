@@ -3,14 +3,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
+from src.core.connection import ConnectionResult
 from src.core.context import AppContext
 from src.core.main_loop import ImmediateLoop
-from src.ui.controller import CONFIRM_DELETE, CONFIRM_URL_CHANGE, AppController, resume_monitoring
+from src.ui.controller import (
+    CONFIRM_DELETE,
+    CONFIRM_URL_CHANGE,
+    CORE_EXIT_GAVE_UP,
+    CORE_EXIT_RESTART,
+    AppController,
+    resume_monitoring,
+)
 from src.ui.logic.status import ConnectionState
 
 LINK = "vless://11111111-2222-3333-4444-555555555555@example.org:443?type=tcp#Проба"
@@ -360,6 +368,137 @@ def test_toggle_disconnects_a_running_proxy(made):
 
     assert calls == [("disconnect",)]
     assert shell.last_toast == "Отключено"
+
+
+def _watch_core(controller, monkeypatch, *, profile_id=1):
+    """Подписать контроллер на выход ядра и вернуть сигнал, запросы и часы."""
+    manager = MagicMock(is_running=False)
+    controller.context._xray_manager = manager
+    service = MagicMock()
+    service.handle_core_exit.return_value = profile_id
+    controller.set_connection_service(service)
+    connected = []
+    monkeypatch.setattr(controller, "connect_profile", connected.append)
+    now = [1000.0]
+    monkeypatch.setattr("src.ui.controller.time.monotonic", lambda: now[0])
+    controller._watch_core()
+    on_exit = manager.set_on_unexpected_exit.call_args[0][0]
+    return on_exit, connected, now, manager, service
+
+
+def test_connecting_subscribes_to_the_core_exit(made):
+    """Менеджер создаётся лениво и без ядра падает, поэтому подписка — при подключении."""
+    controller, _shell, _ = made
+    entry = add_profile(controller)
+    manager = MagicMock()
+    controller.context._xray_manager = manager
+    controller.set_connection_service(FakeService([]))
+
+    controller.connect_profile(entry.id)
+    _wait(controller)
+
+    manager.set_on_unexpected_exit.assert_called_once()
+
+
+def test_connecting_without_a_core_reaches_the_service(made, monkeypatch):
+    """Ядра нет: об этом сообщает само подключение, подписка его не срывает."""
+    controller, _shell, _ = made
+    entry = add_profile(controller)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    monkeypatch.setattr("src.core.config.find_xray_binary", lambda: None)
+    monkeypatch.setattr("src.core.xray_manager.find_xray_binary", lambda: None)
+
+    controller.connect_profile(entry.id)
+    _wait(controller)
+
+    assert calls == [("connect", entry.id)]
+
+
+def test_core_exit_reconnects_the_same_profile_once(made, monkeypatch):
+    controller, shell, _ = made
+    on_exit, connected, now, _manager, _service = _watch_core(controller, monkeypatch)
+
+    on_exit()
+
+    assert connected == [1]
+    assert CORE_EXIT_RESTART in shell.notifications
+
+    now[0] += 30
+    on_exit()
+
+    assert connected == [1]
+    assert CORE_EXIT_GAVE_UP in shell.notifications
+    assert ("show_error", CORE_EXIT_GAVE_UP) in shell.calls
+    assert shell.tray[-1] == (ConnectionState.ERROR, "")
+
+
+def test_core_exit_restarts_again_after_the_cooldown(made, monkeypatch):
+    controller, _shell, _ = made
+    on_exit, connected, now, _manager, _service = _watch_core(controller, monkeypatch)
+
+    on_exit()
+    now[0] += 61
+    on_exit()
+
+    assert connected == [1, 1]
+
+
+def test_core_exit_without_a_session_stays_quiet(made, monkeypatch):
+    controller, shell, _ = made
+    on_exit, connected, _now, _manager, _service = _watch_core(
+        controller, monkeypatch, profile_id=-1
+    )
+
+    on_exit()
+
+    assert connected == []
+    assert shell.notifications == []
+
+
+def test_core_exit_while_connecting_is_deferred(made, monkeypatch):
+    """Сигнал пришёл, пока поток подключения жив: разобрать после него."""
+    controller, _shell, _ = made
+    on_exit, connected, _now, _manager, service = _watch_core(controller, monkeypatch)
+    monkeypatch.setattr(controller, "connection_busy", lambda: True)
+
+    on_exit()
+
+    service.handle_core_exit.assert_not_called()
+
+    monkeypatch.setattr(controller, "connection_busy", lambda: False)
+    controller._on_connection_done(ConnectionResult(False, "x"), 1, "P")
+
+    service.handle_core_exit.assert_called_once()
+    assert connected == [1]
+
+
+def test_deferred_core_exit_is_dropped_when_the_new_core_lives(made, monkeypatch):
+    """Подключение, во время которого пришёл сигнал, подняло новое ядро."""
+    controller, _shell, _ = made
+    on_exit, connected, _now, manager, service = _watch_core(controller, monkeypatch)
+    monkeypatch.setattr(controller, "connection_busy", lambda: True)
+
+    on_exit()
+
+    monkeypatch.setattr(controller, "connection_busy", lambda: False)
+    manager.is_running = True
+    controller._on_connection_done(ConnectionResult(False, "x"), 1, "P")
+
+    service.handle_core_exit.assert_not_called()
+    assert connected == []
+
+
+def test_stale_core_exit_does_not_touch_a_living_core(made, monkeypatch):
+    """Сигнал стоял в очереди главного цикла, а ядро уже поднято заново."""
+    controller, _shell, _ = made
+    on_exit, connected, _now, manager, service = _watch_core(controller, monkeypatch)
+    manager.is_running = True
+
+    on_exit()
+
+    service.handle_core_exit.assert_not_called()
+    assert connected == []
 
 
 def test_select_profile_prefers_the_installed_handler(made):

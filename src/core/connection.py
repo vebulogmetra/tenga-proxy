@@ -91,7 +91,6 @@ class ConnectionService:
 
         build_context, profile = self._session_inputs(profile)
         settings = build_context.config
-        self._reset_vpn_flag()
         self._auto_connect_vpn(profile, profile_id)
 
         runtime_mode = normalize_proxy_mode(getattr(settings, "proxy_mode", None))
@@ -171,11 +170,15 @@ class ConnectionService:
         """
         vpn = getattr(profile, "vpn_settings", None)
         if not vpn or not vpn.enabled or not getattr(vpn, "auto_connect", False):
+            self._reset_vpn_flag()
             return
 
         if is_vpn_active(vpn.connection_name):
+            # Флаг не трогаем: VPN мог поднять прошлый сеанс, упавший вместе с
+            # ядром, и погасить его при отключении всё ещё нам.
             return
 
+        self._reset_vpn_flag()
         logger.info(
             "Auto-connecting VPN '%s' before starting profile %s",
             vpn.connection_name,

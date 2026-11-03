@@ -39,6 +39,11 @@ LATENCY_REFRESH_INTERVAL_MS = 150
 CONFIRM_DELETE = "delete"
 CONFIRM_URL_CHANGE = "url-change"
 
+CORE_EXIT_RESTART = "Ядро остановилось, переподключаюсь"
+CORE_EXIT_GAVE_UP = "Ядро остановилось, трафик идёт напрямую"
+# Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
+CORE_RESTART_COOLDOWN = 60.0
+
 
 class Shell(Protocol):
     """Что контроллеру нужно от интерфейса. Реализуют GTK- и Qt-оболочки.
@@ -137,6 +142,8 @@ class AppController:
         self._connection_service = None
         self.connection_thread = None
         self._failover: FailoverController | None = None
+        self._core_exit_at: float | None = None
+        self._core_exit_pending = False
         self._release_fetcher: Callable[[], object] | None = None
         self.core_update_thread = None
         self.app_update_thread = None
@@ -321,6 +328,7 @@ class AppController:
         # и сам по себе трей о нём не узнает.
         self._shell.set_tray_state(ConnectionState.CONNECTING, profile.name)
 
+        self._watch_core()
         service = self._ensure_connection_service()
         self.connection_thread = run_in_background(
             lambda: service.connect(profile_id),
@@ -389,6 +397,7 @@ class AppController:
             self._shell.set_tray_state(ConnectionState.ERROR, "")
 
         self._refresh_window()
+        self._settle_core_exit()
 
     def _on_disconnection_done(self, result) -> None:
         if result.ok:
@@ -396,16 +405,64 @@ class AppController:
         else:
             self.toast(f"Не удалось отключиться: {result.error}")
         self._refresh_window()
+        self._settle_core_exit()
 
     def _on_connection_failed(self, error: BaseException) -> None:
         self.toast(f"Ошибка подключения: {error}")
         self._shell.show_error(str(error))
         self._shell.set_tray_state(ConnectionState.ERROR, "")
         self._refresh_window()
+        self._settle_core_exit()
 
     def _refresh_window(self) -> None:
         self._shell.refresh_status()
         self._shell.refresh_pages()
+
+    # --- падение ядра ---
+
+    def _watch_core(self) -> None:
+        """Подписаться на самостоятельный выход ядра; сигнал приходит из его потока."""
+        try:
+            manager = self.context.xray_manager
+        except RuntimeError:
+            # Ядра нет: об этом скажет само подключение.
+            logger.debug("xray-core is not available yet", exc_info=True)
+            return
+        manager.set_on_unexpected_exit(lambda: self._loop.dispatch(self._on_core_exit))
+
+    def _on_core_exit(self) -> None:
+        if self.connection_busy():
+            # Поток подключения ещё работает: разберёмся, когда он закончит.
+            self._core_exit_pending = True
+            return
+        self._handle_core_exit()
+
+    def _settle_core_exit(self) -> None:
+        """Разобрать отложенный сигнал; зовётся из итога подключения или отключения."""
+        if not self._core_exit_pending:
+            return
+        # Итог уже доставлен, но поток может ещё не выйти: занятым он больше не считается.
+        self.connection_thread = None
+        self._handle_core_exit()
+
+    def _handle_core_exit(self) -> None:
+        self._core_exit_pending = False
+        if self.context.xray_manager.is_running:
+            # Пока сигнал шёл, ядро подняли заново: упало уже не оно.
+            return
+        profile_id = self._ensure_connection_service().handle_core_exit()
+        self._refresh_window()
+        if profile_id < 0:
+            return
+        now = time.monotonic()
+        if self._core_exit_at is not None and now - self._core_exit_at < CORE_RESTART_COOLDOWN:
+            self.notify_user(CORE_EXIT_GAVE_UP)
+            self._shell.show_error(CORE_EXIT_GAVE_UP)
+            self._shell.set_tray_state(ConnectionState.ERROR, "")
+            return
+        self._core_exit_at = now
+        self.notify_user(CORE_EXIT_RESTART)
+        self.connect_profile(profile_id)
 
     # --- failover ---
 
