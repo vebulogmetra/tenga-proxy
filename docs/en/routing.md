@@ -122,6 +122,34 @@ do not open. It is closed by the nftables table `inet veblock`, which needs the
 Disconnecting removes the table. If the application crashed, the next start
 removes it; to do it by hand: `sudo nft delete table inet veblock`.
 
+## Block traffic on connection loss
+
+The "Block traffic on connection loss" setting (Settings → Mode, TUN mode on Linux
+only) closes all direct traffic for the session: if the core crashes or switching
+servers fails, applications get a refusal instead of reaching the internet around
+the proxy.
+
+The local network, the core's own sockets and the VPN bound to the server stay
+open. Traffic stays closed until Disconnect, quitting the application or the
+"Remove block" button; in this state the logo reconnects the server of the lost
+session.
+
+Limitations:
+
+- DNS interception and systemd-resolved are needed. Without interception the
+  connection is refused with an explanation; without resolved the application warns
+  that DNS is not protected.
+- A VPN works only if it is bound to the server and is a NetworkManager plugin (for
+  example OpenVPN). WireGuard and VPNs outside the server's settings do not work with
+  this setting.
+- GNOME shows "limited connectivity" when the connection is lost: its connectivity
+  check goes around the tunnel.
+- A captive portal page does not open: disconnect first.
+- Forwarded ports and SSH from outside stop responding.
+
+If the application crashed, the network stays closed until the next start, which
+removes the block and says so. By hand: `sudo nft delete table inet veblock`.
+
 ## Rule Priority
 
 Order of routing rule processing:

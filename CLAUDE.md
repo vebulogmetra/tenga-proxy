@@ -218,8 +218,10 @@ Windows) и возвращается при следующем старте, е�
 собирает сам и готового текста не принимает. Сокеты xray помечены
 `sockopt.mark` (`SOCKET_MARK`, `src/sys/firewall_policy.py`) и проходят мимо
 неё. Уровень `ipv6_only` стоит в каждом сеансе TUN: IPv6 в туннель не
-заворачивается. Таблица общая на систему: не запускай помощника, `nft` и xray с
-TUN на машине с живым сеансом. Настоящие правила проверяет `make test-firewall`
+заворачивается. Настройка `tun_kill_switch` включает уровень `full`: закрыт весь
+прямой трафик, кроме локальной сети и VPN сервера, а после неудачи показывается
+состояние `ConnectionState.BLOCKED` с действием `release-block`. Таблица общая на
+систему: не запускай помощника, `nft` и xray с TUN на машине с живым сеансом. Настоящие правила проверяет `make test-firewall`
 в `sudo unshare -n`. Падение ядра ловит `XrayManager.set_on_unexpected_exit`,
 решает `AppController`; осиротевшее ядро гасит `src/core/core_pid.py`. Дизайн:
 `docs/plans/2026-11-03-tun-kill-switch-design.md`.

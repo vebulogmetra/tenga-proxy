@@ -92,6 +92,7 @@ The system tray icon allows you to:
 In settings you can:
 
 - Configure proxy port
+- Block traffic on connection loss (TUN mode on Linux only, see [routing](routing.md))
 - Configure DNS servers
 - Configure routing parameters
 - Configure monitoring parameters
