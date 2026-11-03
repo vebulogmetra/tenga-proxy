@@ -111,6 +111,17 @@ In TUN mode application queries are intercepted and handled by the same rules
 this needs the installed route helper (`python cli.py install`); query types
 other than A and AAAA are forwarded to your network's DNS unchanged.
 
+## IPv6 in TUN mode
+
+Only IPv4 goes into the tunnel, so outgoing IPv6 is closed for the TUN session,
+except for the local network: otherwise applications would use it to bypass the
+proxy. Applications get an immediate refusal and move on to IPv4; IPv6-only sites
+do not open. It is closed by the nftables table `inet veblock`, which needs the
+`nftables` package.
+
+Disconnecting removes the table. If the application crashed, the next start
+removes it; to do it by hand: `sudo nft delete table inet veblock`.
+
 ## Rule Priority
 
 Order of routing rule processing:

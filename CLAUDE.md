@@ -213,6 +213,17 @@ Windows) и возвращается при следующем старте, е�
 (`recover_tun_routes`). `src/sys/tun_access.py` называет, чего не хватает
 для TUN: это видно в настройках и в ошибке подключения.
 
+Трафик мимо туннеля закрывает таблица nftables `inet veblock`
+(`src/sys/tun_firewall.py`): её ставит и снимает тот же помощник, правила он
+собирает сам и готового текста не принимает. Сокеты xray помечены
+`sockopt.mark` (`SOCKET_MARK`, `src/sys/firewall_policy.py`) и проходят мимо
+неё. Уровень `ipv6_only` стоит в каждом сеансе TUN: IPv6 в туннель не
+заворачивается. Таблица общая на систему: не запускай помощника, `nft` и xray с
+TUN на машине с живым сеансом. Настоящие правила проверяет `make test-firewall`
+в `sudo unshare -n`. Падение ядра ловит `XrayManager.set_on_unexpected_exit`,
+решает `AppController`; осиротевшее ядро гасит `src/core/core_pid.py`. Дизайн:
+`docs/plans/2026-11-03-tun-kill-switch-design.md`.
+
 **Windows и TUN** - TUN-интерфейс без прав администратора не создать, поэтому
 на Windows `AppContext.xray_manager` — `WindowsXrayManager`
 (`src/sys/windows/core_runner.py`): конфиг с TUN-inbound запускает служба
@@ -334,6 +345,8 @@ profiles = parse_subscription_content(content)  # List[ProxyBean]
   имя `ru.tenga.Proxy` занимает установленное приложение, GApplication
   становится прокси к нему, и окно создаётся в чужом процессе. Без изоляции
   тесты окна пропускаются с объяснением, а не падают
+- Настоящие правила nftables — `make test-firewall`: маркер `firewall`, root и
+  отдельное сетевое пространство, вне его тесты отказываются работать
 - Тесты трея — отдельная цель `make test-tray`: они поднимают собственную
   шину через `Gio.TestDBus`, и вкладывать её в `dbus-run-session` нельзя
 - Тесты Qt-интерфейса — `make test-qt`: маркер `qt`, платформа offscreen,
