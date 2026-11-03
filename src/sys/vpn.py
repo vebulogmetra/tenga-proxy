@@ -13,6 +13,9 @@ if IS_WINDOWS:
         is_vpn_active,
         list_network_interfaces,
         list_vpn_connections,
+        vpn_connection_type,
+        vpn_server_addresses,
+        vpn_tunnel_interface,
     )
 else:
     from src.sys.linux.vpn import (
@@ -25,6 +28,9 @@ else:
         is_vpn_active,
         list_network_interfaces,
         list_vpn_connections,
+        vpn_connection_type,
+        vpn_server_addresses,
+        vpn_tunnel_interface,
     )
 
 __all__ = [
@@ -37,4 +43,7 @@ __all__ = [
     "is_vpn_active",
     "list_network_interfaces",
     "list_vpn_connections",
+    "vpn_connection_type",
+    "vpn_server_addresses",
+    "vpn_tunnel_interface",
 ]

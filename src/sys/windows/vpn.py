@@ -132,3 +132,16 @@ def get_default_interface(
         skipped.add(vpn_interface)
     route = netinfo.default_route(netinfo.snapshot(), exclude=skipped)
     return route.alias if route else None
+
+
+# Блокировки трафика на Windows пока нет, спрашивать о VPN для правил некому.
+def vpn_connection_type(connection_name: str) -> str:
+    return ""
+
+
+def vpn_server_addresses(connection_name: str) -> tuple[str, ...]:
+    return ()
+
+
+def vpn_tunnel_interface(connection_name: str) -> str | None:
+    return None

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import ipaddress
 import logging
+import re
+import socket
 import subprocess
 from collections.abc import Iterable
 
@@ -500,3 +503,109 @@ def disconnect_vpn(connection_name: str) -> bool:
     except Exception as e:
         logger.error("Error disconnecting VPN %s: %s", connection_name, e)
         return False
+
+
+# --- Для правил блокировки трафика ---
+
+
+def _nmcli_field(connection_name: str, field: str) -> str:
+    """Значение поля подключения; пустая строка, если узнать не удалось."""
+    try:
+        result = subprocess.run(
+            ["nmcli", "-g", field, "connection", "show", connection_name],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning("nmcli %s failed: %s", field, e)
+        return ""
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def vpn_connection_type(connection_name: str) -> str:
+    """Тип подключения: `vpn` у плагинов NetworkManager, `wireguard`, `tun`…"""
+    return _nmcli_field(connection_name, "connection.type")
+
+
+def _unescape(value: str) -> str:
+    return re.sub(r"\\(.)", r"\1", value)
+
+
+def _vpn_data(raw: str) -> dict[str, str]:
+    """Разобрать `vpn.data`: пары `ключ = значение`, в значениях экранированы `:` и `,`."""
+    data = {}
+    for pair in re.split(r"(?<!\\),\s*", raw):
+        key, separator, value = pair.partition(" = ")
+        if separator:
+            data[key.strip()] = _unescape(value.strip())
+    return data
+
+
+def _remote_host(remote: str) -> str:
+    """Имя или адрес из записи вида `host`, `host:port:proto`, `[v6]:port`, `v6`."""
+    if remote.startswith("["):
+        return remote[1:].partition("]")[0]
+    try:
+        ipaddress.ip_address(remote)
+    except ValueError:
+        return remote.partition(":")[0]
+    return remote
+
+
+def _resolve_all(host: str) -> list[str]:
+    try:
+        answers = socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)
+    except OSError as e:
+        logger.warning("Cannot resolve VPN server %s: %s", host, e)
+        return []
+    # Адрес с зоной (fe80::1%eth0) в правило не подставить, а локальная сеть и так открыта.
+    return [str(info[4][0]) for info in answers if "%" not in str(info[4][0])]
+
+
+def vpn_server_addresses(connection_name: str) -> tuple[str, ...]:
+    """Адреса сервера VPN из настроек подключения: IPv4 и IPv6, без повторов.
+
+    Адрес хранят плагины NetworkManager: ключ `remote` у OpenVPN, `gateway` у
+    остальных. Значение бывает именем, списком и содержит порт, поэтому оно
+    разбирается и разрешается в адреса, пока DNS ещё открыт.
+    """
+    data = _vpn_data(_nmcli_field(connection_name, "vpn.data"))
+    addresses: dict[str, None] = {}
+    for remote in re.split(r"[,\s]+", data.get("remote") or data.get("gateway") or ""):
+        if remote:
+            addresses.update(dict.fromkeys(_resolve_all(_remote_host(remote))))
+    return tuple(addresses)
+
+
+def vpn_tunnel_interface(connection_name: str) -> str | None:
+    """Интерфейс туннеля — только тот, на котором адрес этого подключения.
+
+    `GENERAL.IP-IFACE` у OpenVPN называет родителя (wlp1s0), а первый попавшийся
+    `tun*` может быть чужим. В правила блокировки ни то, ни другое не годится:
+    открыли бы мимо туннеля физический интерфейс или чужой VPN.
+    """
+    addresses = {
+        entry.strip().partition("/")[0]
+        for entry in _nmcli_field(connection_name, "IP4.ADDRESS").split("|")
+        if entry.strip()
+    }
+    if not addresses:
+        return None
+    try:
+        result = subprocess.run(
+            ["ip", "-o", "-4", "addr", "show"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError) as e:
+        logger.warning("ip addr failed: %s", e)
+        return None
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[2] == "inet" and parts[3].partition("/")[0] in addresses:
+            return parts[1]
+    return None
