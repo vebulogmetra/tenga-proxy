@@ -583,3 +583,75 @@ def test_downgrade_drops_the_marker(world):
     assert service.connect(1).ok
 
     assert not core_pid.BLOCK_FILE.exists()
+
+
+# --- интерфейс VPN ---
+
+
+def _session_with_vpn(world):
+    _, profiles, service = world
+    profiles[1].vpn_settings = FakeVpn()
+    assert service.connect(1).ok
+    return service
+
+
+def test_vpn_is_watched_only_while_its_interface_is_open(world):
+    _, _, service = world
+    assert service.watched_vpn() is None
+    assert service.connect(2).ok
+    assert service.watched_vpn() is None, "Сеанс без VPN"
+
+    assert _session_with_vpn(world).watched_vpn() == "corp"
+    service.disconnect()
+    assert service.watched_vpn() is None
+
+
+def test_table_follows_the_vpn_to_a_new_interface(world, firewall_calls):
+    service = _session_with_vpn(world)
+    before = policies(firewall_calls)[-1]
+
+    assert service.follow_vpn_interface("corp", "tun1") is True
+
+    after = policies(firewall_calls)[-1]
+    assert after.vpn_interface == "tun1"
+    assert after.vpn_addresses == before.vpn_addresses
+    assert after.dns_closed is before.dns_closed
+
+
+def test_same_interface_does_not_touch_the_table(world, firewall_calls):
+    service = _session_with_vpn(world)
+    current = policies(firewall_calls)[-1].vpn_interface
+    count = len(firewall_calls)
+
+    assert service.follow_vpn_interface("corp", current) is False
+    assert len(firewall_calls) == count
+
+
+def test_late_answer_about_another_vpn_is_ignored(world, firewall_calls):
+    service = _session_with_vpn(world)
+    count = len(firewall_calls)
+
+    assert service.follow_vpn_interface("old", "tun7") is False
+    assert len(firewall_calls) == count
+
+
+def test_refused_table_change_keeps_watching_the_old_interface(world, firewall_calls, monkeypatch):
+    service = _session_with_vpn(world)
+    old = policies(firewall_calls)[-1].vpn_interface
+    monkeypatch.setattr("src.core.connection.apply_firewall", lambda _p: (False, "nft failed"))
+
+    assert service.follow_vpn_interface("corp", "tun1") is False
+
+    monkeypatch.setattr("src.core.connection.apply_firewall", lambda _p: (True, ""))
+    assert service.follow_vpn_interface("corp", old) is False
+    assert service.follow_vpn_interface("corp", "tun1") is True
+
+
+def test_table_follows_the_vpn_under_the_block_too(world, firewall_calls):
+    context, _, _ = world
+    service = _session_with_vpn(world)
+    service.handle_core_exit()
+    assert context.proxy_state.traffic_blocked is True
+
+    assert service.follow_vpn_interface("corp", "tun1") is True
+    assert policies(firewall_calls)[-1].vpn_interface == "tun1"

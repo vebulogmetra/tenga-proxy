@@ -1086,3 +1086,98 @@ def test_broken_link_only_toasts(made):
     controller.import_app_link("veblock://add/\x01")
 
     assert shell.last_toast and shell.forms == []
+
+
+# --- интерфейс VPN ---
+
+
+class WatchedService:
+    """Служба подключения с VPN в таблице; интерфейс подменяет тест."""
+
+    def __init__(self, interface, changed=True, vpn="corp"):
+        self.interface = interface
+        self.changed = changed
+        self.vpn = vpn
+        self.followed = []
+
+    def watched_vpn(self):
+        return self.vpn
+
+    def probe_vpn_interface(self, name):
+        if isinstance(self.interface, Exception):
+            raise self.interface
+        return self.interface
+
+    def follow_vpn_interface(self, name, interface):
+        self.followed.append((name, interface))
+        return self.changed
+
+    def shutdown(self, _thread):
+        pass
+
+
+def _vpn_check(controller, service, monkeypatch):
+    controller._connection_service = service
+    reconnects = []
+    monkeypatch.setattr(controller, "reconnect_current", lambda: reconnects.append(True))
+    assert controller._check_vpn_interface() is True, "Таймер должен жить дальше"
+    if controller.vpn_probe_thread is not None:
+        controller.vpn_probe_thread.join(5)
+    return reconnects
+
+
+def test_new_vpn_interface_moves_the_table_and_reconnects(made, monkeypatch):
+    controller, _, _ = made
+    service = WatchedService("tun1")
+
+    assert _vpn_check(controller, service, monkeypatch) == [True]
+    assert service.followed == [("corp", "tun1")]
+
+
+def test_unchanged_vpn_interface_does_not_reconnect(made, monkeypatch):
+    controller, _, _ = made
+
+    assert _vpn_check(controller, WatchedService("tun0", changed=False), monkeypatch) == []
+
+
+@pytest.mark.parametrize("interface", [None, RuntimeError("nmcli")])
+def test_vpn_without_an_interface_keeps_the_table(made, monkeypatch, interface):
+    """VPN переподключается: подождём, а сбой проверки не должен останавливать следующие."""
+    controller, _, _ = made
+    service = WatchedService(interface)
+
+    _vpn_check(controller, service, monkeypatch)
+
+    assert service.followed == []
+    assert controller._vpn_probe_running is False
+
+
+def test_nothing_to_watch_does_not_start_a_probe(made, monkeypatch):
+    controller, _, _ = made
+
+    _vpn_check(controller, WatchedService("tun1", vpn=None), monkeypatch)
+
+    assert controller.vpn_probe_thread is None
+
+
+def test_busy_connection_postpones_the_vpn_check(made, monkeypatch):
+    """Таблицу меняет поток подключения: второго писателя быть не должно."""
+    controller, _, _ = made
+    monkeypatch.setattr(controller, "connection_busy", lambda: True)
+
+    _vpn_check(controller, WatchedService("tun1"), monkeypatch)
+
+    assert controller.vpn_probe_thread is None
+
+
+def test_vpn_watch_starts_once_and_stops_on_shutdown(made):
+    controller, _, loop = made
+    controller._connection_service = WatchedService("tun0")
+
+    controller._watch_vpn_interface()
+    controller._watch_vpn_interface()
+    assert len(loop.scheduled) == 1
+
+    handle = loop.scheduled[0]
+    controller.shutdown()
+    assert handle in loop.cancelled

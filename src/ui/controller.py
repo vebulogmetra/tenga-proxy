@@ -46,6 +46,7 @@ BLOCK_RELEASED = "Блокировка снята"
 BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился сбоем, блокировка трафика снята"
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
 CORE_RESTART_COOLDOWN = 60.0
+VPN_WATCH_INTERVAL_MS = 5000
 
 
 class Shell(Protocol):
@@ -146,6 +147,9 @@ class AppController:
         self.connection_thread = None
         self._failover: FailoverController | None = None
         self._core_exit_at: float | None = None
+        self._vpn_watch: object | None = None
+        self.vpn_probe_thread = None
+        self._vpn_probe_running = False
         self._core_exit_pending = False
         self._release_fetcher: Callable[[], object] | None = None
         self.core_update_thread = None
@@ -173,6 +177,9 @@ class AppController:
 
     def shutdown(self) -> None:
         """Погасить ядро: вызывается до снятия блокировки экземпляра."""
+        if self._vpn_watch is not None:
+            self._loop.cancel(self._vpn_watch)
+            self._vpn_watch = None
         if self._connection_service is not None:
             self._connection_service.shutdown(self.connection_thread)
 
@@ -332,6 +339,7 @@ class AppController:
         self._shell.set_tray_state(ConnectionState.CONNECTING, profile.name)
 
         self._watch_core()
+        self._watch_vpn_interface()
         service = self._ensure_connection_service()
         self.connection_thread = run_in_background(
             lambda: service.connect(profile_id),
@@ -463,6 +471,38 @@ class AppController:
     def _refresh_window(self) -> None:
         self._shell.refresh_status()
         self._shell.refresh_pages()
+
+    # --- интерфейс VPN ---
+
+    def _watch_vpn_interface(self) -> None:
+        if self._vpn_watch is None:
+            self._vpn_watch = self._loop.schedule(VPN_WATCH_INTERVAL_MS, self._check_vpn_interface)
+
+    def _check_vpn_interface(self) -> bool:
+        """VPN переподключился на другой интерфейс: таблица закрывала бы его самого."""
+        if self._vpn_probe_running or self.connection_busy():
+            return True
+        service = self._ensure_connection_service()
+        name = service.watched_vpn()
+        if name is None:
+            return True
+        self._vpn_probe_running = True
+        self.vpn_probe_thread = run_in_background(
+            lambda: service.probe_vpn_interface(name),
+            on_done=lambda interface: self._on_vpn_interface(name, interface),
+            on_error=lambda _error: self._on_vpn_interface(name, None),
+            dispatch=self._loop.dispatch,
+            name="tenga-vpn-interface",
+        )
+        return True
+
+    def _on_vpn_interface(self, name: str, interface: str | None) -> None:
+        self._vpn_probe_running = False
+        if interface is None or self.connection_busy():
+            return
+        if self._ensure_connection_service().follow_vpn_interface(name, interface):
+            # Исходящее соединение ядра привязано к старому имени.
+            self.reconnect_current()
 
     # --- падение ядра ---
 

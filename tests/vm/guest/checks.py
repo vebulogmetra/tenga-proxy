@@ -393,6 +393,55 @@ def test_openvpn_survives_the_block_and_reconnects_under_it(guarded):
 # --- обновление и удаление: последними, удаление убирает пакет ---
 
 
+@contextmanager
+def tun0_taken():
+    """Клиент OpenVPN получит tun1, как при переподключении, пока старый tun0 не освобождён."""
+    lab.sh("ip", "tuntap", "add", "dev", "tun0", "mode", "tun")
+    try:
+        yield
+    finally:
+        lab.sh("ip", "link", "del", "tun0", check=False)
+
+
+def reconnect_vpn_on_tun1() -> None:
+    lab.sh("nmcli", "connection", "down", VPN_NAME, timeout=45)
+    wait_until(
+        lambda: lab.sh("ip", "link", "show", "tun0", check=False).returncode != 0,
+        "tun0 освобождён",
+    )
+
+
+def test_table_follows_the_vpn_to_another_interface_under_the_block(guarded):
+    guarded.connect("V", EXIT_B)
+    first = kill_core()
+    wait_until(lambda: lab.core_pids() and first not in lab.core_pids(), "перезапуск ядра")
+    guarded.wait_for_exit(EXIT_B)
+    kill_core()
+    guarded.wait_state("трафик заблокирован")
+
+    reconnect_vpn_on_tun1()
+    with tun0_taken():
+        lab.sh("nmcli", "connection", "up", VPN_NAME, timeout=60)
+        wait_until(lambda: lab.try_get(VPN_PEER) == VPN_SELF, "VPN работает на новом интерфейсе")
+        rules = table()
+        assert 'oifname "tun1"' in rules
+        assert 'oifname "tun0"' not in rules, "Чужой tun0 открывать нельзя"
+        assert refusal_seconds(SITE) < FAST_REFUSAL
+    lab.clear_logs()
+
+
+def test_live_session_follows_the_vpn_to_another_interface(guarded):
+    guarded.connect("V", EXIT_B)
+
+    reconnect_vpn_on_tun1()
+    with tun0_taken():
+        lab.sh("nmcli", "connection", "up", VPN_NAME, timeout=60)
+        wait_until(lambda: lab.try_get(VPN_PEER) == VPN_SELF, "VPN работает на новом интерфейсе")
+        assert 'oifname "tun1"' in table()
+        guarded.wait_for_exit(EXIT_B)
+        guarded.wait_state("V")
+
+
 def test_package_upgrade_keeps_the_session_closed(guarded):
     guarded.connect("A", EXIT_A)
 
