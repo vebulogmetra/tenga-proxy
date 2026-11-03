@@ -438,3 +438,61 @@ def test_connection_uses_a_frozen_copy_when_settings_change_during_build(tmp_pat
     assert ConnectionService(context).connect(profile.id).ok
     assert seen == ["info"]
     assert context.proxy_state.applied_settings == expected
+
+
+def test_core_exit_restores_routes_and_stops_the_monitor_but_keeps_vpn(tmp_path, monkeypatch):
+    profile = FakeProfile(vpn_settings=FakeVpn(enabled=True, auto_connect=True))
+    context = make_context(tmp_path, profile)
+    context.config.proxy_mode = "tun"
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 1
+    context.proxy_state.started_mode = "tun"
+    context.proxy_state.vpn_auto_connected = True
+    context.monitor = MagicMock()
+    restored = []
+    monkeypatch.setattr(
+        "src.core.connection.restore_tun_routes", lambda s: restored.append(s) or (True, "")
+    )
+    disconnected = []
+    monkeypatch.setattr(
+        "src.core.connection.disconnect_vpn", lambda name: disconnected.append(name) or True
+    )
+    service = ConnectionService(context)
+    service._tun_route_state = "state"
+
+    profile_id = service.handle_core_exit()
+
+    assert profile_id == 1
+    assert restored == ["state"]
+    assert disconnected == []
+    context.monitor.stop.assert_called_once()
+    context.proxy_state.set_stopped.assert_called_once()
+    # Процесс уже мёртв, но временный конфиг и сокет статистики убирает stop().
+    context.xray_manager.stop.assert_called_once()
+
+
+def test_core_exit_clears_the_system_proxy(tmp_path, monkeypatch):
+    context = make_context(tmp_path, FakeProfile())
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 1
+    context.proxy_state.started_mode = "system_proxy"
+    cleared = []
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: cleared.append(True))
+
+    ConnectionService(context).handle_core_exit()
+
+    assert cleared == [True]
+
+
+def test_core_exit_after_a_disconnect_changes_nothing(tmp_path, monkeypatch):
+    """Сигнал обогнало отключение: состояние уже убрано, сеанса больше нет."""
+    context = make_context(tmp_path, FakeProfile())
+    context.proxy_state.is_running = False
+    context.proxy_state.started_mode = "system_proxy"
+    cleared = []
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: cleared.append(True))
+
+    assert ConnectionService(context).handle_core_exit() == -1
+
+    assert cleared == []
+    context.proxy_state.set_stopped.assert_not_called()

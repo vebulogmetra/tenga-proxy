@@ -253,7 +253,29 @@ class ConnectionService:
             logger.exception("Exception when stopping xray-core: %s", e)
 
         self._auto_disconnect_vpn()
+        self._finish_session()
+        return ConnectionResult(True)
 
+    def handle_core_exit(self) -> int:
+        """Ядро вышло само: убрать маршруты и прокси, VPN оставить.
+
+        VPN держится ради перезапуска: гасить и поднимать его заново — десятки
+        секунд `nmcli`. Возвращает профиль упавшего сеанса, а -1 — если сеанса
+        уже нет и отключение успело раньше сигнала.
+        """
+        context = self._context
+        if not context.proxy_state.is_running:
+            return -1
+        profile_id = context.proxy_state.started_profile_id
+        try:
+            context.xray_manager.stop()
+        except Exception:
+            logger.debug("Cleanup after core exit failed", exc_info=True)
+        self._finish_session()
+        return profile_id
+
+    def _finish_session(self) -> None:
+        context = self._context
         started_mode = getattr(context.proxy_state, "started_mode", ProxyMode.TUN)
         if started_mode == ProxyMode.TUN:
             ok, error = restore_tun_routes(self._tun_route_state)
@@ -268,8 +290,6 @@ class ConnectionService:
 
         if context.monitor is not None:
             context.monitor.stop()
-
-        return ConnectionResult(True)
 
     def shutdown(
         self, pending: threading.Thread | None = None, timeout: float = SHUTDOWN_TIMEOUT
