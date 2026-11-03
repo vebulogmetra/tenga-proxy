@@ -452,6 +452,51 @@ def test_live_session_follows_the_vpn_to_another_interface(guarded):
         guarded.wait_state("V")
 
 
+def test_without_the_setting_the_core_follows_the_vpn_interface(app):
+    app.connect("V", EXIT_B)
+
+    reconnect_vpn_on_tun1()
+    with tun0_taken():
+        lab.sh("nmcli", "connection", "up", VPN_NAME, timeout=60)
+        wait_until(lambda: core_vpn_interface() == "tun1", "ядро привязано к интерфейсу VPN")
+        app.wait_for_exit(EXIT_B)
+        app.wait_state("V")
+
+
+@pytest.mark.parametrize("how", ["disconnect", "quit"])
+def test_leaving_the_block_without_release_also_drops_the_vpn(guarded, how):
+    """В меню при блокировке этих пунктов нет, но выход и сочетание клавиш остаются."""
+    guarded.connect("V", EXIT_B)
+    first = kill_core()
+    wait_until(lambda: lab.core_pids() and first not in lab.core_pids(), "перезапуск ядра")
+    guarded.wait_for_exit(EXIT_B)
+    kill_core()
+    guarded.wait_state("трафик заблокирован")
+    assert vpn_active()
+
+    guarded.action(how)
+
+    wait_until(lambda: table() is None, "таблица снята")
+    wait_until(lambda: not vpn_active(), "VPN погашен", timeout=45)
+    lab.clear_logs()
+
+
+@pytest.mark.parametrize("attempt", range(3))
+def test_crashes_right_after_connecting_end_in_the_error_state(app, attempt):
+    """Поток подключения ещё заканчивается, когда ядро падает: состояние не должно потеряться."""
+    app.action("connect-profile", f"[<int32 {app.ids['A']}>]")
+    app.wait_state("A")
+    app.wait_for_exit(EXIT_A)
+    first = kill_core()
+    wait_until(lambda: lab.core_pids() and first not in lab.core_pids(), "перезапуск ядра")
+    app.wait_for_exit(EXIT_A)
+    kill_core()
+
+    app.wait_state("ошибка")
+    time.sleep(1)
+    assert app.tooltip() == "ошибка", "Состояние перезаписано"
+
+
 def test_package_upgrade_keeps_the_session_closed(guarded):
     guarded.connect("A", EXIT_A)
 

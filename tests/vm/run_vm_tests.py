@@ -17,6 +17,7 @@ import argparse
 import hashlib
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -290,7 +291,7 @@ def run_checks(vm: VirtualMachine, deb: Path, pytest_args: list[str], results: P
     vm.copy_in(*sorted(GUEST_DIR.glob("*.py")), target="lab/")
 
     log("Проверки")
-    arguments = " ".join(pytest_args)
+    arguments = shlex.join(pytest_args)
     code = vm.ssh(
         "cd lab && sudo env PYTHONDONTWRITEBYTECODE=1 VEBLOCK_PACKAGE=$HOME/package.deb "
         "python3 -m pytest checks.py -c /dev/null --rootdir=. -p no:cacheprovider "
