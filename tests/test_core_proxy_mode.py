@@ -37,8 +37,8 @@ def test_build_inbounds_tun_mode():
     assert inbounds[0]["port"] == 0
     assert inbounds[0]["settings"]["name"] == "xray0"
     assert inbounds[0]["settings"]["MTU"] == 1400
-    assert inbounds[0]["settings"]["autoRoute"] is True
-    assert inbounds[0]["settings"]["strictRoute"] is True
+    assert "autoRoute" not in inbounds[0]["settings"]
+    assert "strictRoute" not in inbounds[0]["settings"]
 
 
 def test_invalid_proxy_mode_fallbacks_to_tun():

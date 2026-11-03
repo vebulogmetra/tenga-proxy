@@ -45,11 +45,11 @@ def build_inbounds_for_mode(
     if normalized_mode == ProxyMode.TUN:
         tun_ifname = (tun_name or "").strip() or "xray0"
         mtu = tun_mtu if 576 <= tun_mtu <= 9000 else 1500
+        # Маршрут и блокировку ставит приложение: ключи sing-box autoRoute и
+        # strictRoute в Xray ничего не значат.
         settings: dict[str, Any] = {
             "name": tun_ifname,
             "MTU": mtu,
-            "autoRoute": True,
-            "strictRoute": True,
         }
         if tun_address:
             settings["gateway"] = [tun_address]
