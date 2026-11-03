@@ -391,6 +391,8 @@ class AppController:
             self.context.profiles.mark_used(profile_id)
             self._save_profiles()
             self.toast(f"Подключено: {profile_name}")
+            if result.warning:
+                self.toast(result.warning)
         else:
             self.toast(f"Не удалось подключиться: {result.error}")
             self._shell.show_error(result.error)
@@ -456,6 +458,7 @@ class AppController:
             return
         now = time.monotonic()
         if self._core_exit_at is not None and now - self._core_exit_at < CORE_RESTART_COOLDOWN:
+            self._ensure_connection_service().release_block()
             self.notify_user(CORE_EXIT_GAVE_UP)
             self._shell.show_error(CORE_EXIT_GAVE_UP)
             self._shell.set_tray_state(ConnectionState.ERROR, "")

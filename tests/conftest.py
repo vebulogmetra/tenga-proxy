@@ -28,6 +28,21 @@ def _core_pid_file_in_tmp(monkeypatch, tmp_path):
 
 
 @pytest.fixture(autouse=True)
+def firewall_calls(monkeypatch) -> list[tuple]:
+    """Подключение в тестах не трогает nftables машины: таблица общая на систему."""
+    calls: list[tuple] = []
+    monkeypatch.setattr(
+        "src.core.connection.apply_firewall",
+        lambda policy: calls.append(("apply", policy)) or (True, ""),
+    )
+    monkeypatch.setattr(
+        "src.core.connection.remove_firewall",
+        lambda: calls.append(("remove",)) or (True, ""),
+    )
+    return calls
+
+
+@pytest.fixture(autouse=True)
 def _no_system_dns_changes(monkeypatch) -> list[str]:
     """Подключение в тестах не трогает DNS машины."""
     calls: list[str] = []

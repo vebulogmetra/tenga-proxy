@@ -24,9 +24,11 @@ from src.core.health_probe import (
 )
 from src.core.proxy_mode import normalize_proxy_mode, should_manage_system_proxy
 from src.db.config import ProxyMode
+from src.sys.firewall_policy import FirewallPolicy, Level
 from src.sys.proxy import clear_system_proxy, set_system_proxy
 from src.sys.tun_access import tun_problems
 from src.sys.tun_dns import route_system_dns_to_tun
+from src.sys.tun_firewall import apply_firewall, remove_firewall
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import connect_vpn, disconnect_vpn, is_vpn_active
 from src.ui.logic.settings_state import runtime_snapshot
@@ -40,6 +42,7 @@ logger = logging.getLogger("tenga.core.connection")
 PROFILE_NOT_FOUND = "Сервер не найден"
 NO_CONFIG = "Не удалось построить конфигурацию сервера"
 UNSAFE_CONFIG = "Конфигурация отклонена"
+IPV6_BLOCK_WARNING = "IPv6 не заблокирован, трафик по нему может идти мимо прокси: {error}"
 
 # Сколько выход ждёт начатое подключение: VPN и маршруты укладываются в
 # секунды, а дольше держать закрывающееся приложение незачем.
@@ -52,6 +55,8 @@ class ConnectionResult:
 
     ok: bool
     error: str = ""
+    # Подключение состоялось, но с оговоркой, которую пользователю надо показать.
+    warning: str = ""
 
 
 class ConnectionService:
@@ -60,6 +65,10 @@ class ConnectionService:
     def __init__(self, context: AppContext) -> None:
         self._context = context
         self._tun_route_state: TunRouteState | None = None
+        # Стоит ли наша таблица nftables: переживает сеанс, если ядро упало.
+        self._block_held = False
+        # Сервер сеанса, упавшего вместе с ядром: ему принадлежит поднятый VPN.
+        self._crashed_profile_id = -1
 
     def _session_inputs(self, profile):
         from src.db.data_store import DataStore
@@ -107,14 +116,21 @@ class ConnectionService:
         attach_health_inbound(config, health_endpoint)
         self._write_debug_config(config, profile_id)
 
+        warning = ""
+        if runtime_mode == ProxyMode.TUN:
+            warning = self._block_traffic(settings)
+        self._crashed_profile_id = -1
+
         try:
             started, error = context.xray_manager.start(config)
         except Exception as e:
             logger.exception("Error starting xray-core: %s", e)
+            self._release_table()
             return ConnectionResult(False, str(e))
 
         if not started:
             logger.error("Error starting xray-core: %s", error)
+            self._release_table()
             message = error or "Не удалось запустить xray-core"
             if runtime_mode == ProxyMode.TUN:
                 message = self._explain_tun_failure(message)
@@ -135,7 +151,30 @@ class ConnectionService:
         if context.monitor is not None:
             context.monitor.start()
 
-        return ConnectionResult(True)
+        return ConnectionResult(True, warning=warning)
+
+    def _block_traffic(self, settings) -> str:
+        """Таблица nftables до запуска ядра: окна, когда трафик идёт мимо, нет.
+
+        Возвращает предупреждение, если уровень ipv6_only поставить не удалось:
+        блокировку пользователь не включал, срывать подключение нельзя.
+        """
+        tun_name = getattr(settings, "tun_name", "xray0")
+        ok, error = apply_firewall(FirewallPolicy(Level.IPV6_ONLY, tun_name))
+        if ok:
+            self._block_held = True
+            return ""
+        logger.warning("IPv6 block not applied: %s", error)
+        return IPV6_BLOCK_WARNING.format(error=error)
+
+    def _release_table(self) -> None:
+        if not self._block_held:
+            return
+        ok, error = remove_firewall()
+        if ok:
+            self._block_held = False
+        else:
+            logger.warning("Failed to remove the firewall table: %s", error)
 
     def _remember_core(self) -> None:
         manager = self._context.xray_manager
@@ -237,6 +276,7 @@ class ConnectionService:
             except Exception:
                 logger.debug("Rollback stop failed", exc_info=True)
             core_pid.forget()
+            self._release_table()
             context.proxy_state.set_stopped()
             return ConnectionResult(
                 False, self._explain_tun_failure(error or "Не удалось настроить маршруты TUN")
@@ -262,8 +302,12 @@ class ConnectionService:
         except Exception as e:
             logger.exception("Exception when stopping xray-core: %s", e)
 
-        self._auto_disconnect_vpn()
+        # Сразу за ядром: VPN гасится до 30 с, а systemd при завершении сеанса
+        # столько не ждёт и оставил бы систему закрытой.
+        self._release_table()
+        profile_id = self._context.proxy_state.started_profile_id
         self._finish_session()
+        self._auto_disconnect_vpn(profile_id)
         return ConnectionResult(True)
 
     def handle_core_exit(self) -> int:
@@ -282,7 +326,15 @@ class ConnectionService:
         except Exception:
             logger.debug("Cleanup after core exit failed", exc_info=True)
         self._finish_session()
+        self._crashed_profile_id = profile_id
         return profile_id
+
+    def release_block(self) -> ConnectionResult:
+        """Сеанса больше нет: снять таблицу и погасить поднятый им VPN."""
+        self._release_table()
+        self._auto_disconnect_vpn(self._crashed_profile_id)
+        self._crashed_profile_id = -1
+        return ConnectionResult(True)
 
     def _finish_session(self) -> None:
         context = self._context
@@ -319,11 +371,12 @@ class ConnectionService:
 
         if self._context.proxy_state.is_running or self._context.xray_manager.is_running:
             self.disconnect()
+        elif self._block_held:
+            self.release_block()
 
-    def _auto_disconnect_vpn(self) -> None:
+    def _auto_disconnect_vpn(self, profile_id: int) -> None:
         context = self._context
         try:
-            profile_id = getattr(context.proxy_state, "started_profile_id", None)
             if not profile_id or profile_id < 0:
                 return
 

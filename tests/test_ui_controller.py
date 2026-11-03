@@ -429,6 +429,7 @@ def test_core_exit_reconnects_the_same_profile_once(made, monkeypatch):
 
     assert connected == [1]
     assert CORE_EXIT_GAVE_UP in shell.notifications
+    _service.release_block.assert_called_once()
     assert ("show_error", CORE_EXIT_GAVE_UP) in shell.calls
     assert shell.tray[-1] == (ConnectionState.ERROR, "")
 
@@ -499,6 +500,17 @@ def test_stale_core_exit_does_not_touch_a_living_core(made, monkeypatch):
 
     service.handle_core_exit.assert_not_called()
     assert connected == []
+
+
+def test_connection_warning_reaches_the_user(made):
+    controller, shell, _ = made
+    entry = add_profile(controller)
+
+    controller._on_connection_done(
+        ConnectionResult(True, warning="IPv6 не заблокирован"), entry.id, entry.name
+    )
+
+    assert ("IPv6 не заблокирован", None, None) in shell.toasts
 
 
 def test_select_profile_prefers_the_installed_handler(made):

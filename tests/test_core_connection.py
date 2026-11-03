@@ -499,3 +499,168 @@ def test_core_exit_after_a_disconnect_changes_nothing(tmp_path, monkeypatch):
 
     assert cleared == []
     context.proxy_state.set_stopped.assert_not_called()
+
+
+# --- блокировка трафика ---
+
+
+def _tun_context(tmp_path, monkeypatch, profile=None):
+    context = make_context(tmp_path, profile or FakeProfile())
+    context.config.proxy_mode = "tun"
+    context.proxy_state.started_mode = "tun"
+    context.proxy_state.started_profile_id = 1
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.intercepts_dns", lambda _c: False)
+    monkeypatch.setattr("src.core.connection.apply_tun_routes", lambda *_: (True, "state", ""))
+    monkeypatch.setattr("src.core.connection.restore_tun_routes", lambda _s: (True, ""))
+    return context
+
+
+def test_tun_connect_blocks_ipv6_before_starting_the_core(tmp_path, monkeypatch):
+    context = _tun_context(tmp_path, monkeypatch)
+    order = []
+    monkeypatch.setattr(
+        "src.core.connection.apply_firewall",
+        lambda p: order.append((str(p.level), p.tun_name)) or (True, ""),
+    )
+    context.xray_manager.start.side_effect = lambda _c: order.append("start") or (True, "")
+
+    assert ConnectionService(context).connect(1).ok
+
+    assert order == [("ipv6_only", "xray0"), "start"]
+
+
+def test_ipv6_block_failure_is_a_warning_not_an_error(tmp_path, monkeypatch):
+    context = _tun_context(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.core.connection.apply_firewall", lambda _p: (False, "nft not found"))
+
+    result = ConnectionService(context).connect(1)
+
+    assert result.ok
+    assert "IPv6" in result.warning
+    assert "nft not found" in result.warning
+
+
+def test_failed_core_start_removes_the_block(tmp_path, monkeypatch, firewall_calls):
+    context = _tun_context(tmp_path, monkeypatch)
+    context.xray_manager.start.return_value = (False, "bad")
+    monkeypatch.setattr("src.core.connection.tun_problems", lambda _b: [])
+
+    assert not ConnectionService(context).connect(1).ok
+
+    assert firewall_calls[-1] == ("remove",)
+
+
+def test_crashing_core_start_removes_the_block(tmp_path, monkeypatch, firewall_calls):
+    context = _tun_context(tmp_path, monkeypatch)
+    context.xray_manager.start.side_effect = OSError("boom")
+
+    assert not ConnectionService(context).connect(1).ok
+
+    assert firewall_calls[-1] == ("remove",)
+
+
+def test_failed_tun_routes_remove_the_block(tmp_path, monkeypatch, firewall_calls):
+    context = _tun_context(tmp_path, monkeypatch)
+    monkeypatch.setattr("src.core.connection.apply_tun_routes", lambda *_: (False, None, "no"))
+    monkeypatch.setattr("src.core.connection.tun_problems", lambda _b: [])
+
+    assert not ConnectionService(context).connect(1).ok
+
+    assert firewall_calls[-1] == ("remove",)
+
+
+def test_disconnect_removes_the_block_right_after_the_core(tmp_path, monkeypatch):
+    """systemd при завершении сеанса ждёт недолго, а `nmcli` может занять 30 с."""
+    context = _tun_context(tmp_path, monkeypatch, FakeProfile(vpn_settings=_auto_vpn()))
+    monkeypatch.setattr("src.core.connection.is_vpn_active", lambda _n: True)
+    context.proxy_state.vpn_auto_connected = True
+    service = ConnectionService(context)
+    assert service.connect(1).ok
+
+    order = []
+    context.xray_manager.stop.side_effect = lambda: order.append("stop") or (True, "")
+    monkeypatch.setattr(
+        "src.core.connection.remove_firewall", lambda: order.append("block") or (True, "")
+    )
+    monkeypatch.setattr(
+        "src.core.connection.restore_tun_routes", lambda _s: order.append("routes") or (True, "")
+    )
+    monkeypatch.setattr(
+        "src.core.connection.disconnect_vpn", lambda _n: order.append("vpn") or True
+    )
+
+    service.disconnect()
+
+    assert order == ["stop", "block", "routes", "vpn"]
+
+
+def _auto_vpn():
+    return FakeVpn(enabled=True, auto_connect=True)
+
+
+def test_core_exit_keeps_the_block(tmp_path, monkeypatch, firewall_calls):
+    context = _tun_context(tmp_path, monkeypatch)
+    service = ConnectionService(context)
+    assert service.connect(1).ok
+    context.proxy_state.is_running = True
+    firewall_calls.clear()
+
+    assert service.handle_core_exit() == 1
+
+    assert firewall_calls == []
+
+
+def test_release_after_core_exit_removes_the_block_and_our_vpn(
+    tmp_path, monkeypatch, firewall_calls
+):
+    """Сеанса уже нет, но VPN подняли мы: погасить его при снятии блокировки всё ещё нам."""
+    context = _tun_context(tmp_path, monkeypatch, FakeProfile(vpn_settings=_auto_vpn()))
+    monkeypatch.setattr("src.core.connection.is_vpn_active", lambda _n: True)
+    disconnected = []
+    monkeypatch.setattr(
+        "src.core.connection.disconnect_vpn", lambda n: disconnected.append(n) or True
+    )
+    context.proxy_state.vpn_auto_connected = True
+    service = ConnectionService(context)
+    assert service.connect(1).ok
+    context.proxy_state.is_running = True
+    context.proxy_state.started_profile_id = 1
+    assert service.handle_core_exit() == 1
+    context.proxy_state.started_profile_id = -1
+    firewall_calls.clear()
+
+    assert service.release_block().ok
+
+    assert firewall_calls == [("remove",)]
+    assert disconnected == ["my-vpn"]
+
+
+def test_shutdown_after_a_core_exit_removes_the_block(tmp_path, monkeypatch, firewall_calls):
+    """Ядра нет и сеанса нет, а таблица стоит: при выходе её больше некому снять."""
+    context = _tun_context(tmp_path, monkeypatch)
+    service = ConnectionService(context)
+    assert service.connect(1).ok
+    context.proxy_state.is_running = True
+    assert service.handle_core_exit() == 1
+    context.proxy_state.is_running = False
+    context.xray_manager.is_running = False
+    firewall_calls.clear()
+
+    service.shutdown()
+
+    assert firewall_calls == [("remove",)]
+
+
+def test_system_proxy_mode_does_not_touch_the_block(tmp_path, monkeypatch, firewall_calls):
+    context = make_context(tmp_path, FakeProfile())
+    context.proxy_state.started_mode = "system_proxy"
+    monkeypatch.setattr("src.core.connection.build_session_config", lambda *_: {"a": 1})
+    monkeypatch.setattr("src.core.connection.set_system_proxy", lambda **_: True)
+    monkeypatch.setattr("src.core.connection.clear_system_proxy", lambda: None)
+    service = ConnectionService(context)
+
+    assert service.connect(1).ok
+    service.disconnect()
+
+    assert firewall_calls == []
