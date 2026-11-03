@@ -11,6 +11,7 @@ import pytest
 from src.core import config_builder
 from src.core.config_builder import build_session_config
 from src.db.config import ProxyMode, VpnSettings
+from src.sys.firewall_policy import SOCKET_MARK
 from tests.support.session import make_context, make_profile, use_bundled_geo
 
 
@@ -135,3 +136,71 @@ def test_profile_on_loopback_is_not_bound(context, physical, host):
 
     assert bound_interface(config, profile.bean.display_name) is None
     assert bound_interface(config, "direct") == "eth0"
+
+
+def sockopt(config: dict, tag: str) -> dict:
+    return outbound(config, tag).get("streamSettings", {}).get("sockopt", {})
+
+
+IP_LINK = (
+    "vless://11111111-1111-1111-1111-111111111111@203.0.113.7:443"
+    "?type=tcp&security=tls&sni=proxy.example.org#Test"
+)
+
+
+def test_tun_marks_every_socket_outbound(context, profile, physical, monkeypatch):
+    monkeypatch.setattr(config_builder, "system_dns_servers", lambda _iface: ["192.168.0.1"])
+    context.config.proxy_mode = ProxyMode.TUN
+    context.config.dns.intercept = True
+
+    config = build_session_config(context, profile)
+
+    for tag in (profile.bean.display_name, "direct", config_builder.DNS_OUT_TAG):
+        assert sockopt(config, tag)["mark"] == SOCKET_MARK, tag
+
+
+def test_tun_marks_the_vpn_outbound(context, profile, physical, monkeypatch):
+    monkeypatch.setattr(config_builder, "is_vpn_active", lambda _name: True)
+    monkeypatch.setattr(config_builder, "get_vpn_interface", lambda _name: "tun0")
+    context.config.proxy_mode = ProxyMode.TUN
+    profile.vpn_settings = VpnSettings(enabled=True, connection_name="corp")
+
+    config = build_session_config(context, profile)
+
+    assert sockopt(config, "vpn")["mark"] == SOCKET_MARK
+    assert sockopt(config, "vpn")["interface"] == "tun0"
+
+
+def test_system_proxy_mode_does_not_mark(context, profile):
+    context.config.proxy_mode = ProxyMode.SYSTEM_PROXY
+
+    config = build_session_config(context, profile)
+
+    for out in config["outbounds"]:
+        assert "mark" not in out.get("streamSettings", {}).get("sockopt", {})
+
+
+def test_tun_resolves_a_named_server_through_the_core_dns(context, profile, physical):
+    """Иначе имя сервера уходит системному резолверу без метки — под блокировку."""
+    context.config.proxy_mode = ProxyMode.TUN
+
+    config = build_session_config(context, profile)
+
+    assert sockopt(config, profile.bean.display_name)["domainStrategy"] == "UseIPv4"
+
+
+def test_a_server_given_by_address_needs_no_domain_strategy(context, physical):
+    context.config.proxy_mode = ProxyMode.TUN
+    profile = make_profile(context, IP_LINK)
+
+    config = build_session_config(context, profile)
+
+    assert "domainStrategy" not in sockopt(config, profile.bean.display_name)
+
+
+def test_system_proxy_mode_keeps_the_system_resolver(context, profile):
+    context.config.proxy_mode = ProxyMode.SYSTEM_PROXY
+
+    config = build_session_config(context, profile)
+
+    assert "domainStrategy" not in sockopt(config, profile.bean.display_name)

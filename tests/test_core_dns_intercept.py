@@ -13,6 +13,7 @@ import pytest
 from src.core import config_builder
 from src.core.config_builder import build_session_config
 from src.db.config import DnsProvider, ProxyMode, VpnSettings
+from src.sys.firewall_policy import SOCKET_MARK
 from tests.support.session import (
     XRAY,
     make_context,
@@ -80,7 +81,7 @@ def test_dns_queries_from_tun_are_handed_to_the_dns_module(context, profile, sys
             "rewritePort": 53,
             "rules": [{"action": "hijack", "qType": "1,28"}, {"action": "direct"}],
         },
-        "streamSettings": {"sockopt": {"interface": "eth0"}},
+        "streamSettings": {"sockopt": {"interface": "eth0", "mark": SOCKET_MARK}},
     } in config["outbounds"]
 
 

@@ -36,6 +36,7 @@ from src.db.config import (
     VpnSettings,
 )
 from src.db.profiles import ProfileEntry
+from src.sys.firewall_policy import SOCKET_MARK
 from src.sys.resolver import system_dns_servers
 from src.sys.vpn import (
     get_default_interface,
@@ -104,9 +105,33 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _is_ip(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
 def _bind_to_interface(outbound: dict, interface: str) -> None:
     sockopt = outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})
     sockopt["interface"] = interface
+
+
+def _prepare_tun_sockets(outbounds: list[dict], proxy_outbound: dict, server: str) -> None:
+    """Сокеты ядра в TUN: метка и разрешение имени сервера внутри ядра.
+
+    Метка пропускает трафик ядра мимо блокировки (см. tun_route_helper.sh). Имя
+    сервера без `domainStrategy` уходит системному резолверу, а resolved шлёт
+    запрос наружу уже без метки. На SNI это не влияет: `serverName` не меняется.
+    """
+    for outbound in outbounds:
+        if outbound.get("protocol") != "blackhole":
+            outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})["mark"] = (
+                SOCKET_MARK
+            )
+    if not _is_ip(server) and not _is_loopback(server):
+        proxy_outbound["streamSettings"]["sockopt"]["domainStrategy"] = "UseIPv4"
 
 
 class UnsafeConfigError(Exception):
@@ -408,6 +433,9 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
 
         if any(rule["outboundTag"] == BLOCK_TAG for rule in route_rules):
             outbounds.append({"protocol": "blackhole", "tag": BLOCK_TAG})
+
+        if runtime_mode == ProxyMode.TUN:
+            _prepare_tun_sockets(outbounds, outbound, profile.bean.server_address)
 
         if vpn_settings:
             if vpn_settings.enabled:
