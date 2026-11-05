@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import socket
 import ssl
 import struct
@@ -114,6 +115,32 @@ def build_response(
     return head + question + records
 
 
+def _bind_udp_and_tcp(attempts: int = 50) -> tuple[socket.socket, socket.socket, int]:
+    """UDP и TCP на одном номере порта.
+
+    Ядро выбирает номер, свободный только для UDP. Для TCP он может быть занят: например,
+    клиентским соединением в TIME_WAIT, которому SO_REUSEADDR не помеха. Поэтому пара
+    подбирается заново, а не считается удачной с первого раза.
+    """
+    while True:
+        attempts -= 1
+        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            udp.bind(("127.0.0.1", 0))
+            port = udp.getsockname()[1]
+            tcp.bind(("127.0.0.1", port))
+            tcp.listen()
+        except OSError as error:
+            udp.close()
+            tcp.close()
+            if error.errno != errno.EADDRINUSE or attempts <= 0:
+                raise
+        else:
+            return udp, tcp, port
+
+
 class FakeDnsServer:
     """UDP и TCP DNS на loopback: `answers[(name, qtype)] = (rcode, [rdata])`.
 
@@ -126,13 +153,7 @@ class FakeDnsServer:
         self.truncate_udp = truncate_udp
         self.silent = silent
         self.queries: list[tuple[str, str, int]] = []
-        self.udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.udp.bind(("127.0.0.1", 0))
-        self.port = self.udp.getsockname()[1]
-        self.tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.tcp.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.tcp.bind(("127.0.0.1", self.port))
-        self.tcp.listen()
+        self.udp, self.tcp, self.port = _bind_udp_and_tcp()
         self._stop = threading.Event()
         threading.Thread(target=self._serve_udp, daemon=True).start()
         threading.Thread(target=self._serve_tcp, daemon=True).start()

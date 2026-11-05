@@ -629,3 +629,46 @@ def test_media_probe_conclusions_on_changed_site(https):
         context_for(missing), "m", media_target(), ProbeRoute.DIRECT, PUBLIC, lambda _h, _f: ()
     )
     assert rejected.failure_code is DiagnosticFailure.HTTP_REJECTED
+
+
+def _busy_tcp_ports(monkeypatch, busy):
+    """Первые `busy` привязок TCP отвечают «порт занят», как порт клиента в TIME_WAIT."""
+
+    class Busy(socket.socket):
+        left = busy
+        created = []
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            Busy.created.append(self)
+
+        def bind(self, address):
+            if self.type == socket.SOCK_STREAM and Busy.left > 0:
+                Busy.left -= 1
+                raise OSError(errno.EADDRINUSE, "Address already in use")
+            super().bind(address)
+
+    monkeypatch.setattr(socket, "socket", Busy)
+    return Busy
+
+
+def test_fake_dns_takes_another_port_when_tcp_one_is_busy(monkeypatch):
+    # UDP и TCP считают занятость порозь: свободный для UDP номер может быть занят для TCP.
+    busy = _busy_tcp_ports(monkeypatch, busy=3)
+    server = FakeDnsServer()
+    try:
+        assert server.udp.getsockname()[1] == server.tcp.getsockname()[1] == server.port
+        abandoned = [s for s in busy.created if s not in (server.udp, server.tcp)]
+        assert len(abandoned) == 6
+        assert all(s.fileno() == -1 for s in abandoned)
+    finally:
+        server.close()
+
+
+def test_fake_dns_gives_up_with_the_original_error_and_no_leaks(monkeypatch):
+    busy = _busy_tcp_ports(monkeypatch, busy=10_000)
+    with pytest.raises(OSError, match="already in use") as caught:
+        FakeDnsServer()
+    assert caught.value.errno == errno.EADDRINUSE
+    assert busy.left > 0, "число попыток ограничено"
+    assert all(s.fileno() == -1 for s in busy.created)
