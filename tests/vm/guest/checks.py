@@ -497,6 +497,95 @@ def test_crashes_right_after_connecting_end_in_the_error_state(app, attempt):
     assert app.tooltip() == "ошибка", "Состояние перезаписано"
 
 
+# --- диагностика сети ---
+
+
+def run_diagnostics(app: Application, *arguments: str) -> dict:
+    command = app._as_user("python3", str(lab.HERE / "diag_probe.py"), *arguments)
+    done = subprocess.run(command, check=True, capture_output=True, text=True, timeout=200)
+    # Журнал лаборатории уходит в результаты: junit обрезает длинные сравнения.
+    (lab.RESULTS / f"diagnostics{''.join(arguments)}.json").write_text(done.stdout)
+    return json.loads(done.stdout)
+
+
+def direct_probes(report: dict) -> list[dict]:
+    """Прямые пробы, которым нужна сеть: портал и сверка ответов считаются на месте."""
+    return [
+        o
+        for o in report["observations"]
+        if o["route"] == "DIRECT"
+        and o["stage"] != "NETWORK"
+        and o["id"] != "portal"
+        and not o["id"].endswith("-dns-consistency")
+    ]
+
+
+def assert_direct_path_not_checked(report: dict) -> None:
+    baseline = next(o for o in report["observations"] if o["stage"] == "NETWORK")
+    assert baseline["status"] == "SUCCESS", "Сеть есть, закрыт только прямой путь"
+    probes = direct_probes(report)
+    assert probes
+    assert {o["status"] for o in probes} == {"SKIPPED"}
+    assert {o["failure"] for o in probes} == {"SYSTEM_RESTRICTED"}
+    # Ни одного запроса мимо туннеля, даже к DNS сети.
+    sources = {entry["src"] for entry in lab.read_log("dns.jsonl")}
+    assert DIRECT not in sources
+    assert LAN_SELF not in sources
+
+
+def test_diagnostics_under_tun_probes_the_physical_network(app):
+    app.connect("A", EXIT_A)
+    assert tun_is_default()
+    lab.clear_logs()
+
+    report = run_diagnostics(app, "--bound")
+
+    assert report["tunnel"] == lab.TUN
+    probes = direct_probes(report)
+    assert probes
+    restricted = [o for o in probes if o["failure"] == "SYSTEM_RESTRICTED"]
+    assert restricted == [], "Привязка к физическому интерфейсу при TUN не сработала"
+    # Лабораторный DNS видит настоящий адрес машины: запрос не ушёл в туннель.
+    sources = {entry["src"] for entry in lab.read_log("dns.jsonl")}
+    assert DIRECT in sources, f"Прямые запросы не дошли напрямую: {sources}"
+    # TCP мимо туннеля пропускает таблица сеанса, и выходит он с адреса физической сети.
+    assert report["bound"]["site"] == DIRECT
+    # Сеанс не задет: трафик приложений по-прежнему выходит через сервер.
+    assert lab.try_get(SITE) == EXIT_A
+    assert tun_is_default()
+
+
+def test_diagnostics_without_a_physical_route_does_not_blame_the_network(app):
+    """Исходный маршрут без метрики помощник заменяет, и выйти мимо туннеля некуда."""
+    app.connect("A", EXIT_A)
+    lab.sh("ip", "route", "del", "default", "via", lab.GATEWAY, "dev", "uplink0")
+    try:
+        lab.clear_logs()
+        report = run_diagnostics(app)
+        assert_direct_path_not_checked(report)
+        assert lab.try_get(SITE) == EXIT_A
+    finally:
+        lab.sh("ip", "route", "replace", "default", "via", lab.GATEWAY, "dev", "uplink0",
+               "metric", "600")  # fmt: skip
+
+
+def test_diagnostics_under_kill_switch_makes_no_direct_requests(guarded):
+    guarded.connect("A", EXIT_A)
+    lab.clear_logs()
+
+    report = run_diagnostics(guarded, "--kill-switch")
+
+    assert_direct_path_not_checked(report)
+    assert table() is not None
+
+
+def test_diagnostics_window_opens_in_the_installed_application(app):
+    app.action("network-diagnostics")
+    time.sleep(2)
+    assert app.pid() is not None, "Приложение упало при открытии окна"
+    assert "Traceback" not in app.log_text()
+
+
 def test_package_upgrade_keeps_the_session_closed(guarded):
     guarded.connect("A", EXIT_A)
 
