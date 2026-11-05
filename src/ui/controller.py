@@ -18,9 +18,11 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Protocol
 
+from src import __app_name__
 from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
+from src.diag.assess import recommendations as rec
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
 from src.ui.logic.status import BLOCKED_BANNER, ConnectionState, is_traffic_blocked
@@ -30,6 +32,7 @@ from src.ui.logic.version import app_version
 if TYPE_CHECKING:
     from src.core.context import AppContext
     from src.core.main_loop import MainLoop
+    from src.ui.logic.diagnostics_session import DiagnosticsSession
 
 logger = logging.getLogger("tenga.ui.controller")
 
@@ -39,6 +42,7 @@ LATENCY_REFRESH_INTERVAL_MS = 150
 # Виды подтверждений: оболочка выбирает по ним кнопки и их внешний вид.
 CONFIRM_DELETE = "delete"
 CONFIRM_URL_CHANGE = "url-change"
+SETTINGS_DNS = "dns"
 
 CORE_EXIT_RESTART = "Ядро остановилось, переподключаюсь"
 CORE_EXIT_GAVE_UP = "Ядро остановилось, трафик идёт напрямую"
@@ -96,6 +100,14 @@ class Shell(Protocol):
     def open_subscription_form(self, name: str, url: str) -> None: ...
 
     def open_routing_import(self, rows: list, on_confirm: Callable[[], None]) -> None: ...
+
+    def show_network_diagnostics(self, session: DiagnosticsSession) -> None:
+        """Открыть окно диагностики или поднять уже открытое."""
+
+    def open_settings_section(self, section: str) -> None:
+        """Открыть настройки на разделе; пока раздел один — `SETTINGS_DNS`."""
+
+    def activate_window(self) -> None: ...
 
 
 def resume_monitoring(context: Any) -> None:
@@ -155,6 +167,7 @@ class AppController:
         self.core_update_thread = None
         self.app_update_thread = None
         self._app_release_fetcher = None
+        self._diagnostics: DiagnosticsSession | None = None
 
     # --- сообщения ---
 
@@ -177,11 +190,43 @@ class AppController:
 
     def shutdown(self) -> None:
         """Погасить ядро: вызывается до снятия блокировки экземпляра."""
+        if self._diagnostics is not None:
+            self._diagnostics.close()
         if self._vpn_watch is not None:
             self._loop.cancel(self._vpn_watch)
             self._vpn_watch = None
         if self._connection_service is not None:
             self._connection_service.shutdown(self.connection_thread)
+
+    # --- диагностика сети ---
+
+    def open_network_diagnostics(self) -> None:
+        """Сессия одна на приложение: повторное открытие показывает прежние результаты."""
+        if self._diagnostics is None:
+            from src.diag.runner import context_sources, desktop_runner
+            from src.ui.logic.diagnostics_session import DiagnosticsSession
+
+            sources = context_sources(self.context)
+            self._diagnostics = DiagnosticsSession(
+                self._loop, lambda: desktop_runner(sources, self._app_version())
+            )
+        self._shell.show_network_diagnostics(self._diagnostics)
+
+    def run_recommendation(self, code: str) -> None:
+        """Действие выполняется только по кнопке: сама проверка настроек не меняет."""
+        if code == rec.CHECK_SYSTEM_DNS:
+            self._shell.open_settings_section(SETTINGS_DNS)
+        elif code == rec.USE_ACTIVE_VPN:
+            if self.context.proxy_state.is_running:
+                self.toast(f"{__app_name__} уже подключён")
+            else:
+                self.connect_selected()
+        elif code == rec.TRY_OTHER_PROFILE:
+            self._shell.activate_window()
+        elif code in (rec.CHECK_SYSTEM_NETWORK, rec.OPEN_WIFI_LOGIN):
+            self.toast("Проверьте подключение к сети и повторите проверку")
+        elif self._diagnostics is not None and not self._diagnostics.start():
+            self.toast("Проверка уже идёт")
 
     # --- данные ---
 

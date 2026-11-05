@@ -333,6 +333,11 @@ class MainWindow(QMainWindow):
         self.check_button = QPushButton("Проверить сейчас")
         self.check_button.clicked.connect(self._on_check_now)
         commands.addWidget(self.check_button)
+        self.network_check_button = QPushButton("Проверить сеть…")
+        self.network_check_button.clicked.connect(
+            lambda: self._app.activate_action("network-diagnostics")
+        )
+        commands.addWidget(self.network_check_button)
         self.diagnostics = DiagnosticsPanel(
             dispatch=self._app.loop.dispatch, show_dialog=self._app.show_dialog
         )

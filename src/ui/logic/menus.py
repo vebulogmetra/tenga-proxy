@@ -13,6 +13,7 @@ ADD_MENU = (
 MAIN_MENU = (
     ("refresh-subscriptions", "Обновить подписки"),
     ("test-latency", "Проверить задержку"),
+    ("network-diagnostics", "Диагностика сети…"),
     ("settings", "Настройки"),
     ("shortcuts", "Сочетания клавиш"),
     ("about", "О программе"),

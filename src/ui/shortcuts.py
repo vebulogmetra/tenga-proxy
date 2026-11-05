@@ -17,6 +17,7 @@ SHORTCUTS: list[tuple[str, list[tuple[str, str]]]] = [
         [
             ("<Control>Return", "Подключить или отключить"),
             ("<Control>t", "Проверить задержку"),
+            ("<Control>d", "Диагностика сети"),
         ],
     ),
     (

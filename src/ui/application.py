@@ -16,7 +16,12 @@ from gi.repository import Adw, Gio, GLib, Gtk
 from src.core.context import AppContext, get_context
 from src.core.core_update import fetch_releases
 from src.core.main_loop import GLibLoop
-from src.ui.controller import CONFIRM_URL_CHANGE, AppController, resume_monitoring
+from src.ui.controller import (
+    CONFIRM_URL_CHANGE,
+    SETTINGS_DNS,
+    AppController,
+    resume_monitoring,
+)
 from src.ui.logic.profiles_view import SortKey
 from src.ui.logic.version import app_version, core_version
 from src.ui.window import APP_ICON, MainWindow, apply_theme, load_css, load_icons
@@ -46,6 +51,7 @@ _ACCELS: dict[str, list[str]] = {
     "app.hide-window": ["<Control>w"],
     "app.toggle-connection": ["<Control>Return"],
     "app.test-latency": ["<Control>t"],
+    "app.network-diagnostics": ["<Control>d"],
     "app.search": ["<Control>f"],
 }
 
@@ -153,6 +159,15 @@ class _GtkShell:
 
         self._app.present_dialog(RoutingImportDialog(rows, on_confirm))
 
+    def show_network_diagnostics(self, session) -> None:
+        self._app.show_network_diagnostics(session)
+
+    def open_settings_section(self, section: str) -> None:
+        self._app.open_settings_section(section)
+
+    def activate_window(self) -> None:
+        self._app.activate_action("activate-window")
+
 
 class TengaApplication(Adw.Application):
     """Application object owning the window, global actions and signals."""
@@ -173,6 +188,7 @@ class TengaApplication(Adw.Application):
         self._with_tray = with_tray
         self._signal_source_ids: list[int] = []
         self._window: MainWindow | None = None
+        self.diagnostics_window = None
         self._dialog = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
@@ -252,6 +268,7 @@ class TengaApplication(Adw.Application):
             "add-group": self._open_add_group,
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
+            "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
             "search": self._toggle_search,
             "settings": self._open_settings,
             "about": self._open_about,
@@ -453,14 +470,39 @@ class TengaApplication(Adw.Application):
         dialog.connect("group-ready", lambda _d, name: self.add_group(name))
         self.present_dialog(dialog)
 
-    def _open_settings(self) -> None:
+    def _open_settings(self, section: str | None = None) -> None:
         from src.ui.dialogs.settings import SettingsDialog
 
         dialog = SettingsDialog(self.context.config, context=self.context)
         # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции
         # GNOME настройки применяются при закрытии.
         dialog.connect("settings-saved", lambda _d: self.apply_settings())
+        if section == SETTINGS_DNS:
+            dialog.show_dns_page()
         self.present_dialog(dialog)
+
+    def open_settings_section(self, section: str) -> None:
+        # Диалог показывается в главном окне: без него настройки не появятся.
+        self._activate_window()
+        self._open_settings(section)
+
+    def show_network_diagnostics(self, session) -> None:
+        from src.ui.dialogs.network_diagnostics import NetworkDiagnosticsWindow
+
+        if self.diagnostics_window is None:
+            self.diagnostics_window = NetworkDiagnosticsWindow(
+                session,
+                GLibLoop(),
+                on_recommendation=lambda code: self.controller.run_recommendation(code),
+                application=self,
+                transient_for=self._window,
+            )
+            self.diagnostics_window.connect("close-request", self._on_diagnostics_closed)
+        self.diagnostics_window.present()
+
+    def _on_diagnostics_closed(self, _window) -> bool:
+        self.diagnostics_window = None
+        return False
 
     def _open_about(self) -> None:
         core = core_version(getattr(self.context, "xray_manager", None))
@@ -522,7 +564,10 @@ class TengaApplication(Adw.Application):
             context.iteration(False)
 
     def _hide_window(self) -> None:
-        if self._window is not None:
+        diagnostics = self.diagnostics_window
+        if diagnostics is not None and diagnostics.is_active():
+            diagnostics.close()
+        elif self._window is not None:
             self._window.set_visible(False)
 
     def _activate_window(self) -> None:
@@ -562,6 +607,9 @@ class TengaApplication(Adw.Application):
             self._window.detach()
             self._window.destroy()
             self._window = None
+        if self.diagnostics_window is not None:
+            self.diagnostics_window.close()
+            self.diagnostics_window = None
         if context is not None:
             self.context = context
         self.controller = self._make_controller()
@@ -576,7 +624,11 @@ class TengaApplication(Adw.Application):
         # Последнее сообщение хранится и без окна: тосты — единственный
         # видимый результат многих действий, и тестам нужно их читать.
         self.last_toast_for_test = text
-        if self._window is not None:
+        # Кнопка рекомендации нажата в окне диагностики: иначе тост ушёл бы в окно под ним.
+        diagnostics = self.diagnostics_window
+        if diagnostics is not None and diagnostics.is_active():
+            diagnostics.toast(text)
+        elif self._window is not None:
             self._window.toast(text, button=button, action=action)
 
     # Сигналы

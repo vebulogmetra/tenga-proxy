@@ -98,6 +98,15 @@ class FakeShell:
     def open_routing_import(self, rows, on_confirm):
         self.forms.append(("routing-import", rows, on_confirm))
 
+    def show_network_diagnostics(self, session):
+        self.calls.append(("show_network_diagnostics", session))
+
+    def open_settings_section(self, section):
+        self.calls.append(("open_settings", section))
+
+    def activate_window(self):
+        self.calls.append(("activate_window",))
+
     @property
     def last_toast(self) -> str:
         return self.toasts[-1][0] if self.toasts else ""
@@ -1189,3 +1198,79 @@ def test_disconnect_clears_a_stale_error_in_the_tray(made):
     controller._on_disconnection_done(ConnectionResult(True))
 
     assert shell.tray[-1] == (ConnectionState.DISCONNECTED, "")
+
+
+# --- диагностика сети ---
+
+
+def test_open_network_diagnostics_hands_session_to_shell(made):
+    controller, shell, _ = made
+    controller.open_network_diagnostics()
+    session = shell.calls[-1][1]
+    assert shell.calls[-1][0] == "show_network_diagnostics"
+    controller.open_network_diagnostics()
+    assert shell.calls[-1][1] is session  # повтор поднимает ту же сессию
+
+
+def test_shutdown_closes_diagnostics(made):
+    controller, shell, _ = made
+    controller.open_network_diagnostics()
+    session = shell.calls[-1][1]
+    session.on_changed = lambda: None
+    controller.shutdown()
+    assert session.on_changed is None
+
+
+def test_recommendation_dns_opens_settings_section(made):
+    controller, shell, _ = made
+    controller.run_recommendation("CHECK_SYSTEM_DNS")
+    assert shell.calls[-1] == ("open_settings", "dns")
+
+
+def test_recommendation_connect_when_stopped(made, monkeypatch):
+    controller, _shell, _ = made
+    connected = []
+    monkeypatch.setattr(controller, "connect_selected", lambda: connected.append(1))
+    controller.run_recommendation("USE_ACTIVE_VPN")
+    assert connected == [1]
+
+
+def test_recommendation_connect_when_already_running(made, monkeypatch):
+    controller, shell, _ = made
+    monkeypatch.setattr(controller.context.proxy_state, "is_running", True)
+    controller.run_recommendation("USE_ACTIVE_VPN")
+    assert shell.last_toast == "Veblock уже подключён"
+
+
+def test_recommendation_other_server_activates_window(made):
+    controller, shell, _ = made
+    controller.run_recommendation("TRY_OTHER_PROFILE")
+    assert shell.calls[-1] == ("activate_window",)
+
+
+@pytest.mark.parametrize("code", ["CHECK_SYSTEM_NETWORK", "OPEN_WIFI_LOGIN"])
+def test_recommendation_network_is_a_hint(made, code):
+    controller, shell, _ = made
+    controller.run_recommendation(code)
+    assert "Проверьте подключение" in shell.last_toast
+
+
+@pytest.mark.parametrize("code", ["REPEAT_STABLE_NETWORK", "RETRY_LATER"])
+def test_recommendation_repeat_restarts_session(made, code):
+    controller, shell, _ = made
+
+    class Session:
+        started = 0
+        accept = True
+
+        def start(self):
+            self.started += 1
+            return self.accept
+
+    session = Session()
+    controller._diagnostics = session
+    controller.run_recommendation(code)
+    assert session.started == 1
+    session.accept = False
+    controller.run_recommendation(code)
+    assert shell.last_toast == "Проверка уже идёт"

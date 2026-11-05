@@ -31,6 +31,7 @@ class MonitoringPage(Adw.PreferencesPage):
 
     __gsignals__ = {
         "refresh-requested": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        "diagnostics-requested": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     def __init__(self) -> None:
@@ -180,6 +181,12 @@ class MonitoringPage(Adw.PreferencesPage):
         self.refresh_button.set_margin_top(12)
         self.refresh_button.connect("clicked", lambda _b: self.emit("refresh-requested"))
         group.add(self.refresh_button)
+
+        self.diagnostics_button = Gtk.Button(label="Проверить сеть…")
+        self.diagnostics_button.set_halign(Gtk.Align.CENTER)
+        self.diagnostics_button.set_margin_top(6)
+        self.diagnostics_button.connect("clicked", lambda _b: self.emit("diagnostics-requested"))
+        group.add(self.diagnostics_button)
 
     def _ensure_row(
         self, section: str, group: Adw.PreferencesGroup, row: MonitoringRow

@@ -23,6 +23,7 @@ SHORTCUTS: dict[str, str] = {
     "hide-window": "Ctrl+W",
     "toggle-connection": "Ctrl+Return",
     "test-latency": "Ctrl+T",
+    "network-diagnostics": "Ctrl+D",
     "search": "Ctrl+F",
 }
 
@@ -33,6 +34,7 @@ SECTIONS: list[tuple[str, list[tuple[str, str]]]] = [
         [
             ("toggle-connection", "Подключить или отключить"),
             ("test-latency", "Проверить задержку"),
+            ("network-diagnostics", "Диагностика сети"),
         ],
     ),
     (

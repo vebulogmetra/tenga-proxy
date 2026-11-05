@@ -18,7 +18,7 @@ from PySide6.QtNetwork import QNetworkInformation
 from PySide6.QtWidgets import QApplication, QWidget
 
 from src.core.config import get_asset_path
-from src.ui.controller import CONFIRM_DELETE, AppController, resume_monitoring
+from src.ui.controller import CONFIRM_DELETE, SETTINGS_DNS, AppController, resume_monitoring
 from src.ui.logic.version import app_version, core_version
 from src.ui.qt.dialogs.base import clipboard_text, open_url
 from src.ui.qt.dialogs.confirm import build_confirmation
@@ -63,6 +63,10 @@ def network_available() -> bool:
     return info.reachability() != QNetworkInformation.Reachability.Disconnected
 
 
+# Раздел настроек для рекомендации диагностики: контроллер не знает заголовков окна Qt.
+SECTION_TITLES = {SETTINGS_DNS: "DNS"}
+
+
 class _QtShell:
     """`Shell` контроллера поверх `QtApplication`; без окна — ничего не делает."""
 
@@ -75,7 +79,11 @@ class _QtShell:
     def toast(self, text: str, *, button: str | None = None, action: str | None = None) -> None:
         self._app.last_toast_for_test = text
         window = self._window()
-        if window is not None:
+        # Кнопка рекомендации нажата в окне диагностики: иначе тост ушёл бы в окно под ним.
+        diagnostics = self._app.diagnostics_window
+        if diagnostics is not None and diagnostics.isActiveWindow():
+            diagnostics.toast(text)
+        elif window is not None:
             window.toast(text, button=button, action=action)
 
     def notify(self, text: str) -> None:
@@ -148,6 +156,15 @@ class _QtShell:
         parent = self._app.dialog_parent()
         self._app.show_dialog(RoutingImportDialog(rows, on_confirm, parent), parent)
 
+    def show_network_diagnostics(self, session) -> None:
+        self._app.show_network_diagnostics(session)
+
+    def open_settings_section(self, section: str) -> None:
+        self._app.open_settings_section(section)
+
+    def activate_window(self) -> None:
+        self._app.activate()
+
 
 class QtApplication:
     """Приложение Qt-интерфейса; `QApplication` создаётся заранее."""
@@ -173,6 +190,7 @@ class QtApplication:
         self._with_tray = with_tray
         self._accept_activation = accept_activation
         self._activation = None
+        self.diagnostics_window = None
         self._dialog = None
         self._signal_timer: QTimer | None = None
         self.window: MainWindow | None = None
@@ -204,6 +222,7 @@ class QtApplication:
             "add-group": self.open_add_group,
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
+            "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
             "search": self._focus_search,
             "settings": self.open_settings,
             "about": self.open_about,
@@ -349,13 +368,35 @@ class QtApplication:
         dialog.group_ready.connect(self.controller.add_group)
         self.show_dialog(dialog)
 
-    def open_settings(self) -> None:
+    def open_settings(self, section: str | None = None) -> None:
         from src.ui.qt.dialogs.settings import SettingsDialog
 
         dialog = SettingsDialog(self, dispatch=self.loop.dispatch)
         # Кнопки «Сохранить» нет: правки уходят в контроллер по мере ввода.
         dialog.settings_saved.connect(self.controller.apply_settings)
+        if section is not None:
+            dialog.show_section(section)
         self.show_dialog(dialog)
+
+    def open_settings_section(self, section: str) -> None:
+        self.activate()
+        self.open_settings(SECTION_TITLES.get(section))
+
+    def show_network_diagnostics(self, session) -> None:
+        from src.ui.qt.dialogs.network_diagnostics import NetworkDiagnosticsWindow
+
+        if self.diagnostics_window is None:
+            window = NetworkDiagnosticsWindow(
+                session, self.loop, on_recommendation=self.controller.run_recommendation
+            )
+            window.finished.connect(lambda _result: self._on_diagnostics_closed())
+            self.diagnostics_window = window
+        self.diagnostics_window.show()
+        self.diagnostics_window.raise_()
+        self.diagnostics_window.activateWindow()
+
+    def _on_diagnostics_closed(self) -> None:
+        self.diagnostics_window = None
 
     def open_about(self) -> None:
         from src.ui.qt.dialogs.about import AboutDialog

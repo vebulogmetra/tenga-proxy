@@ -482,3 +482,49 @@ def test_allowlist_reason_appears_in_insufficient_card():
     assert card.chip.text == "Не удалось определить"
     assert "Прямые запросы закрыты; доступность ресурсов нельзя оценить надёжно." in card.lines
     assert card.lines[-1] == "Повторите проверку при стабильном подключении."
+
+
+class _Clock:
+    now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_updater_throttles_and_flushes_last_state():
+    from src.core.main_loop import ImmediateLoop
+    from src.ui.logic.diagnostics_view import ViewUpdater
+
+    session = session_with()
+    loop = ImmediateLoop()
+    clock = _Clock()
+    rendered = []
+    updater = ViewUpdater(session, loop, rendered.append, clock=clock)
+    updater.attach()
+    assert len(rendered) == 1
+    session.report = report()
+    session.on_changed()
+    assert len(rendered) == 1  # слишком рано: ждёт таймер
+    assert len(loop.scheduled) == 1
+    session.on_changed()
+    assert len(loop.scheduled) == 1  # второй таймер не нужен
+    clock.now = 1.0
+    loop.fire()
+    assert len(rendered) == 2
+    assert rendered[-1].network == "Wi-Fi"
+
+
+def test_updater_skips_unchanged_view_and_detaches():
+    from src.core.main_loop import ImmediateLoop
+    from src.ui.logic.diagnostics_view import ViewUpdater
+
+    session = session_with()
+    clock = _Clock()
+    rendered = []
+    updater = ViewUpdater(session, ImmediateLoop(), rendered.append, clock=clock)
+    updater.attach()
+    clock.now = 10.0
+    session.on_changed()
+    assert len(rendered) == 1
+    updater.detach()
+    assert session.on_changed is None

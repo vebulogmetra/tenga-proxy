@@ -1208,3 +1208,16 @@ def test_restore_routing_is_persisted(adw_app):
     saved = DataStore.load(adw_app.context.config_dir / "settings.json")
     assert saved.routing_backup is None
     assert saved.routing.direct_list == []
+
+
+def test_network_diagnostics_action_opens_one_window(adw_app):
+    from src.ui.dialogs.network_diagnostics import NetworkDiagnosticsWindow
+
+    assert adw_app.get_accels_for_action("app.network-diagnostics") == ["<Control>d"]
+    adw_app.activate_action("network-diagnostics", None)
+    window = adw_app.diagnostics_window
+    assert isinstance(window, NetworkDiagnosticsWindow)
+    adw_app.activate_action("network-diagnostics", None)
+    assert adw_app.diagnostics_window is window
+    window.close()
+    assert adw_app.diagnostics_window is None

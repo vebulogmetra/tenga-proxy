@@ -192,6 +192,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.subscriptions_page = SubscriptionsPage()
         self.monitoring_page = MonitoringPage()
         self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
+        self.monitoring_page.connect(
+            "diagnostics-requested",
+            lambda _page: self.get_application().activate_action("network-diagnostics"),
+        )
         self.profiles_page.connect("profile-activated", self._on_profile_activated)
         self.profiles_page.connect("selection-changed", lambda _page: self.refresh_status())
         self.subscriptions_page.connect("subscription-activated", self._on_subscription_edit)

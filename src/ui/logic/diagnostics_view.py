@@ -7,6 +7,7 @@ GTK и Qt только рисуют `DiagnosticsView`. Значения срав
 from __future__ import annotations
 
 import enum
+import time
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -1153,6 +1154,59 @@ def diagnostics_view(session: DiagnosticsSession) -> DiagnosticsView:
         footnotes=tuple(footnotes),
         methodology=METHODOLOGY,
     )
+
+
+class ViewUpdater:
+    """Пересчитывает представление не чаще раза в `interval_ms` и зовёт `render` при изменении.
+
+    За три минуты приходят сотни наблюдений, а окно перестраивает виджеты целиком: каждое
+    перестроение на каждое наблюдение заметно тормозило бы главный поток.
+    """
+
+    def __init__(self, session, loop, render, interval_ms=300, clock=time.monotonic):
+        self._session = session
+        self._loop = loop
+        self._render = render
+        self._interval = interval_ms / 1000
+        self._interval_ms = interval_ms
+        self._clock = clock
+        self._last = float("-inf")
+        self._timer: object | None = None
+        self.view: DiagnosticsView | None = None
+
+    def attach(self) -> None:
+        self._session.on_changed = self.changed
+        self._flush()
+
+    def detach(self) -> None:
+        self._cancel()
+        if self._session.on_changed == self.changed:
+            self._session.on_changed = None
+
+    def changed(self) -> None:
+        if self._timer is not None:
+            return
+        if self._clock() - self._last >= self._interval:
+            self._flush()
+        else:
+            self._timer = self._loop.schedule(self._interval_ms, self._on_timer)
+
+    def _on_timer(self) -> bool:
+        self._timer = None
+        self._flush()
+        return False
+
+    def _cancel(self) -> None:
+        if self._timer is not None:
+            self._loop.cancel(self._timer)
+            self._timer = None
+
+    def _flush(self) -> None:
+        self._last = self._clock()
+        view = diagnostics_view(self._session)
+        if view != self.view:
+            self.view = view
+            self._render(view)
 
 
 # Текст для чата поддержки

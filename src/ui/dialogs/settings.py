@@ -232,8 +232,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.failover_threshold_row.set_subtitle("Неудачных проверок подряд")
         failover.add(self.failover_threshold_row)
 
+    def show_dns_page(self) -> None:
+        self.set_visible_page(self._dns_page)
+
     def _build_dns_page(self) -> None:
         page = Adw.PreferencesPage(title="DNS", icon_name="network-server-symbolic")
+        self._dns_page = page
         self.add(page)
 
         group = Adw.PreferencesGroup(title="Провайдер")
