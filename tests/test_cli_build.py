@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import cli
 
 
@@ -30,3 +32,8 @@ def test_install_is_refused_on_windows(monkeypatch, capsys):
 
     assert cli.cmd_install(argparse.Namespace(uninstall=False)) == 1
     assert "dist/windows" in capsys.readouterr().out
+
+
+def test_deb_build_checks_diagnostics_catalog():
+    script = Path("core/scripts/build_deb.sh")
+    assert "assets/diagnostics/targets.json" in script.read_text(encoding="utf-8")

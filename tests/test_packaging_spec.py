@@ -80,3 +80,11 @@ def test_both_exes_land_in_one_directory():
 
     assert [exe.kwargs["name"] for exe in exes] == ["tenga-proxy", "tenga-proxy-svc"]
     assert names["coll"].kwargs["name"] == "tenga-proxy"
+
+
+def test_gui_bundle_has_diagnostics_catalog():
+    gui, _ = _analyses()
+    datas = gui.kwargs["datas"]
+    dests = {Path(src).name: dest.replace("\\", "/") for src, dest in datas}
+    assert dests["targets.json"] == "assets/diagnostics"
+    assert dests["placements.json"] == "assets/diagnostics"

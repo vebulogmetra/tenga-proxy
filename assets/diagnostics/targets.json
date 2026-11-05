@@ -1,0 +1,171 @@
+{
+  "schemaVersion": 1,
+  "catalogVersion": 6,
+  "expiresAtEpochSeconds": 1800316800,
+  "targets": [
+    {
+      "id": "mozilla-success",
+      "hostname": "detectportal.firefox.com",
+      "placementGroup": "fastly",
+      "path": "/success.txt",
+      "expectedStatus": 200,
+      "expectedBody": "success\n",
+      "maxBytes": 1024,
+      "coverage": "known-response"
+    },
+    {
+      "id": "cloudflare-trace",
+      "hostname": "www.cloudflare.com",
+      "placementGroup": "cloudflare",
+      "path": "/cdn-cgi/trace",
+      "expectedStatus": 200,
+      "maxBytes": 1024,
+      "coverage": "https-response"
+    },
+    {
+      "id": "cloudflare-speed",
+      "hostname": "speed.cloudflare.com",
+      "path": "/cdn-cgi/trace",
+      "placementGroup": "cloudflare",
+      "expectedStatus": 200,
+      "maxBytes": 1024,
+      "coverage": "https-response"
+    },
+    {
+      "id": "google-connect",
+      "hostname": "connectivitycheck.gstatic.com",
+      "path": "/generate_204",
+      "placementGroup": "google",
+      "expectedStatus": 204,
+      "maxBytes": 1,
+      "coverage": "https-response"
+    },
+    {
+      "id": "google-web",
+      "hostname": "www.google.com",
+      "path": "/generate_204",
+      "placementGroup": "google",
+      "expectedStatus": 204,
+      "maxBytes": 1,
+      "coverage": "https-response"
+    },
+    {
+      "id": "github-api",
+      "hostname": "api.github.com",
+      "path": "/zen",
+      "placementGroup": "github",
+      "expectedStatus": 200,
+      "maxBytes": 1024,
+      "coverage": "https-response"
+    },
+    {
+      "id": "yandex-main",
+      "hostname": "yandex.ru",
+      "path": "/robots.txt",
+      "placementGroup": "yandex",
+      "expectedStatus": 200,
+      "maxBytes": 65536,
+      "coverage": "robots-response"
+    },
+    {
+      "id": "yandex-short",
+      "hostname": "ya.ru",
+      "path": "/robots.txt",
+      "placementGroup": "yandex",
+      "expectedStatus": 200,
+      "maxBytes": 65536,
+      "coverage": "robots-response"
+    },
+    {
+      "id": "vk-web",
+      "hostname": "vk.com",
+      "path": "/robots.txt",
+      "placementGroup": "vk",
+      "expectedStatus": 200,
+      "maxBytes": 16384,
+      "coverage": "robots-response"
+    },
+    {
+      "id": "ok-web",
+      "hostname": "ok.ru",
+      "placementGroup": "vk",
+      "path": "/robots.txt",
+      "expectedStatus": 200,
+      "maxBytes": 16384,
+      "coverage": "robots-response"
+    },
+    {
+      "id": "github-web",
+      "hostname": "github.com",
+      "placementGroup": "github",
+      "path": "/robots.txt",
+      "expectedStatus": 200,
+      "maxBytes": 32768,
+      "coverage": "robots-response"
+    },
+    {
+      "id": "cloudflare-dns-web",
+      "hostname": "one.one.one.one",
+      "placementGroup": "cloudflare",
+      "path": "/cdn-cgi/trace",
+      "expectedStatus": 200,
+      "maxBytes": 1024,
+      "coverage": "https-response"
+    },
+    {
+      "id": "telegram-web",
+      "hostname": "web.telegram.org",
+      "placementGroup": "telegram",
+      "purpose": "TELEGRAM_WEB",
+      "coverage": "web-entry-only"
+    },
+    {
+      "id": "instagram-web",
+      "hostname": "www.instagram.com",
+      "placementGroup": "meta",
+      "purpose": "INSTAGRAM_WEB",
+      "coverage": "web-entry-only"
+    },
+    {
+      "id": "instagram-public-icon",
+      "hostname": "static.cdninstagram.com",
+      "placementGroup": "meta",
+      "path": "/rsrc.php/yr/r/rzWiSjZRxk5.webp",
+      "purpose": "INSTAGRAM_MEDIA",
+      "maxBytes": 16384,
+      "expectedStatus": 200,
+      "coverage": "public-static-only"
+    },
+    {
+      "id": "telegram-public-media",
+      "hostname": "t.me",
+      "placementGroup": "telegram",
+      "path": "/telegram/319",
+      "purpose": "TELEGRAM_MEDIA",
+      "families": [
+        "IPV4"
+      ],
+      "maxBytes": 16384,
+      "coverage": "public-image-fragment"
+    },
+    {
+      "id": "youtube-web",
+      "hostname": "www.youtube.com",
+      "placementGroup": "google",
+      "purpose": "YOUTUBE_WEB",
+      "coverage": "web-entry-only"
+    },
+    {
+      "id": "youtube-public-video",
+      "hostname": "www.youtube.com",
+      "placementGroup": "google",
+      "path": "/watch",
+      "purpose": "YOUTUBE_VIDEO",
+      "families": [
+        "IPV4"
+      ],
+      "maxBytes": 16384,
+      "coverage": "public-video-fragment"
+    }
+  ]
+}

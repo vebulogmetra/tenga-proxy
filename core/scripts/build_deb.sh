@@ -77,6 +77,8 @@ stage_files() {
         || error "Логотип статус-карточки не попал в пакет"
     [ -f "$PKG_ROOT/$LIB_DIR/assets/theme/hicolor/index.theme" ] \
         || error "Тема значков приложения не попала в пакет"
+    [ -f "$PKG_ROOT/$LIB_DIR/assets/diagnostics/targets.json" ] \
+        || error "Каталог диагностики сети не попал в пакет"
 
     install -D -m 0755 "$PACKAGING/tenga-proxy" "$PKG_ROOT/usr/bin/tenga-proxy"
     install -D -m 0755 "$PROJECT_ROOT/core/scripts/tun_route_helper.sh" \
