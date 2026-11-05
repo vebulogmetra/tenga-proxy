@@ -796,6 +796,89 @@ def cmd_run(args: argparse.Namespace) -> int:
         return 1
 
 
+def cmd_diagnose(args: argparse.Namespace) -> int:
+    """Проверить сеть и напечатать итог; прогресс — в stderr, итог — в stdout."""
+    from src.diag.assess.summary import summarize
+    from src.diag.assess.summary_text import build_summary_text
+    from src.diag.export import write_report
+    from src.diag.models import DiagnosticRequest, DiagnosticSection, DiagnosticTermination
+    from src.diag.runner import (
+        DiagnosticSources,
+        Finished,
+        ObservationEvent,
+        causes_request,
+        desktop_runner,
+        detected_policy,
+        failed_target_ids,
+        same_network,
+    )
+    from src.ui.logic.diagnostics_view import RussianSummaryStrings, local_time
+
+    sections = {
+        "all": None,
+        "allowlist": DiagnosticSection.ALLOWLIST,
+        "services": DiagnosticSection.SERVICES,
+        "dns": DiagnosticSection.DNS,
+    }
+    section = sections[args.section]
+    # У CLI нет данных сеанса GUI: сравнения с туннелем нет, а TUN определяется по маршруту.
+    sources = DiagnosticSources(detected_policy, lambda: None)
+    runner = desktop_runner(sources, __version__)
+    state = {"report": None, "targets": ()}
+
+    def on_event(event) -> None:
+        if isinstance(event, ObservationEvent):
+            print(".", end="", file=sys.stderr, flush=True)
+        elif isinstance(event, Finished):
+            state["report"] = event.report
+        elif hasattr(event, "targets"):
+            state["targets"] = event.targets
+
+    previous = signal.signal(signal.SIGINT, lambda *_: runner.cancel())
+    try:
+        runner.run(DiagnosticRequest(section=section, compare_active_tunnel=False), on_event)
+        report = state["report"]
+        causes = None
+        if report.termination is DiagnosticTermination.COMPLETED and section in (
+            None,
+            DiagnosticSection.ALLOWLIST,
+            DiagnosticSection.SERVICES,
+        ):
+            failed = failed_target_ids(report, state["targets"])
+            if failed:
+                detail = {}
+
+                def on_detail(event) -> None:
+                    if isinstance(event, ObservationEvent):
+                        print(".", end="", file=sys.stderr, flush=True)
+                    elif isinstance(event, Finished):
+                        detail["report"] = event.report
+
+                runner.run(causes_request(failed), on_detail)
+                if same_network(report, detail["report"]):
+                    causes = detail["report"]
+    finally:
+        signal.signal(signal.SIGINT, previous)
+    print(file=sys.stderr)
+    facts = report.network_facts()
+    summary = summarize(
+        report.allowlist_assessment,
+        report.service_assessment,
+        report.dns_assessment,
+        [facts.type if facts else None],
+        report.is_partial,
+    )
+    print(
+        build_summary_text(
+            summary, report, local_time(), RussianSummaryStrings(), cause_report=causes
+        )
+    )
+    if args.json:
+        write_report(Path(args.json), report, causes)
+        print(f"Отчёт: {args.json}", file=sys.stderr)
+    return 0 if report.termination is DiagnosticTermination.COMPLETED else 2
+
+
 def main() -> int:
     """Main entry point."""
     setup_core_logging(CLI_LOG_FILE, level=logging.INFO)
@@ -865,6 +948,15 @@ def main() -> int:
     )
 
     # Build and installation commands
+    diagnose_parser = subparsers.add_parser("diagnose", help="Проверить сеть")
+    diagnose_parser.add_argument("--json", metavar="ПУТЬ", help="Сохранить отчёт без личных данных")
+    diagnose_parser.add_argument(
+        "--section",
+        choices=("all", "allowlist", "services", "dns"),
+        default="all",
+        help="Этап проверки",
+    )
+
     subparsers.add_parser("setup", help="Собрать и установить deb-пакет в систему")
 
     subparsers.add_parser("build", help="Собрать deb-пакет (на Windows — установщик)")
@@ -911,6 +1003,7 @@ def main() -> int:
         "rm": cmd_remove,
         "ver": cmd_version,
         "run": cmd_run,
+        "diagnose": cmd_diagnose,
         "setup": cmd_setup,
         "build": cmd_build,
         "install": cmd_install,
