@@ -11,6 +11,7 @@ venv/
 logs/
 !logs/
 *.log
+*.log.*
 
 .mypy_cache/
 .pytest_cache/
