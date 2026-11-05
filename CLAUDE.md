@@ -125,10 +125,12 @@ src/
 │   ├── tray/          # TrayController; StatusNotifierItem + com.canonical.dbusmenu
 │   ├── logic/         # Логика без GTK: форматирование, задержка, формы
 │   └── models/        # Модели и фильтры списков
+├── diag/          # Диагностика сети: порт Android без тулкита (пробы, оценки, запуск, экспорт)
 ├── sys/           # Системные функции: фасады, реализация выбирается по ОС
 │   ├── proxy.py       # set_system_proxy(), clear_system_proxy()
 │   ├── vpn.py         # Управление VPN подключением
 │   ├── tun_route.py, tun_dns.py # Маршруты и DNS режима TUN
+│   ├── netbind.py     # Привязка сокета к физическому интерфейсу мимо TUN
 │   ├── single_instance.py # Контроль единственного экземпляра
 │   ├── linux/         # Реализации для Linux (NetworkManager, ip, resolvectl)
 │   └── windows/       # Реализации для Windows (WinINet, PowerShell, RAS, клиент службы)
@@ -233,6 +235,20 @@ Windows) и возвращается при следующем старте, е�
 команды JSON-строками по named pipe `\\.\pipe\tenga-proxy-svc`, проверяет
 конфиг политикой (`policy.py`), журналирует каждое изменение сети и
 откатывает его при остановке, падении ядра, пропаже клиента и старте.
+
+**Диагностика сети (`src/diag/`)** - ручная проверка сети, порт Android с теми же кодами,
+порогами и файлами `assets/diagnostics/*.json`: `DiagnosticRunner` (`runner.py`) в фоновом
+потоке гонит план (`plan.py`) через планировщик и бюджет, пробы — `probes/`, выводы —
+`assess/`, отчёт — `export.py` (схема 2, адресов не содержит). Прямые пробы идут мимо TUN
+через `src/sys/netbind.py`; при блокировке трафика или без физического маршрута по умолчанию не
+выполняются вовсе: `SKIPPED(SYSTEM_RESTRICTED)`. В `src/diag/` нет импортов тулкита и `src/ui`. Окно: состояние —
+`src/ui/logic/diagnostics_session.py`, что показать — `diagnostics_view.py`, рисуют
+`src/ui/dialogs/network_diagnostics.py` и `src/ui/qt/dialogs/network_diagnostics.py`; тесты GTK
+собирает `make test-gtk` по маске `test_ui_dialogs_*`. Тесты в публичную сеть не ходят
+(`tests/support/diag.py` — loopback-серверы). Сценарии на настоящем TUN —
+`make test-vm ARGS="-- -k diagnostics"`. Каталог целей обновляется в обоих репозиториях: срок
+годности — `2027-01-19`, после него выводы ограничены. Дизайн:
+`docs/plans/2026-11-05-network-diagnostics-desktop-design.md`.
 
 **ConnectionMonitor (`src/core/monitor.py`)** - мониторинг соединения:
 - Периодическая проверка доступности proxy
