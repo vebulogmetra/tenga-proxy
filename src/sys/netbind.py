@@ -4,6 +4,7 @@ from src.core.platform_info import IS_WINDOWS
 
 if IS_WINDOWS:
     from src.sys.windows.netbind import (
+        active_tunnel_interface,
         bind_socket,
         binding_confirmed,
         interface_addresses,
@@ -12,6 +13,7 @@ if IS_WINDOWS:
     )
 else:
     from src.sys.linux.netbind import (
+        active_tunnel_interface,
         bind_socket,
         binding_confirmed,
         interface_addresses,
@@ -20,6 +22,7 @@ else:
     )
 
 __all__ = [
+    "active_tunnel_interface",
     "bind_socket",
     "binding_confirmed",
     "interface_addresses",

@@ -25,8 +25,38 @@ def binding_confirmed() -> bool:
     return True
 
 
+def _tun_devices() -> list[str]:
+    """TUN определяется по ядру, а не по имени: имя интерфейса задаётся в настройках."""
+    try:
+        return [path.name for path in SYS_CLASS_NET.iterdir() if (path / "tun_flags").exists()]
+    except OSError:
+        return []
+
+
 def physical_interface(exclude: Iterable[str] = ()) -> str | None:
-    return get_default_interface(exclude=exclude)
+    return get_default_interface(exclude=[*exclude, *_tun_devices()])
+
+
+def active_tunnel_interface() -> str | None:
+    """TUN, через который сейчас идёт маршрут по умолчанию; нужно CLI рядом с живым GUI."""
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    tunnels = set(_tun_devices())
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if "dev" in parts and parts.index("dev") + 1 < len(parts):
+            device = parts[parts.index("dev") + 1]
+            if device in tunnels:
+                return device
+    return None
 
 
 def interface_kind(interface: str) -> str:

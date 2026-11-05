@@ -36,6 +36,14 @@ def physical_interface(exclude: Iterable[str] = ()) -> str | None:
     return route.alias if route else None
 
 
+def active_tunnel_interface() -> str | None:
+    snapshot = netinfo.snapshot()
+    best = min(snapshot.routes, key=lambda route: route.metric, default=None)
+    if best is None or not netinfo.is_tunnel(snapshot.adapter(best.alias)):
+        return None
+    return best.alias
+
+
 def interface_kind(interface: str) -> str:
     adapter = netinfo.snapshot().adapter(interface)
     description = adapter.description.lower() if adapter else ""
