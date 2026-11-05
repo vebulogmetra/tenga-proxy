@@ -59,4 +59,5 @@ def test_data_home_follows_xdg(monkeypatch, tmp_path):
 
     monkeypatch.delenv("XDG_DATA_HOME")
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() на Windows
     assert legacy_appimage.data_home() == tmp_path / ".local" / "share"

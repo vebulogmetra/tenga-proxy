@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import importlib.util
 import sys
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.core.context import AppContext
 from src.core.http_probe import ProbeCredentials, ProbeEndpoint
@@ -12,6 +15,24 @@ from src.core.monitor import (
     ConnectionStatus,
 )
 from src.core.xray_manager import TrafficStats
+
+# Класс GTK-приложения: заглушка GLib тут бессмысленна, нужен настоящий PyGObject.
+needs_pygobject = pytest.mark.skipif(
+    importlib.util.find_spec("gi") is None, reason="интерфейс GTK есть только на Linux"
+)
+
+
+@pytest.fixture(autouse=True)
+def glib_available(monkeypatch):
+    """Тесты подменяют функции GLib по имени, а на Windows PyGObject нет: нужна заглушка."""
+    try:
+        from gi.repository import GLib
+    except ImportError:
+        glib = MagicMock()
+        repository = MagicMock(GLib=glib)
+        monkeypatch.setitem(sys.modules, "gi", MagicMock(repository=repository))
+        monkeypatch.setitem(sys.modules, "gi.repository", repository)
+        monkeypatch.setitem(sys.modules, "gi.repository.GLib", glib)
 
 
 def test_connection_status_defaults():
@@ -718,6 +739,7 @@ def test_attach_monitor_keeps_an_existing_one(tmp_path):
     assert first is second
 
 
+@needs_pygobject
 def test_resume_monitoring_starts_a_running_proxy(tmp_path):
     """Приложение могло открыться при уже поднятом прокси: проверки нужны."""
     from src.ui.application import TengaApplication
@@ -732,6 +754,7 @@ def test_resume_monitoring_starts_a_running_proxy(tmp_path):
     monitor.start.assert_called_once()
 
 
+@needs_pygobject
 def test_resume_monitoring_leaves_a_stopped_proxy_alone(tmp_path):
     """Без подключения наблюдать нечего."""
     from src.ui.application import TengaApplication

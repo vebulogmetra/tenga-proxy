@@ -39,7 +39,7 @@ def test_the_gtk4_flag_is_gone(entry):
 def test_existing_flags_still_parse(entry):
     args, _ = entry.parse_args(["--no-tray", "-c", "/tmp/x"])
     assert args.no_tray is True
-    assert str(args.config_dir) == "/tmp/x"
+    assert Path(args.config_dir) == Path("/tmp/x")
 
 
 def test_unknown_args_are_passed_through(entry):

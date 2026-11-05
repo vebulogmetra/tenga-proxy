@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from src.core.context import AppContext
@@ -52,7 +54,7 @@ def test_the_icon_carries_the_theme_directory(context):
     tray = TrayController(FakeApp(), context, item=item, dispatch=lambda fn, *a: fn(*a))
     tray.start()
     try:
-        assert paths[-1].endswith("assets/icons")
+        assert Path(paths[-1]).parts[-2:] == ("assets", "icons")
     finally:
         tray.stop()
 

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import pytest
+
+pytest.importorskip("gi", reason="трей StatusNotifierItem есть только на Linux")
+
 from gi.repository import Gio, GLib
 
 from src.ui.tray.dbusmenu import MenuItem, separator
