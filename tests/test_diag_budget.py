@@ -16,9 +16,9 @@ def test_attempts_and_bytes_are_limited_and_not_refunded():
 
 
 def test_budget_rejects_bad_values():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticBudget(0, 1)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticBudget(1, 1).reserve(-1)
 
 

@@ -198,7 +198,7 @@ def is_public_address(address: str) -> bool:
     return (
         0x20 <= raw[0] <= 0x3F
         and not (raw[0] == 0x20 and raw[1] == 0x01 and raw[2] < 2)
-        and not (raw[:4] == b"\x20\x01\x0d\xb8")
+        and raw[:4] != b"\x20\x01\x0d\xb8"
         and not (raw[0] == 0x20 and raw[1] == 0x02)
         and not (raw[0] == 0x3F and raw[1] == 0xFF and raw[2] < 0x10)
     )
@@ -267,9 +267,9 @@ class PlacementRegistry:
         ip = ipaddress.ip_address(address)
         for reviewed, networks in self._rows:
             # Семейства каталог сужает при загрузке: сравнение целиком здесь не подходит.
-            if reviewed.id == target.id and reviewed.hostname == target.hostname:
-                if any(ip in network for network in networks if network.version == ip.version):
-                    return reviewed.placement_group
+            same = reviewed.id == target.id and reviewed.hostname == target.hostname
+            if same and any(ip in net for net in networks if net.version == ip.version):
+                return reviewed.placement_group
         return None
 
     def groups(self, now: float) -> frozenset[str]:

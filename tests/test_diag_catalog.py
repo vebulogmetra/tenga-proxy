@@ -151,4 +151,4 @@ def test_public_address_policy(address, public):
 
 
 def test_russian_references():
-    assert RUSSIAN_REFERENCES == frozenset({"yandex.ru", "ya.ru", "vk.com", "ok.ru"})
+    assert frozenset({"yandex.ru", "ya.ru", "vk.com", "ok.ru"}) == RUSSIAN_REFERENCES

@@ -21,10 +21,13 @@ from src.diag.models import (
 
 
 def obs(**kw):
-    base = dict(
-        id="o1", target_id="t", route=ProbeRoute.DIRECT, stage=ProbeStage.HTTP,
-        status=ProbeStatus.SUCCESS,
-    )  # fmt: skip
+    base = {
+        "id": "o1",
+        "target_id": "t",
+        "route": ProbeRoute.DIRECT,
+        "stage": ProbeStage.HTTP,
+        "status": ProbeStatus.SUCCESS,
+    }
     base.update(kw)
     return ProbeObservation(**base)
 
@@ -33,35 +36,35 @@ CTX = DiagnosticRunContext("run", "6", "0.25.0")
 
 
 def test_observation_rejects_unknown_evidence_key():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(evidence={"ipAddress": "1.2.3.4"})
 
 
 def test_observation_rejects_long_or_control_values():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(evidence={"alpn": "x" * 129})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(evidence={"alpn": "h2\n"})
 
 
 def test_observation_attempt_bounds():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(attempt=0)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(attempt=4)
     assert obs(attempt=3).attempt == 3
 
 
 def test_observation_http_status_bounds():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(http_status=99)
     assert obs(http_status=204).http_status == 204
 
 
 def test_observation_needs_ids_and_non_negative_elapsed():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(id=" ")
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         obs(elapsed_ms=-1)
 
 
@@ -70,11 +73,11 @@ def test_request_limits_match_android():
     assert (request.deadline_ms, request.max_attempts, request.max_payload_bytes) == (
         120_000, 384, 8 * 1024 * 1024,
     )  # fmt: skip
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticRequest(deadline_ms=120_001)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticRequest(detail_target_ids={f"t{i}" for i in range(33)})
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticRequest(detail_target_ids={"Bad Id"})
 
 
@@ -92,10 +95,10 @@ def test_failure_codes_are_the_android_set():
 
 
 def test_report_rejects_duplicate_ids_and_foreign_findings():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticReport(CTX, (obs(), obs()))
     finding = DiagnosticFinding("X", EvidenceLevel.OBSERVED, ("missing",))
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match=r".+"):
         DiagnosticReport(CTX, (obs(),), (finding,))
 
 
