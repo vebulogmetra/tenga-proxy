@@ -1,7 +1,7 @@
 """SO_BINDTODEVICE: выводит сокет пробы мимо TUN, не трогая маршруты.
 
-С ядра 5.7 опция доступна без прав, пока сокет не привязан. Если помощник TUN заменил
-физический маршрут по умолчанию, connect вернёт ENETUNREACH: это обрабатывает диагностика.
+С ядра 5.7 опция доступна без прав, пока сокет не привязан. Обойти TUN можно, только пока у
+интерфейса есть свой маршрут по умолчанию: это проверяет `binding_confirmed`.
 """
 
 from __future__ import annotations
@@ -21,8 +21,22 @@ def bind_socket(sock: socket.socket, interface: str) -> None:
     sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, interface.encode() + b"\0")
 
 
-def binding_confirmed() -> bool:
-    return True
+def binding_confirmed(interface: str) -> bool:
+    """Помощник TUN заменяет маршрут без метрики: тогда сокету на интерфейсе некуда идти.
+
+    Только IPv4: IPv6 мимо туннеля в сеансе TUN закрыт таблицей `ipv6_only`.
+    """
+    try:
+        result = subprocess.run(
+            ["ip", "route", "show", "default", "dev", interface],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _tun_devices() -> list[str]:

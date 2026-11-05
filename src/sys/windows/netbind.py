@@ -27,7 +27,7 @@ def bind_socket(sock: socket.socket, interface: str) -> None:
         sock.setsockopt(socket.IPPROTO_IP, IP_UNICAST_IF, struct.pack("!I", adapter.index))
 
 
-def binding_confirmed() -> bool:
+def binding_confirmed(interface: str) -> bool:
     return False
 
 

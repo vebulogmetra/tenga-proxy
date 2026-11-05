@@ -109,6 +109,7 @@ class DiagnosticProbePlan:
         self._lock = threading.Lock()
         self._answers: dict[tuple[str, AddressFamily, str], tuple[str, str]] = {}
         self._ipv4_answers: dict[str, set[str]] = {}
+        self._dns_failures: dict[tuple[str, AddressFamily], set[DiagnosticFailure | None]] = {}
         self._baseline = [
             t
             for t in catalog.targets
@@ -355,6 +356,10 @@ class DiagnosticProbePlan:
         def execute() -> ProbeObservation:
             result = self._backend.dns(task_id, target, family, resolver)
             self._remember(target, family, resolver, result)
+            with self._lock:
+                self._dns_failures.setdefault((target.id, family), set()).add(
+                    result.observation.failure_code
+                )
             if result.observation.status is ProbeStatus.SUCCESS and result.addresses:
                 with self._lock:
                     self._answers[(target.id, family, resolver)] = (result.addresses[0], resolver)
@@ -373,6 +378,16 @@ class DiagnosticProbePlan:
         source = "system" if resolver == "system" else "doh"
         with self._lock:
             self._ipv4_answers.setdefault(f"{target.id}:{source}", set()).update(result.addresses)
+
+    def _unresolved_failure(
+        self, target: DiagnosticTarget, family: AddressFamily
+    ) -> DiagnosticFailure:
+        """Если до DNS не дошли вовсе, сбоем DNS это называть нельзя: его никто не спросил."""
+        with self._lock:
+            failures = self._dns_failures.get((target.id, family))
+        if failures == {DiagnosticFailure.SYSTEM_RESTRICTED}:
+            return DiagnosticFailure.SYSTEM_RESTRICTED
+        return DiagnosticFailure.DNS_FAILED
 
     def _connections(self, targets: list[DiagnosticTarget]) -> list[DiagnosticTask]:
         return [
@@ -398,7 +413,7 @@ class DiagnosticProbePlan:
                     ProbeStatus.SKIPPED,
                     attempt=attempt,
                     address_family=family,
-                    failure_code=DiagnosticFailure.DNS_FAILED,
+                    failure_code=self._unresolved_failure(target, family),
                 )
             address, resolver = resolved
             observed = self._backend.connection(task_id, target, stage, ProbeRoute.DIRECT, address)

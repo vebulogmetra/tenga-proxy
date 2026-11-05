@@ -17,7 +17,7 @@ from src.diag.models import (
     ProbeStage,
     ProbeStatus,
 )
-from src.diag.network import DirectPolicy, NetworkState
+from src.diag.network import DirectPolicy, NetworkState, NetworkWatcher, read_network_state
 from src.diag.runner import (
     DesktopEnvironment,
     DiagnosticRunChange,
@@ -334,11 +334,49 @@ def test_kill_switch_skips_direct_without_io(monkeypatch):
         for item in environment.tasks(phase, []):
             result = item.execute()
             assert result.status in (ProbeStatus.SKIPPED,)
+            # И то, что зависело от DNS: это не сбой DNS, DNS никто не спрашивал.
+            assert result.failure_code is DiagnosticFailure.SYSTEM_RESTRICTED
     dns = environment.tasks(1, [])[0].execute()
     assert dns.failure_code is DiagnosticFailure.SYSTEM_RESTRICTED
     network = environment.tasks(0, [])[0].execute()
     assert network.status is ProbeStatus.SUCCESS
     assert network.evidence["vpnActive"] == "true"
+
+
+def _state_under_tun(monkeypatch, route: bool) -> NetworkState:
+    monkeypatch.setattr("src.diag.network.netbind.physical_interface", lambda _exclude: "eth0")
+    monkeypatch.setattr("src.diag.network.netbind.interface_kind", lambda _interface: "ETHERNET")
+    monkeypatch.setattr(
+        "src.diag.network.netbind.interface_addresses", lambda _interface: ("192.0.2.10",)
+    )
+    monkeypatch.setattr("src.diag.network.netbind.binding_confirmed", lambda _interface: route)
+    return read_network_state(DirectPolicy("xray0"))
+
+
+def test_direct_path_under_tun_needs_a_physical_route(monkeypatch):
+    assert _state_under_tun(monkeypatch, route=True).restricted is False
+    # Помощник заменил единственный маршрут: сокету на физическом интерфейсе некуда идти.
+    assert _state_under_tun(monkeypatch, route=False).restricted is True
+
+
+def test_route_is_not_consulted_without_tun(monkeypatch):
+    def forbidden(_interface):
+        raise AssertionError("без TUN маршрут не нужен")
+
+    monkeypatch.setattr("src.diag.network.netbind.physical_interface", lambda _exclude: "eth0")
+    monkeypatch.setattr("src.diag.network.netbind.interface_kind", lambda _interface: "ETHERNET")
+    monkeypatch.setattr(
+        "src.diag.network.netbind.interface_addresses", lambda _interface: ("192.0.2.10",)
+    )
+    monkeypatch.setattr("src.diag.network.netbind.binding_confirmed", forbidden)
+    assert read_network_state(DirectPolicy()).restricted is False
+
+
+def test_lost_physical_route_counts_as_a_network_change(monkeypatch):
+    baseline = _state_under_tun(monkeypatch, route=True)
+    current = _state_under_tun(monkeypatch, route=False)
+    watcher = NetworkWatcher(baseline, lambda: baseline.policy, lambda _policy: current)
+    assert watcher.changed() is True
 
 
 def test_without_a_session_tunnel_tasks_skip(sources):

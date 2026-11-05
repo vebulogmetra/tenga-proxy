@@ -1,5 +1,6 @@
 """Пробы на loopback: публичный адрес уводит `remap`, политика адресов остаётся настоящей."""
 
+import errno
 import socket
 import struct
 import threading
@@ -333,23 +334,23 @@ def test_bound_socket_is_restricted_under_tun():
 
 
 @pytest.mark.parametrize(
-    ("error", "under_tun", "code"),
+    ("error", "code"),
     [
-        (TimeoutError(), False, DiagnosticFailure.TIMEOUT),
-        (ConnectionRefusedError(), False, DiagnosticFailure.CONNECTION_REFUSED),
-        (ConnectionResetError(), False, DiagnosticFailure.CONNECTION_RESET),
-        (BrokenPipeError(), False, DiagnosticFailure.CONNECTION_RESET),
-        (PermissionError(), False, DiagnosticFailure.SYSTEM_RESTRICTED),
-        (socket.gaierror(), False, DiagnosticFailure.DNS_FAILED),
-        (ProxyAuthError(), False, DiagnosticFailure.PROXY_AUTH),
-        (ProxyUnavailableError(), False, DiagnosticFailure.PROXY_UNAVAILABLE),
-        (OSError(), False, DiagnosticFailure.IO),
-        (OSError(101, "unreachable"), False, DiagnosticFailure.CONNECTION_REFUSED),
-        (OSError(101, "unreachable"), True, DiagnosticFailure.SYSTEM_RESTRICTED),
+        (TimeoutError(), DiagnosticFailure.TIMEOUT),
+        (ConnectionRefusedError(), DiagnosticFailure.CONNECTION_REFUSED),
+        (ConnectionResetError(), DiagnosticFailure.CONNECTION_RESET),
+        (BrokenPipeError(), DiagnosticFailure.CONNECTION_RESET),
+        (PermissionError(), DiagnosticFailure.SYSTEM_RESTRICTED),
+        (socket.gaierror(), DiagnosticFailure.DNS_FAILED),
+        (ProxyAuthError(), DiagnosticFailure.PROXY_AUTH),
+        (ProxyUnavailableError(), DiagnosticFailure.PROXY_UNAVAILABLE),
+        (OSError(), DiagnosticFailure.IO),
+        (OSError(errno.ENETUNREACH, "unreachable"), DiagnosticFailure.CONNECTION_REFUSED),
+        (OSError(errno.EHOSTUNREACH, "unreachable"), DiagnosticFailure.CONNECTION_REFUSED),
     ],
 )
-def test_classify(error, under_tun, code):
-    assert classify(error, under_tun=under_tun) is code
+def test_classify(error, code):
+    assert classify(error) is code
 
 
 def dns_context(server):

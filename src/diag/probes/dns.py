@@ -145,7 +145,7 @@ def probe_system_dns(
             failure, status = DiagnosticFailure.UNEXPECTED_RESPONSE, ProbeStatus.INCONCLUSIVE
             continue
         except OSError as error:
-            failure = classify(error, under_tun=context.under_tun)
+            failure = classify(error)
             status = status_of(failure)
             continue
         if not all(is_public_address(a) and family_of(a) is family for a in answer.addresses):
@@ -218,7 +218,7 @@ def probe_doh(
             read_limit=read_limit,
         )
     except (OSError, ValueError) as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         return result(status_of(failure), failure)
     code = response.status
     if 300 <= code <= 399:
@@ -297,7 +297,7 @@ def probe_dns_transport(
     except ValueError:
         return result(ProbeStatus.INCONCLUSIVE, DiagnosticFailure.UNEXPECTED_RESPONSE)
     except OSError as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         return result(status_of(failure), failure)
     evidence = {"dnsRcode": str(answer.rcode), "receivedBytes": str(len(response))}
     if not all(is_public_address(a) for a in answer.addresses):
@@ -348,7 +348,7 @@ def probe_dns_interception(
     except ValueError:
         return result(ProbeStatus.INCONCLUSIVE, DiagnosticFailure.UNEXPECTED_RESPONSE)
     except OSError as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         return result(status_of(failure), failure)
     if answer.rcode == 3:
         return result(ProbeStatus.SUCCESS, matched=True)

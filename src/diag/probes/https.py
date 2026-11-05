@@ -109,7 +109,7 @@ def probe_https(
             read_limit=read_limit,
         )
     except (OSError, ValueError) as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         timings = getattr(error, "timings", {})
         return result(status_of(failure), failure, evidence={**timings, "transport": "https"})
     return _judge(target, response, result, web_entry)

@@ -132,8 +132,8 @@ class ProbeContext:
             pass
 
 
-def classify(error: BaseException, *, under_tun: bool = False) -> DiagnosticFailure:
-    """Код отказа по исключению: порт diagnosticFailure() с поправкой на маршруты TUN."""
+def classify(error: BaseException) -> DiagnosticFailure:
+    """Код отказа по исключению: порт diagnosticFailure()."""
     if isinstance(error, ProxyAuthError):
         return DiagnosticFailure.PROXY_AUTH
     if isinstance(error, ProxyUnavailableError):
@@ -151,10 +151,6 @@ def classify(error: BaseException, *, under_tun: bool = False) -> DiagnosticFail
     if isinstance(error, socket.gaierror):
         return DiagnosticFailure.DNS_FAILED
     code = error.errno if isinstance(error, OSError) else None
-    if code in (errno.ENETUNREACH, errno.EHOSTUNREACH) and under_tun:
-        # Помощник TUN мог заменить физический маршрут по умолчанию: тогда прямой путь
-        # закрыт нашим же туннелем, и это не отказ сети.
-        return DiagnosticFailure.SYSTEM_RESTRICTED
     if isinstance(error, ConnectionRefusedError) or code in (
         errno.ENETUNREACH,
         errno.EHOSTUNREACH,

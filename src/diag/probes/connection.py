@@ -44,7 +44,7 @@ def _probe(context, id, target, address, timeout, stage) -> ProbeObservation:
         sock = context.wrap_tls(sock, target.hostname)
         return result(ProbeStatus.SUCCESS, evidence={"tlsVersion": sock.version() or "unknown"})
     except OSError as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         return result(status_of(failure), failure)
     finally:
         if sock is not None:

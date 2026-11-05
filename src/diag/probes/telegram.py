@@ -118,7 +118,7 @@ def probe_telegram(
             read_limit=read_limit,
         )
     except (OSError, ValueError) as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         return result(status_of(failure), failure)
     code = response.status
     if 300 <= code <= 399:

@@ -23,6 +23,8 @@ class NetworkState:
     kind: str
     addresses: tuple[str, ...]
     policy: DirectPolicy
+    # Под TUN: выводит ли привязка сокет наружу. Читается один раз: вызов не бесплатен.
+    bypass: bool = True
 
     @property
     def under_tun(self) -> bool:
@@ -42,7 +44,7 @@ class NetworkState:
     @property
     def restricted(self) -> bool:
         """Прямой путь не проверить: закрыт блокировкой или обход TUN здесь не подтверждён."""
-        return self.policy.kill_switch or (self.under_tun and not netbind.binding_confirmed())
+        return self.policy.kill_switch or (self.under_tun and not self.bypass)
 
 
 def read_network_state(policy: DirectPolicy) -> NetworkState:
@@ -55,6 +57,7 @@ def read_network_state(policy: DirectPolicy) -> NetworkState:
         netbind.interface_kind(interface),
         netbind.interface_addresses(interface),
         policy,
+        policy.tun_interface is None or netbind.binding_confirmed(interface),
     )
 
 
@@ -73,8 +76,9 @@ class NetworkWatcher:
 
     def changed(self) -> bool:
         state = self._read(self._policy())
-        return (state.interface, state.addresses, state.policy) != (
+        return (state.interface, state.addresses, state.policy, state.bypass) != (
             self._baseline.interface,
             self._baseline.addresses,
             self._baseline.policy,
+            self._baseline.bypass,
         )

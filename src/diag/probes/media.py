@@ -275,6 +275,6 @@ def probe_media(
     except ValueError:
         return result(ProbeStatus.INCONCLUSIVE, DiagnosticFailure.UNSAFE_ADDRESS)
     except OSError as error:
-        failure = classify(error, under_tun=context.under_tun)
+        failure = classify(error)
         status = ProbeStatus.INCONCLUSIVE if failure in _INCONCLUSIVE else ProbeStatus.FAILURE
         return result(status, failure)
