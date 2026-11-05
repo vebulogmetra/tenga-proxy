@@ -25,7 +25,7 @@ class FakeSocket:
 
 def test_linux_binds_by_device_name_with_terminating_zero():
     sock = FakeSocket()
-    linux.bind_socket(sock, "wlan0")
+    linux.socket_binder("wlan0")(sock)
     assert sock.options == [(socket.SOL_SOCKET, linux.SO_BINDTODEVICE, b"wlan0\0")]
 
 
@@ -87,21 +87,39 @@ def _snapshot(monkeypatch, index=7):
 def test_windows_ipv4_index_is_in_network_byte_order(monkeypatch):
     _snapshot(monkeypatch)
     sock = FakeSocket()
-    windows.bind_socket(sock, "Wi-Fi")
+    windows.socket_binder("Wi-Fi")(sock)
     assert sock.options == [(socket.IPPROTO_IP, windows.IP_UNICAST_IF, struct.pack("!I", 7))]
 
 
 def test_windows_ipv6_index_is_in_host_byte_order(monkeypatch):
     _snapshot(monkeypatch)
     sock = FakeSocket(socket.AF_INET6)
-    windows.bind_socket(sock, "Wi-Fi")
+    windows.socket_binder("Wi-Fi")(sock)
     assert sock.options == [(socket.IPPROTO_IPV6, windows.IPV6_UNICAST_IF, 7)]
 
 
 def test_windows_missing_adapter_is_an_error_not_an_unbound_socket(monkeypatch):
     _snapshot(monkeypatch)
+    binder = windows.socket_binder("Ethernet")
     with pytest.raises(OSError, match="gone"):
-        windows.bind_socket(FakeSocket(), "Ethernet")
+        binder(FakeSocket())
+
+
+def test_windows_adapter_is_resolved_once_not_for_every_socket(monkeypatch):
+    """Снимок сети — это запуск PowerShell: на каждый сокет пробы ждали бы его под блокировкой."""
+    _snapshot(monkeypatch)
+    queries = []
+    real = netinfo.snapshot
+
+    def counting():
+        queries.append(1)
+        return real()
+
+    monkeypatch.setattr(netinfo, "snapshot", counting)
+    binder = windows.socket_binder("Wi-Fi")
+    for _ in range(3):
+        binder(FakeSocket())
+    assert len(queries) == 1
 
 
 def test_windows_direct_probes_stay_off_until_the_option_is_confirmed():
@@ -110,14 +128,19 @@ def test_windows_direct_probes_stay_off_until_the_option_is_confirmed():
 
 @pytest.mark.windows
 @pytest.mark.skipif(sys.platform != "win32", reason="нужна настоящая Windows")
-def test_real_unicast_if_is_accepted_by_the_stack():
-    """Открытый вопрос 5 дизайна: при успехе можно включать `binding_confirmed`."""
+def test_real_unicast_if_keeps_the_socket_on_the_adapter():
+    """Опция принята, адрес источника — с этого адаптера. UDP connect пакетов не шлёт.
+
+    На машине без TUN маршрут и так идёт через этот адаптер: `binding_confirmed` этот тест не
+    обосновывает, открытый вопрос 5 дизайна требует проверки под настоящим TUN.
+    """
     interface = windows.physical_interface()
     if interface is None:
         pytest.skip("нет сети")
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-        windows.bind_socket(sock, interface)
-        sock.sendto(b"ping", ("127.0.0.1", 9))
+        windows.socket_binder(interface)(sock)
+        sock.connect(("192.0.2.1", 9))
+        assert sock.getsockname()[0] in windows.interface_addresses(interface)
 
 
 @pytest.mark.parametrize(

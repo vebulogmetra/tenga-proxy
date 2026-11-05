@@ -26,7 +26,7 @@ def bound_get(address: str, interface: str | None) -> str:
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
             sock.settimeout(3)
-            netbind.bind_socket(sock, interface or "")
+            netbind.socket_binder(interface or "")(sock)
             sock.connect((address, 80))
             sock.sendall(b"GET / HTTP/1.0\r\nHost: lab\r\n\r\n")
             answer = b""

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import socket
 import struct
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 
 from src.sys.windows import netinfo
 
@@ -16,15 +16,20 @@ IP_UNICAST_IF = 31
 IPV6_UNICAST_IF = 31
 
 
-def bind_socket(sock: socket.socket, interface: str) -> None:
+def socket_binder(interface: str) -> Callable[[socket.socket], None]:
+    """Адаптер определяется один раз: снимок сети — это запуск PowerShell, а сокетов сотни."""
     adapter = netinfo.snapshot().adapter(interface)
-    if adapter is None:
-        raise OSError(f"adapter {interface} is gone")
-    if sock.family == socket.AF_INET6:
-        # У IPv6 порядок байт хостовый, у IPv4 — сетевой.
-        sock.setsockopt(socket.IPPROTO_IPV6, IPV6_UNICAST_IF, adapter.index)
-    else:
-        sock.setsockopt(socket.IPPROTO_IP, IP_UNICAST_IF, struct.pack("!I", adapter.index))
+
+    def bind(sock: socket.socket) -> None:
+        if adapter is None:
+            raise OSError(f"adapter {interface} is gone")
+        if sock.family == socket.AF_INET6:
+            # У IPv6 порядок байт хостовый, у IPv4 — сетевой.
+            sock.setsockopt(socket.IPPROTO_IPV6, IPV6_UNICAST_IF, adapter.index)
+        else:
+            sock.setsockopt(socket.IPPROTO_IP, IP_UNICAST_IF, struct.pack("!I", adapter.index))
+
+    return bind
 
 
 def binding_confirmed(interface: str) -> bool:

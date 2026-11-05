@@ -168,7 +168,8 @@ def test_tcp_probe_and_refused_port():
         is DiagnosticFailure.UNSAFE_ADDRESS
     )
     server.close()
-    refused = probe_tcp(context, "t", target(), PUBLIC, 1)
+    # Windows повторяет SYN к закрытому порту около 2 с: короткий таймаут дал бы TIMEOUT.
+    refused = probe_tcp(context, "t", target(), PUBLIC, 5)
     assert refused.status is ProbeStatus.FAILURE
     assert refused.failure_code is DiagnosticFailure.CONNECTION_REFUSED
 
@@ -286,7 +287,8 @@ def test_tunnel_auth_rejection_and_dead_inbound():
     closed_port = free.getsockname()[1]
     free.close()
     tunnel = TunnelEndpoint(closed_port, "u", "p")
-    dead = probe_https(context, "p", target(), ProbeRoute.ACTIVE_TUNNEL, 2, proxy=tunnel)
+    # Таймаут с запасом: Windows повторяет SYN к закрытому порту около 2 с.
+    dead = probe_https(context, "p", target(), ProbeRoute.ACTIVE_TUNNEL, 5, proxy=tunnel)
     assert dead.failure_code is DiagnosticFailure.PROXY_UNAVAILABLE
 
 

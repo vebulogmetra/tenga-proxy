@@ -139,7 +139,7 @@ class DesktopEnvironment:
         self._next_network_check = time.monotonic() + _NETWORK_PERIOD_S
         interface = self.network.interface
         direct = ProbeContext(
-            bind=(lambda sock: netbind.bind_socket(sock, interface)) if interface else None,
+            bind=netbind.socket_binder(interface) if interface else None,
             under_tun=self.network.under_tun,
             sockets=self._direct_sockets,
         )

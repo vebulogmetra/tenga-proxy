@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import socket
 import subprocess
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from pathlib import Path
 
 from src.sys.linux.vpn import get_default_interface
@@ -17,8 +17,13 @@ SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)
 SYS_CLASS_NET = Path("/sys/class/net")
 
 
-def bind_socket(sock: socket.socket, interface: str) -> None:
-    sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, interface.encode() + b"\0")
+def socket_binder(interface: str) -> Callable[[socket.socket], None]:
+    device = interface.encode() + b"\0"
+
+    def bind(sock: socket.socket) -> None:
+        sock.setsockopt(socket.SOL_SOCKET, SO_BINDTODEVICE, device)
+
+    return bind
 
 
 def binding_confirmed(interface: str) -> bool:
