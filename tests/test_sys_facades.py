@@ -12,6 +12,7 @@ FACADES = [
     "proxy",
     "vpn",
     "resolver",
+    "netbind",
     "tun_route",
     "tun_dns",
     "tun_access",
