@@ -387,7 +387,10 @@ class QtApplication:
 
         if self.diagnostics_window is None:
             window = NetworkDiagnosticsWindow(
-                session, self.loop, on_recommendation=self.controller.run_recommendation
+                session,
+                self.loop,
+                on_recommendation=self.controller.run_recommendation,
+                parent=self.window,
             )
             window.finished.connect(lambda _result: self._on_diagnostics_closed())
             self.diagnostics_window = window

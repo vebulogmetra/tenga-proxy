@@ -112,7 +112,7 @@ class NetworkDiagnosticsWindow(QDialog):
     ) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(TITLE)
-        self.resize(720, 820)
+        self._initial_geometry_applied = False
         self._session = session
         self._on_recommendation = on_recommendation
         self._expanded: set[tuple[str, str]] = set()
@@ -137,6 +137,29 @@ class NetworkDiagnosticsWindow(QDialog):
         self.finished.connect(lambda _result: self._on_finished())
         self._updater = ViewUpdater(session, loop, self._render)
         self._updater.attach()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._initial_geometry_applied:
+            return
+        self._initial_geometry_applied = True
+        parent = self.parentWidget()
+        screen = parent.screen() if parent is not None else self.screen()
+        available = screen.availableGeometry().adjusted(16, 16, -16, -16)
+        self.resize(
+            min(800, int(available.width() * 0.85)), min(560, int(available.height() * 0.8))
+        )
+        frame = self.frameGeometry()
+        frame.moveCenter(
+            parent.frameGeometry().center() if parent is not None else available.center()
+        )
+        frame.moveLeft(
+            max(available.left(), min(frame.left(), available.right() - frame.width() + 1))
+        )
+        frame.moveTop(
+            max(available.top(), min(frame.top(), available.bottom() - frame.height() + 1))
+        )
+        self.move(frame.topLeft())
 
     @property
     def view(self) -> DiagnosticsView | None:

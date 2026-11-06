@@ -8,7 +8,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QToolButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QToolButton, QWidget
 
 from src.core.context import AppContext
 from src.core.main_loop import ImmediateLoop
@@ -26,9 +26,11 @@ pytestmark = pytest.mark.qt
 def make(qapp):
     windows = []
 
-    def build(session):
+    def build(session, parent=None):
         calls = []
-        window = NetworkDiagnosticsWindow(session, ImmediateLoop(), on_recommendation=calls.append)
+        window = NetworkDiagnosticsWindow(
+            session, ImmediateLoop(), on_recommendation=calls.append, parent=parent
+        )
         window.calls = calls
         windows.append(window)
         return window
@@ -56,6 +58,34 @@ def test_idle_window_offers_only_start(make):
     texts = _texts(window)
     assert "Проверка подключения" in texts
     assert "Скопировать итог" not in texts
+
+
+def test_initial_geometry_is_compact_centered_and_keeps_user_resize(make):
+    parent = QWidget()
+    available = parent.screen().availableGeometry()
+    parent.setGeometry(available.adjusted(30, 30, -30, -30))
+    parent.show()
+    window = make(session_with(full()), parent=parent)
+    try:
+        window.show()
+        process_events()
+        assert window.width() <= 800
+        assert window.height() <= 560
+        assert available.contains(window.frameGeometry())
+        delta = window.frameGeometry().center() - parent.frameGeometry().center()
+        assert abs(delta.x()) <= 2
+        assert abs(delta.y()) <= 2
+        window.resize(650, 420)
+        process_events()
+        size = window.size()
+        window.hide()
+        window.show()
+        process_events()
+        assert window.size() == size
+    finally:
+        window.close()
+        window.setParent(None)
+        parent.close()
 
 
 def test_finished_report_shows_cards_and_actions(make):

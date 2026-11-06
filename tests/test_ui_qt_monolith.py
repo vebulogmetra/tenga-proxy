@@ -216,6 +216,11 @@ def test_diagnostics_reuses_widgets_and_changes_placement(app):
     window.monitoring_button.setChecked(True)
     process_events()
     assert window.monitoring_body.parent() is window.centralWidget()
+    assert window.monitoring_body.width() == window.library_container.width()
+    assert window.monitoring_body.x() == window.library_container.x()
+    assert window.footer_container.width() == window.library_container.width()
+    assert window.check_button.y() == window.log_button.y()
+    assert window.network_check_button.y() == window.log_button.y()
     label = window._monitoring_values["0"]
     window.refresh_monitoring()
     assert label is window._monitoring_values["0"]
@@ -223,6 +228,13 @@ def test_diagnostics_reuses_widgets_and_changes_placement(app):
     process_events()
     assert window.monitoring_body.parent() is window.monitoring_window
     assert window.monitoring_window.isVisible()
+    window.resize(1600, 950)
+    process_events()
+    assert window.monitoring_body.parent() is window.centralWidget()
+    assert window.monitoring_body.width() == window.library_container.width()
+    assert window.monitoring_body.x() == window.library_container.x()
+    window.resize(900, 600)
+    process_events()
     window.monitoring_window.close()
     assert not window.monitoring_button.isChecked()
     assert not app.context.config.monitoring_panel

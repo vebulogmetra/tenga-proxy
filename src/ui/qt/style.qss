@@ -38,7 +38,7 @@
 #monolithButton:disabled { border-color: transparent; }
 #healthSummary, #statusMode { color: palette(text); }
 #healthSummary { padding: 2px 0; }
-#monitoringPanel { border-top: 1px solid palette(mid); }
+#monitoringPanel { background: palette(base); border: 1px solid palette(mid); border-radius: 10px; }
 #brandLabel { font-size: 12pt; font-weight: 600; }
 #statusCard QToolButton { padding: 6px 8px; }
 #monitoringToggle:checked {
