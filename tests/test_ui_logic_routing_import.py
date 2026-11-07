@@ -142,3 +142,56 @@ def test_store_shared_routing_switches_to_saved_lists(tmp_path):
     # Списки из файлов, которых форма не касалась, не теряются.
     assert config.routing.direct_list == ["old.example"]
     assert config.routing_backup is None
+
+
+def test_subscription_rows_start_with_the_subscription_name():
+    rows = import_rows(
+        RoutingSettings(),
+        RoutingSettings(),
+        name="RU",
+        direct_default=False,
+        subscription="Мой VPN",
+    )
+    assert rows[0] == ImportRow("Подписка", "Мой VPN")
+    assert rows[1] == ImportRow("Набор маршрутов", "RU")
+
+
+def test_reset_routing_clears_lists_and_mode_but_keeps_device_settings():
+    from src.ui.logic.routing_import import reset_routing
+
+    current = RoutingSettings(
+        mode=RoutingMode.PROXY_ALL,
+        proxy_list=["p"],
+        direct_list=["d"],
+        block_list=["b"],
+        vpn_list=["v"],
+        rule_order=["vpn", "proxy", "direct"],
+        bypass_local_networks=False,
+        ru_direct=True,
+        use_saved_lists=False,
+    )
+    result = reset_routing(current)
+    assert result.mode == RoutingSettings().mode
+    assert result.proxy_list == result.direct_list == result.block_list == []
+    assert result.vpn_list == ["v"]
+    assert result.rule_order == ["vpn", "proxy", "direct"]
+    assert result.bypass_local_networks is False
+    assert result.ru_direct is True
+    assert current.proxy_list == ["p"]
+
+
+def test_reset_is_a_no_op_when_already_default():
+    from src.ui.logic.routing_import import reset_routing, routing_differs
+
+    current = RoutingSettings(vpn_list=["v"])
+    assert not routing_differs(current, reset_routing(current))
+    assert routing_differs(RoutingSettings(proxy_list=["p"]), reset_routing(current))
+
+
+def test_reset_rows_describe_the_provider_request():
+    from src.ui.logic.routing_import import reset_rows
+
+    rows = reset_rows(RoutingSettings(proxy_list=["p"]), subscription="Мой VPN")
+    assert rows[0] == ImportRow("Подписка", "Мой VPN")
+    assert any(r.label == "Через прокси" and r.value.startswith("0 правил: +0, −1") for r in rows)
+    assert rows[-1].label == "Не переносится"

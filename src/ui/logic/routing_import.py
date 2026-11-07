@@ -18,6 +18,10 @@ IMPORTED_LISTS = (
     ("block_list", "Блокировать"),
 )
 REST_LABEL = "Остальное"
+SUBSCRIPTION_LABEL = "Подписка"
+# `routing/off`: провайдер просит вернуть стандартные списки. Списки «Через VPN»,
+# порядок и готовые правила — настройки устройства, их сброс не трогает.
+RESET_FIELDS = ("mode", "proxy_list", "direct_list", "block_list")
 _DETAILS_LIMIT = 10
 
 
@@ -62,10 +66,17 @@ def _list_row(label: str, before: list[str], after: list[str]) -> ImportRow:
 
 
 def import_rows(
-    before: RoutingSettings, after: RoutingSettings, *, name: str, direct_default: bool
+    before: RoutingSettings,
+    after: RoutingSettings,
+    *,
+    name: str,
+    direct_default: bool,
+    subscription: str = "",
 ) -> list[ImportRow]:
     """Строки окна подтверждения: «подпись — значение»."""
-    rows = [ImportRow("Набор маршрутов", name)] if name else []
+    rows = [ImportRow(SUBSCRIPTION_LABEL, subscription)] if subscription else []
+    if name:
+        rows.append(ImportRow("Набор маршрутов", name))
     if before.mode != after.mode:
         labels = RoutingMode.LABELS
         rows.append(ImportRow("Режим", f"{labels[before.mode]} → {labels[after.mode]}"))
@@ -83,6 +94,27 @@ def import_rows(
     rows.append(rest)
     rows.append(ImportRow("Не переносится", "DNS, VPN, порядок правил и адреса геобаз"))
     return rows
+
+
+def reset_routing(current: RoutingSettings) -> RoutingSettings:
+    """Общие правила после `routing/off`; `current` не меняется."""
+    result = copy.deepcopy(current)
+    defaults = RoutingSettings()
+    for name in RESET_FIELDS:
+        setattr(result, name, copy.deepcopy(getattr(defaults, name)))
+    return result
+
+
+def routing_differs(before: RoutingSettings, after: RoutingSettings) -> bool:
+    """Отличаются ли поля, которые меняет набор из подписки."""
+    return any(getattr(before, name) != getattr(after, name) for name in RESET_FIELDS)
+
+
+def reset_rows(before: RoutingSettings, *, subscription: str) -> list[ImportRow]:
+    """Строки окна для `routing/off`: что станет со списками после сброса."""
+    return import_rows(
+        before, reset_routing(before), name="", direct_default=False, subscription=subscription
+    )
 
 
 def apply_import(config, new: RoutingSettings, config_dir: Path | None) -> None:

@@ -285,3 +285,10 @@ def test_find_subscription_keeps_token_path_and_exception_semantics(tmp_path):
         )
         is None
     )
+
+
+def test_profile_group_keeps_handled_subscription_routing():
+    group = ProfileGroup(id=1, sub_routing_handled="abc")
+    restored = ProfileGroup.from_dict(group.to_dict())
+    assert restored.sub_routing_handled == "abc"
+    assert ProfileGroup().sub_routing_handled == ""

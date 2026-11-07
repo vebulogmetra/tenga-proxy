@@ -100,6 +100,9 @@ class ProfileGroup(ConfigBase):
     sub_empty: bool = False
     # Последнее успешное обновление пришло с запасного адреса.
     sub_via_fallback: bool = False
+    # SHA-256 последнего набора маршрутов из заголовка `routing`, который
+    # пользователь принял или отклонил: тот же набор повторно не предлагается.
+    sub_routing_handled: str = ""
 
 
 @dataclass
