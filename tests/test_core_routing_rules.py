@@ -263,3 +263,29 @@ def test_imported_global_lists_are_not_overwritten_by_legacy_text_files(context,
     context.config.routing.use_saved_lists = True
     config = build_session_config(context, profile)
     assert "domain:example.org" in rule_values(config, "direct", "domain")
+
+
+# --- общие и свои правила ---------------------------------------------------
+
+
+def all_domains(config: dict) -> list[str]:
+    return [value for rule in config["routing"]["rules"] for value in rule.get("domain", [])]
+
+
+def test_own_rules_replace_the_shared_ones_even_when_empty(context, profile):
+    """Пустые свои списки — тоже свои: общие при этом не действуют."""
+    use_custom_lists(context, proxy=["shared.example"])
+    profile.routing_settings = RoutingSettings(mode=RoutingMode.CUSTOM)
+
+    config = build_session_config(context, profile)
+
+    assert "domain:shared.example" not in all_domains(config)
+
+
+def test_shared_rules_apply_without_own_rules(context, profile):
+    use_custom_lists(context, proxy=["shared.example"])
+    profile.routing_settings = None
+
+    config = build_session_config(context, profile)
+
+    assert "domain:shared.example" in all_domains(config)
