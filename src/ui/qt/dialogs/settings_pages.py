@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
 from src.core.geo_update import update_geo_bases
-from src.ui.controller import CONFIRM_DELETE
+from src.ui.controller import APP_UPDATE_UNAVAILABLE, CONFIRM_DELETE
 from src.ui.logic import platform_texts
 from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.subscriptions_view import (
@@ -236,18 +236,20 @@ class AboutPage(QWidget):
         form = QFormLayout(about)
         form.addRow("Версия", self._value(app_version()))
 
-        self.app_update_label = QLabel(
-            self._config.app_update_target or "Нет сведений о новой версии"
-        )
+        self._controller = self._app.controller
+        self.app_update_label = QLabel(self._release_text())
         self.app_check_button = QPushButton("Проверить")
         self.app_check_button.clicked.connect(self.check_app_update)
-        self.app_release_button = QPushButton("Открыть релиз")
-        self.app_release_button.setEnabled(bool(self._config.app_update_url))
-        self.app_release_button.clicked.connect(self._open_app_release)
+        # Там, где самообновления нет (Qt на Linux), кнопка по-прежнему открывает релиз.
+        self.app_update_button = QPushButton(
+            "Обновить…" if self._controller.can_self_update() else "Открыть релиз"
+        )
+        self.app_update_button.clicked.connect(self._on_update_clicked)
         form.addRow(
             "Обновление приложения",
-            self._with(self.app_update_label, self.app_check_button, self.app_release_button),
+            self._with(self.app_update_label, self.app_check_button, self.app_update_button),
         )
+        self.refresh_app_update()
         self.app_updates_check = QCheckBox("Проверять обновления приложения раз в сутки")
         self.app_updates_check.setChecked(self._config.app_update_enabled)
         form.addRow(self.app_updates_check)
@@ -323,8 +325,38 @@ class AboutPage(QWidget):
 
     # --- обновление приложения ---
 
+    def _release_text(self) -> str:
+        """Подпись по сведениям в конфиге; ход установки её перекрывает."""
+        config = self._config
+        if not config.app_update_target:
+            return "Нет сведений о новой версии"
+        text = f"Доступна версия {config.app_update_target}"
+        if not config.app_update_has_asset:
+            return text + "; " + platform_texts.missing_release_asset()
+        if self._controller.can_self_update() and not self._controller.app_update_installable():
+            return text + ". " + APP_UPDATE_UNAVAILABLE
+        return text
+
     def refresh_app_update(self) -> None:
-        """Заполняется в Task 8."""
+        """Состояние контроллера: подпись хода установки и доступность кнопки."""
+        status = self._controller.app_update_status
+        if status.text:
+            self.app_update_label.setText(status.text)
+        self._refresh_update_button()
+
+    def _refresh_update_button(self) -> None:
+        controller = self._controller
+        if controller.can_self_update():
+            enabled = controller.app_update_installable() and not controller.app_update_status.busy
+        else:
+            enabled = bool(self._config.app_update_url)
+        self.app_update_button.setEnabled(enabled)
+
+    def _on_update_clicked(self) -> None:
+        if self._controller.can_self_update():
+            self._app.activate_action("install-app-update")
+        else:
+            self._open_app_release()
 
     def _open_app_release(self) -> None:
         from src.core.app_update import safe_release_url
@@ -346,12 +378,12 @@ class AboutPage(QWidget):
 
         def done(release) -> None:
             self.app_check_button.setEnabled(True)
-            text = f"Доступна версия {release.version}" if release else "Новых версий нет"
-            if release and not release.has_asset:
-                text += "; " + platform_texts.missing_release_asset()
-            self.app_update_label.setText(text)
-            self.app_release_button.setEnabled(bool(release))
             context.save_config()
+            if release is None:
+                self.app_update_label.setText("Новых версий нет")
+            else:
+                self.app_update_label.setText(self._release_text())
+            self._refresh_update_button()
 
         def failed(_error) -> None:
             self.app_check_button.setEnabled(True)

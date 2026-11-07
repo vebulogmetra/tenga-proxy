@@ -377,6 +377,92 @@ def test_app_update_check_without_releases(app):
     assert about.app_update_label.text() == "Новых версий нет"
 
 
+RELEASE_PAGE = "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.19.0"
+UNAVAILABLE = "Доступна версия v0.19.0. Установщик недоступен, обновите вручную со страницы проекта"
+
+
+def _installable(config):
+    config.app_update_target = "v0.19.0"
+    config.app_update_url = RELEASE_PAGE
+    config.app_update_has_asset = True
+    config.app_update_asset_url = (
+        "https://github.com/vebulogmetra/tenga-proxy/releases/download/v0.19.0/"
+        "veblock-0.19.0-windows-x64-setup.exe"
+    )
+    config.app_update_asset_size = 3
+    config.app_update_asset_digest = "sha256:" + "ab" * 32
+
+
+def test_about_offers_the_release_page_without_self_update(app):
+    _installable(app.context.config)
+
+    about = _open(app).about
+
+    assert about.app_update_button.text() == "Открыть релиз"
+    assert about.app_update_button.isEnabled()
+    assert about.app_update_label.text() == "Доступна версия v0.19.0"
+
+
+def test_about_offers_install_when_self_update_is_possible(app, monkeypatch):
+    monkeypatch.setattr(app.controller, "can_self_update", lambda: True)
+    _installable(app.context.config)
+    seen = []
+    app._handlers["install-app-update"] = lambda _target: seen.append(1)
+
+    about = _open(app).about
+    about.app_update_button.click()
+
+    assert about.app_update_button.text() == "Обновить…"
+    assert seen == [1]
+
+
+def test_about_disables_install_without_a_digest(app, monkeypatch):
+    monkeypatch.setattr(app.controller, "can_self_update", lambda: True)
+    _installable(app.context.config)
+    app.context.config.app_update_asset_digest = ""
+
+    about = _open(app).about
+
+    assert not about.app_update_button.isEnabled()
+    assert about.app_update_label.text() == UNAVAILABLE
+
+
+def test_about_shows_install_progress_from_the_controller(app, monkeypatch):
+    monkeypatch.setattr(app.controller, "can_self_update", lambda: True)
+    _installable(app.context.config)
+    about = _open(app).about
+
+    app.controller._set_app_update_status("Загрузка… 42 %", busy=True)
+
+    assert about.app_update_label.text() == "Загрузка… 42 %"
+    assert not about.app_update_button.isEnabled()
+
+
+def test_manual_check_reports_a_release_without_installer(app, monkeypatch):
+    """Ручная проверка идёт с настоящей версией приложения: релиз заведомо новее."""
+    from src.core import platform_info
+    from tests.test_core_app_update import WINDOWS_ASSET
+
+    monkeypatch.setattr(app.controller, "can_self_update", lambda: True)
+    about = _open(app).about
+    # После открытия окна: иначе контекст искал бы ядро по путям Windows.
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    about.fetch_app_releases = lambda: [
+        {
+            "tag_name": "v99.0.0",
+            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v99.0.0",
+            "assets": [dict(WINDOWS_ASSET, digest="")],
+        }
+    ]
+
+    about.check_app_update()
+    about.app_update_thread.join(5)
+    wait_until(lambda: about.app_check_button.isEnabled())
+
+    assert about.app_update_label.text() == UNAVAILABLE.replace("v0.19.0", "v99.0.0")
+    assert not about.app_update_button.isEnabled()
+
+
 def test_routing_page_round_trips_the_shared_rules(app):
     dialog = _open(app)
     dialog.show_section("Маршрутизация")
