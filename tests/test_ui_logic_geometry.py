@@ -19,16 +19,16 @@ def test_empty_string_gives_default():
 
 
 def test_parses_width_height_and_maximized():
-    assert parse_geometry("900,700,0,0,1") == Geometry(900, 700, maximized=True)
+    assert parse_geometry("1000,700,0,0,1") == Geometry(1000, 700, maximized=True)
 
 
 def test_reads_legacy_string_with_real_coordinates():
     # Строки, записанные GTK3-окном, содержат позицию; она игнорируется.
-    assert parse_geometry("820,640,120,80,0") == Geometry(820, 640, maximized=False)
+    assert parse_geometry("1020,640,120,80,0") == Geometry(1020, 640, maximized=False)
 
 
 def test_missing_maximized_field_defaults_to_false():
-    assert parse_geometry("820,640") == Geometry(820, 640, maximized=False)
+    assert parse_geometry("1020,640") == Geometry(1020, 640, maximized=False)
 
 
 @pytest.mark.parametrize("raw", ["garbage", "a,b,c,d,e", ",,,,", "800"])
@@ -44,7 +44,7 @@ def test_too_small_size_is_raised_to_minimum():
 
 
 def test_one_broken_field_does_not_discard_the_other():
-    assert parse_geometry("900,oops,0,0,0") == Geometry(900, DEFAULT_GEOMETRY.height, False)
+    assert parse_geometry("1000,oops,0,0,0") == Geometry(1000, DEFAULT_GEOMETRY.height, False)
 
 
 def test_format_writes_five_fields_with_zero_position():
@@ -54,3 +54,11 @@ def test_format_writes_five_fields_with_zero_position():
 def test_round_trip():
     geometry = Geometry(1024, 768, maximized=False)
     assert parse_geometry(format_geometry(geometry)) == geometry
+
+
+def test_window_minimum_and_default_match_qt():
+    assert (MIN_WIDTH, MIN_HEIGHT) == (900, 540)
+    assert (DEFAULT_GEOMETRY.width, DEFAULT_GEOMETRY.height) == (1180, 760)
+    # Сохранённый размер старого окна поднимается до нового минимума.
+    saved = parse_geometry("640,760,0,0,0")
+    assert (saved.width, saved.height) == (900, 760)

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-MIN_WIDTH = 360
-MIN_HEIGHT = 400
+# Общие для GTK и Qt: панель состояния слева и список справа не сжимаются дальше.
+MIN_WIDTH = 900
+MIN_HEIGHT = 540
 
 
 @dataclass(frozen=True)
@@ -23,9 +24,9 @@ class Geometry:
     maximized: bool = False
 
 
-# Ширина заведомо больше брейкпоинта _NARROW_WIDTH (550 sp): окно по
-# умолчанию должно открываться в широком режиме, а не в компактном.
-DEFAULT_GEOMETRY = Geometry(width=640, height=760, maximized=False)
+# Высота больше порога компактной панели (`appearance.COMPACT_HEIGHT`): окно по
+# умолчанию открывается с полноразмерным логотипом.
+DEFAULT_GEOMETRY = Geometry(width=1180, height=760, maximized=False)
 
 
 def _int_at(parts: list[str], index: int, minimum: int, fallback: int) -> int:
