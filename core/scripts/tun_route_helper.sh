@@ -5,10 +5,17 @@ set -eu
 # Usage:
 #   tun-route-helper apply <tun_name> <proxy_ip> <gateway|- > <dev> <metric|->
 #   tun-route-helper restore <proxy_ip> <gateway|- > <dev> <metric|->
+#   tun-route-helper release <tun_name> <proxy_ip>
 #   tun-route-helper dns <tun_name>
 #   tun-route-helper firewall-apply <full|ipv6_only> <tun_name> <vpn_if|-> <vpn_addrs|-> <open|closed> [dns_addrs]
 #   tun-route-helper firewall-remove
 #   tun-route-helper features
+#
+# apply: маршрут по умолчанию не трогается, на TUN ложатся две половины 0.0.0.0/1 и
+# 128.0.0.0/1 — они длиннее любого /0 и выигрывают у него, а физический маршрут
+# остаётся для сокетов, привязанных к интерфейсу. restore возвращает маршрут,
+# заменённый помощником старой версии: журнал упавшего сеанса переживает обновление.
+# release снимает то, что ставит apply.
 
 die() {
   echo "tun-route-helper: $*" >&2
@@ -69,7 +76,9 @@ case "$action" in
     else
       ip route replace "$proxy_ip/32" via "$gateway" dev "$dev"
     fi
-    ip route replace default dev "$tun_name"
+    # metric проверяется ради прежней сигнатуры: маршрут по умолчанию не меняется.
+    ip route replace 0.0.0.0/1 dev "$tun_name"
+    ip route replace 128.0.0.0/1 dev "$tun_name"
     ;;
 
   restore)
@@ -97,6 +106,20 @@ case "$action" in
     ip route del "$proxy_ip/32" >/dev/null 2>&1 || true
     ;;
 
+  release)
+    [ $# -eq 2 ] || die "release requires 2 args"
+    tun_name="$1"
+    proxy_ip="$2"
+
+    is_ifname "$tun_name" || die "invalid tun_name"
+    is_ipv4 "$proxy_ip" || die "invalid proxy_ip"
+
+    # Маршрутов может уже не быть: TUN упавшего ядра уносит свои с собой.
+    ip route del 0.0.0.0/1 dev "$tun_name" >/dev/null 2>&1 || true
+    ip route del 128.0.0.0/1 dev "$tun_name" >/dev/null 2>&1 || true
+    ip route del "$proxy_ip/32" >/dev/null 2>&1 || true
+    ;;
+
   dns)
     # Фиксированный сервер: помощник выполняется от root без пароля.
     [ $# -eq 1 ] || die "dns requires 1 arg"
@@ -112,7 +135,7 @@ case "$action" in
     # Что умеет этот помощник: приложение из исходников может работать с
     # помощником установленного пакета, который новых действий не знает.
     [ $# -eq 0 ] || die "features takes no args"
-    echo "apply restore dns firewall"
+    echo "apply restore release split dns firewall"
     ;;
 
   firewall-apply)

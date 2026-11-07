@@ -38,13 +38,64 @@ def run_helper(fakebin, tmp_path, *args):
     return result, (log.read_text() if log.exists() else "")
 
 
-def test_apply_with_valid_arguments_runs_ip(fakebin, tmp_path):
+def test_apply_keeps_the_default_route_and_splits_it_on_the_tun(fakebin, tmp_path):
     result, log = run_helper(
-        fakebin, tmp_path, "apply", "xray0", "1.2.3.4", "10.0.0.1", "eth0", "-"
+        fakebin, tmp_path, "apply", "xray0", "1.2.3.4", "10.0.0.1", "eth0", "600"
     )
 
     assert result.returncode == 0, result.stderr
-    assert "ip route replace 1.2.3.4/32 via 10.0.0.1 dev eth0" in log
+    assert log.splitlines() == [
+        "ip route replace 1.2.3.4/32 via 10.0.0.1 dev eth0",
+        "ip route replace 0.0.0.0/1 dev xray0",
+        "ip route replace 128.0.0.0/1 dev xray0",
+    ]
+
+
+def test_apply_without_a_gateway_routes_the_proxy_by_device(fakebin, tmp_path):
+    _result, log = run_helper(fakebin, tmp_path, "apply", "xray0", "1.2.3.4", "-", "eth0", "-")
+
+    assert "ip route replace 1.2.3.4/32 dev eth0" in log
+    assert "default" not in log
+
+
+def test_release_removes_only_the_tun_halves_and_the_proxy_route(fakebin, tmp_path):
+    result, log = run_helper(fakebin, tmp_path, "release", "xray0", "1.2.3.4")
+
+    assert result.returncode == 0, result.stderr
+    assert log.splitlines() == [
+        "ip route del 0.0.0.0/1 dev xray0",
+        "ip route del 128.0.0.0/1 dev xray0",
+        "ip route del 1.2.3.4/32",
+    ]
+
+
+def test_release_survives_routes_that_are_already_gone(fakebin, tmp_path):
+    # После падения ядра TUN исчез вместе с маршрутами: `ip route del` отвечает ошибкой.
+    _fake(fakebin, "ip", 'echo "ip $*" >> "$FAKE_LOG"; exit 2')
+
+    result, log = run_helper(fakebin, tmp_path, "release", "xray0", "1.2.3.4")
+
+    assert result.returncode == 0
+    assert len(log.splitlines()) == 3
+
+
+@pytest.mark.parametrize(
+    "args",
+    [("xray0",), ("xray0\nflush", "1.2.3.4"), ("xray0", "1.2.3"), ("xray0", "1.2.3.4", "x")],
+)
+def test_release_refuses_bad_arguments(fakebin, tmp_path, args):
+    result, log = run_helper(fakebin, tmp_path, "release", *args)
+
+    assert result.returncode == 1
+    assert log == ""
+
+
+def test_restore_still_returns_the_replaced_default_route(fakebin, tmp_path):
+    # Журнал сеанса старой версии: маршрут по умолчанию был заменён и его нужно вернуть.
+    _result, log = run_helper(fakebin, tmp_path, "restore", "1.2.3.4", "10.0.0.1", "eth0", "600")
+
+    assert "ip route replace default via 10.0.0.1 dev eth0 metric 600" in log
+    assert "ip route del 1.2.3.4/32" in log
 
 
 @pytest.mark.parametrize(
@@ -260,6 +311,7 @@ def test_features_lists_the_firewall(fakebin, tmp_path):
 
     assert result.returncode == 0
     assert "firewall" in result.stdout.split()
+    assert "split" in result.stdout.split()
 
 
 def test_unknown_action_is_refused(fakebin, tmp_path):
