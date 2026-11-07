@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config import get_asset_path
+from src.ui.logic.appearance import GLOW_COLORS, STATE_COLORS, glow_color
 from src.ui.logic.status import StatusView, action_hint
 from src.ui.qt.icons import flagged
 
@@ -47,13 +48,9 @@ class ElidedLabel(QLabel):
 @lru_cache(maxsize=64)
 def logo_pixmap(css_class: str, size: int = LOGO_SIZE, dpr: float = 1.0) -> QPixmap:
     source = get_asset_path("icons/win/monolith.svg").read_bytes()
-    color = {
-        "status-disconnected": b"#8a969d",
-        "status-error": b"#e07078",
-        "status-blocked": b"#e07078",
-        "status-connecting": b"#ffa64d",
-        "status-disconnecting": b"#ffa64d",
-    }.get(css_class, b"#5ed3c7")
+    # Отключение рисует монолит серым без гало; пустое хранилище — бирюзовым без гало.
+    fallback = STATE_COLORS[css_class] if css_class == "status-disconnected" else None
+    color = (glow_color(css_class) or fallback or GLOW_COLORS["status-connected"]).encode()
     if css_class != "status-connected":
         source = source.replace(b"#5ed3c7", color).replace(b"#a9ffe0", color)
     if css_class in ("status-disconnected", "status-empty"):

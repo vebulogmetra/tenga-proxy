@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
+from src.ui.logic.appearance import ACCENT
 from src.ui.qt.models import (
     ACTIVE_ROLE,
     ADDRESS_COLUMN,
@@ -82,7 +83,7 @@ class ProfileDelegate(QStyledItemDelegate):
             selected = bool(option.state & QStyle.StateFlag.State_Selected)
             active = bool(index.data(ACTIVE_ROLE))
             background = option.palette.base().color()
-            tint = option.palette.highlight().color() if selected else QColor("#36c9b5")
+            tint = option.palette.highlight().color() if selected else QColor(ACCENT)
             if selected or active:
                 amount = 0.15 if selected else 0.08
                 background = QColor.fromRgbF(
@@ -107,7 +108,7 @@ class ProfileDelegate(QStyledItemDelegate):
             if active:
                 painter.fillRect(
                     QRect(option.rect.left(), option.rect.top() + 8, 3, option.rect.height() - 16),
-                    QColor("#36c9b5"),
+                    QColor(ACCENT),
                 )
             text = QFontMetrics(font).elidedText(
                 title, Qt.TextElideMode.ElideRight, max(0, rect.width() - 220)
@@ -132,7 +133,7 @@ class ProfileDelegate(QStyledItemDelegate):
                 str(index.siblingAtColumn(PING_COLUMN).data() or ""),
             )
             if active:
-                painter.setPen(QColor("#36c9b5"))
+                painter.setPen(QColor(ACCENT))
                 painter.drawText(
                     right.adjusted(0, 0, -76, 0),
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,

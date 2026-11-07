@@ -38,7 +38,7 @@ from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
 from src.sys import tun_access
-from src.ui.logic.appearance import THEME_LABELS, THEMES, normalize_theme
+from src.ui.logic.appearance import ACCENT, THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.platform_texts import (
     KILL_SWITCH_HINT,
@@ -93,14 +93,16 @@ QListWidget#settingsSections::item:hover { background: palette(alternate-base); 
 QListWidget#settingsSections::item:selected {
     background: palette(alternate-base);
     color: palette(text);
-    border-left: 3px solid #36c9b5;
+    border-left: 3px solid ACCENT_COLOR;
 }
 QListWidget#settingsSections::item:focus { border: 1px solid palette(highlight); }
 """
 
-SETTINGS_STYLE = SETTINGS_STYLE.replace(
-    "TOGGLE_OFF", get_asset_path("icons/ui/toggle-off.svg").as_posix()
-).replace("TOGGLE_ON", get_asset_path("icons/ui/toggle-on.svg").as_posix())
+SETTINGS_STYLE = (
+    SETTINGS_STYLE.replace("ACCENT_COLOR", ACCENT)
+    .replace("TOGGLE_OFF", get_asset_path("icons/ui/toggle-off.svg").as_posix())
+    .replace("TOGGLE_ON", get_asset_path("icons/ui/toggle-on.svg").as_posix())
+)
 
 # Поле проверки (`validate_settings`) → атрибут виджета.
 ERROR_FIELDS = {
