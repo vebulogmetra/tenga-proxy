@@ -83,3 +83,44 @@ def test_provider_direct_default_is_reported_not_applied():
 def test_non_string_name_is_rejected():
     with pytest.raises(ValueError, match="имя набора"):
         parse_app_link(_routing({"Name": 5}))
+
+
+# --- заголовок routing подписки ------------------------------------------------
+
+
+def test_subscription_routing_value_accepts_bare_base64_and_links():
+    from src.fmt.app_links import parse_subscription_routing
+
+    payload = base64.urlsafe_b64encode(json.dumps({"ProxySites": ["x.com"]}).encode()).decode()
+    bare = parse_subscription_routing(payload)
+    linked = parse_subscription_routing("happ://routing/add/" + payload)
+    assert bare.operation == linked.operation == "routing"
+    assert bare.routing.proxy_list == linked.routing.proxy_list == ["x.com"]
+    assert bare.payload_hash == linked.payload_hash
+    assert len(bare.payload_hash) == 64
+    assert parse_app_link("veblock://routing/add/" + payload).payload_hash == bare.payload_hash
+
+
+def test_subscription_routing_off_is_a_reset_offer():
+    from src.fmt.app_links import ROUTING_OFF_HASH, parse_subscription_routing
+
+    link = parse_subscription_routing("happ://routing/off")
+    assert link.operation == "routing_off"
+    assert link.payload_hash == ROUTING_OFF_HASH
+    assert parse_subscription_routing("HAPP://routing/off/").operation == "routing_off"
+
+
+def test_manual_links_still_reject_bare_payloads_and_off():
+    payload = base64.urlsafe_b64encode(b"{}").decode()
+    with pytest.raises(ValueError, match="схема"):
+        parse_app_link(payload)
+    with pytest.raises(ValueError, match="операция"):
+        parse_app_link("happ://routing/off")
+
+
+@pytest.mark.parametrize("value", ["not base64 at all!!", "x" * 350_001, "", "a\nb"])
+def test_subscription_routing_rejects_garbage(value):
+    from src.fmt.app_links import parse_subscription_routing
+
+    with pytest.raises(ValueError, match="набор маршрутов"):
+        parse_subscription_routing(value)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -12,6 +13,18 @@ from urllib.parse import unquote, unquote_plus, urlsplit
 from src.db.config import RoutingMode, RoutingSettings
 from src.sub.url_policy import validate_url
 from src.ui.logic.forms import parse_host_list
+
+MAX_LINK_LENGTH = 350000
+# Хеш «сброса»: им помечается обработанный `routing/off` от подписки.
+ROUTING_OFF_HASH = hashlib.sha256(b"happ://routing/off").hexdigest()
+_ROUTING_PREFIXES = (
+    "happ://routing/add/",
+    "happ://routing/onadd/",
+    "veblock://routing/add/",
+    "veblock://routing/onadd/",
+    "wingeon://routing/add/",
+    "wingeon://routing/onadd/",
+)
 
 
 @dataclass(frozen=True, repr=False)
@@ -22,6 +35,8 @@ class AppLink:
     routing: RoutingSettings | None = None
     # Провайдер просил пускать мимо списков напрямую; не применяется.
     direct_default: bool = False
+    # SHA-256 декодированного набора: один и тот же набор подписки не предлагается дважды.
+    payload_hash: str = ""
 
 
 def _decode(value: str, *, name=False):
@@ -31,7 +46,7 @@ def _decode(value: str, *, name=False):
 
 
 def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
-    if len(raw) > 350000 or any(ord(c) < 32 or ord(c) == 127 for c in raw):
+    if len(raw) > MAX_LINK_LENGTH or any(ord(c) < 32 or ord(c) == 127 for c in raw):
         raise ValueError("Некорректная или слишком длинная ссылка")
     parts = urlsplit(raw)
     if parts.scheme.lower() not in ("veblock", "wingeon", "happ"):
@@ -48,7 +63,32 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
         return AppLink("subscription", url=url, name=name)
     if parts.netloc.lower() != "routing" or not parts.path.lower().startswith(("/add/", "/onadd/")):
         raise ValueError("Неподдерживаемая операция ссылки")
-    encoded = _decode(parts.path.split("/", 2)[2])
+    return _parse_routing_payload(_decode(parts.path.split("/", 2)[2]))
+
+
+def parse_subscription_routing(raw: str) -> AppLink:
+    """Значение заголовка `routing` подписки: ссылка, `off` или голый base64.
+
+    Ручная ссылка (`parse_app_link`) требует схему и отвергает `off`: сброс
+    имеет смысл только от подписки, которая и предлагала набор.
+    """
+    value = raw.strip()
+    if (
+        not value
+        or len(value) > MAX_LINK_LENGTH
+        or any(ord(c) < 32 or ord(c) == 127 for c in value)
+    ):
+        raise ValueError("Некорректный набор маршрутов подписки")
+    lower = value.lower()
+    if lower.rstrip("/") == "happ://routing/off":
+        return AppLink("routing_off", payload_hash=ROUTING_OFF_HASH)
+    prefix = next((p for p in _ROUTING_PREFIXES if lower.startswith(p)), None)
+    encoded = value[len(prefix) :] if prefix else value
+    return _parse_routing_payload(_decode(encoded))
+
+
+def _parse_routing_payload(encoded: str) -> AppLink:
+    """Набор маршрутов в base64 (JSON формата Happ)."""
     try:
         data = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
         root = json.loads(data)
@@ -90,4 +130,10 @@ def parse_app_link(raw: str, *, exceptions=()) -> AppLink:
             for value in values:
                 entries.extend(parse_host_list(value))
         setattr(routing, destination + "_list", list(dict.fromkeys(entries)))
-    return AppLink("routing", name=name, routing=routing, direct_default=not global_proxy)
+    return AppLink(
+        "routing",
+        name=name,
+        routing=routing,
+        direct_default=not global_proxy,
+        payload_hash=hashlib.sha256(data).hexdigest(),
+    )
