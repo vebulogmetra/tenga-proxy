@@ -598,9 +598,10 @@ def measure_all(app: Application) -> None:
 
 
 def assert_b_was_probed_past_the_tunnel() -> None:
-    # Имя сервера B спрашивается у DNS сети с настоящего адреса, а не через сервер A.
+    # Имя сервера B спрашивается у DNS сети (роутера) с адреса физического интерфейса, а не
+    # через сервер A.
     sources = set(dns_sources("b.veblock.test"))
-    assert DIRECT in sources, f"Имя B разрешалось не напрямую: {sources}"
+    assert sources & {DIRECT, LAN_SELF}, f"Имя B разрешалось не напрямую: {sources}"
     assert EXIT_A not in sources, "Имя B ушло в туннель через A"
 
 
