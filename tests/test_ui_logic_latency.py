@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.ui.logic.latency import LatencyRunner, make_batch_probe
+from src.core.batch_probe import ProbeRoute
+from src.ui.logic.latency import LatencyRunner, ProbeUnavailable, make_batch_probe, probe_route
 
 
 def _collect(results: dict, done: list):
@@ -209,10 +210,11 @@ def test_runner_requires_one_of_the_two_probes():
 def test_make_batch_probe_measures_known_profiles_with_the_app_settings(monkeypatch):
     seen: dict = {}
 
-    def fake_probe_profiles(profiles, *, settings, binary_path, on_result):
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result, route):
         seen["ids"] = [profile.id for profile in profiles]
         seen["settings"] = settings
         seen["binary"] = binary_path
+        seen["route"] = route
         for profile in profiles:
             on_result(profile.id, 42)
 
@@ -228,7 +230,7 @@ def test_make_batch_probe_measures_known_profiles_with_the_app_settings(monkeypa
     make_batch_probe(context)([1, 2, 3], results.__setitem__)
 
     # Профиля 2 уже нет: в замер он не идёт, а -1 ему допишет сам runner.
-    assert seen == {"ids": [1, 3], "settings": "настройки", "binary": "/opt/xray"}
+    assert seen == {"ids": [1, 3], "settings": "настройки", "binary": "/opt/xray", "route": None}
     assert results == {1: 42, 3: 42}
 
 
@@ -281,3 +283,101 @@ def test_filter_preserves_group_on_incomplete_or_empty_success():
     assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=False) == []
     assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True, active_id=2) == []
     assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True) == [2]
+
+
+# --- путь замера мимо туннеля ---
+
+
+def _context(*, running=False, mode="tun", blocked=False, tun_name="xray0"):
+    state = SimpleNamespace(is_running=running, started_mode=mode, traffic_blocked=blocked)
+    return SimpleNamespace(proxy_state=state, config=SimpleNamespace(tun_name=tun_name))
+
+
+def _network(monkeypatch, *, interface="eth0", confirmed=True, dns=("192.168.0.1",), mark=0x7E6A):
+    calls: dict = {}
+
+    def physical_interface(exclude=()):
+        calls["exclude"] = tuple(exclude)
+        return interface
+
+    monkeypatch.setattr("src.ui.logic.latency.netbind.physical_interface", physical_interface)
+    monkeypatch.setattr("src.ui.logic.latency.netbind.binding_confirmed", lambda _iface: confirmed)
+    monkeypatch.setattr("src.ui.logic.latency.netbind.socket_mark", lambda: mark)
+    monkeypatch.setattr("src.ui.logic.latency.system_dns_servers", lambda _iface: list(dns))
+    return calls
+
+
+def test_probe_route_is_none_outside_tun_and_without_a_block(monkeypatch):
+    calls = _network(monkeypatch)
+
+    assert probe_route(_context(running=True, mode="system")) is None
+    assert probe_route(_context(running=False)) is None
+    assert probe_route(SimpleNamespace()) is None
+    assert calls == {}
+
+
+def test_probe_route_under_tun_binds_marks_and_takes_the_network_dns(monkeypatch):
+    calls = _network(monkeypatch)
+
+    route = probe_route(_context(running=True, tun_name="tun9"))
+
+    assert route == ProbeRoute("eth0", mark=0x7E6A, dns_servers=("192.168.0.1",))
+    assert calls["exclude"] == ("tun9",)
+
+
+def test_probe_route_without_a_socket_mark(monkeypatch):
+    # Windows: таблицы nftables нет, метка не ставится.
+    _network(monkeypatch, interface="Ethernet", mark=None)
+
+    assert probe_route(_context(running=True)).mark is None
+
+
+def test_probe_route_while_traffic_is_blocked(monkeypatch):
+    # Ядро упало под блокировкой: сеанса нет, но таблица пропускает только помеченные сокеты.
+    _network(monkeypatch)
+
+    assert probe_route(_context(running=False, blocked=True)).mark == 0x7E6A
+
+
+@pytest.mark.parametrize(("interface", "confirmed"), [(None, True), ("eth0", False)])
+def test_probe_route_refuses_without_a_way_past_the_tunnel(monkeypatch, interface, confirmed):
+    _network(monkeypatch, interface=interface, confirmed=confirmed)
+
+    with pytest.raises(ProbeUnavailable, match="нет маршрута мимо туннеля"):
+        probe_route(_context(running=True))
+
+
+def test_make_batch_probe_reports_an_unavailable_route_and_gives_up(monkeypatch):
+    def refuse(_context):
+        raise ProbeUnavailable("нет маршрута")
+
+    monkeypatch.setattr("src.ui.logic.latency.probe_route", refuse)
+    probed = []
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", lambda *_a, **_k: probed.append(1))
+    reported = []
+
+    with pytest.raises(ProbeUnavailable):
+        make_batch_probe(SimpleNamespace(), on_unavailable=reported.append)([1], lambda *_: None)
+
+    assert reported == ["нет маршрута"]
+    assert probed == []
+
+
+def test_make_batch_probe_hands_the_route_to_the_core(monkeypatch):
+    route = ProbeRoute("eth0")
+    monkeypatch.setattr("src.ui.logic.latency.probe_route", lambda _context: route)
+    seen: dict = {}
+
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result, route):
+        seen["route"] = route
+
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", fake_probe_profiles)
+    context = SimpleNamespace(
+        profiles=SimpleNamespace(get_profile={1: SimpleNamespace(id=1)}.get),
+        config="настройки",
+        xray_manager=SimpleNamespace(binary_path="/opt/xray"),
+    )
+
+    make_batch_probe(context)([1], lambda *_: None)
+
+    assert seen["route"] is route

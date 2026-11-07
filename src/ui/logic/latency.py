@@ -1,7 +1,8 @@
 """Bounded background runner for profile latency probes.
 
 GTK-free: результаты доставляются через `dispatch` (по умолчанию GLib.idle_add),
-чтобы модуль можно было тестировать без дисплея.
+чтобы модуль можно было тестировать без дисплея. Из системы модуль берёт только фасады
+`src.sys` без тулкита: путь замера мимо туннеля.
 """
 
 from __future__ import annotations
@@ -11,6 +12,10 @@ import threading
 from collections.abc import Callable, Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
+
+from src.core.batch_probe import ProbeRoute
+from src.sys import netbind
+from src.sys.resolver import system_dns_servers
 
 logger = logging.getLogger("tenga.ui.latency")
 
@@ -30,18 +35,56 @@ def _default_dispatch(fn: Callable[..., object], *args: object) -> None:
     GLib.idle_add(_once)
 
 
-def make_batch_probe(context: Any) -> BatchProbeFn:
+PROBE_UNAVAILABLE = "Замер при активном TUN недоступен: нет маршрута мимо туннеля"
+
+
+class ProbeUnavailable(RuntimeError):
+    """Замер сейчас невозможен; текст показывается пользователю."""
+
+
+def probe_route(context: Any) -> ProbeRoute | None:
+    """Путь проб мимо туннеля: при TUN и при заблокированном трафике, иначе None.
+
+    Зовётся из потока замера, а не из контроллера: на Windows поиск интерфейса — снимок сети
+    через PowerShell, в главном потоке он подвесил бы окно.
+    """
+    state = getattr(context, "proxy_state", None)
+    if state is None:
+        return None
+    in_tun = state.is_running and state.started_mode == "tun"
+    if not in_tun and not getattr(state, "traffic_blocked", False):
+        return None
+
+    tun_name = (getattr(context.config, "tun_name", "") or "xray0").strip()
+    interface = netbind.physical_interface(exclude=(tun_name,))
+    if interface is None or not netbind.binding_confirmed(interface):
+        raise ProbeUnavailable(PROBE_UNAVAILABLE)
+    return ProbeRoute(
+        interface=interface,
+        mark=netbind.socket_mark(),
+        dns_servers=tuple(system_dns_servers(interface)),
+    )
+
+
+def make_batch_probe(
+    context: Any, on_unavailable: Callable[[str], None] | None = None
+) -> BatchProbeFn:
     """Batch probe bound to the application context.
 
-    Контекст читается в момент замера, а не при создании: список профилей и
-    настройки транспорта к этому времени могли измениться.
+    Контекст читается в момент замера, а не при создании: список профилей, настройки и
+    режим сеанса к этому времени могли измениться. `on_unavailable` получает текст отказа,
+    когда пути мимо туннеля нет; профили при этом получают -1 от `LatencyRunner`.
     """
 
     def batch_probe(profile_ids: list[int], emit: ResultFn) -> None:
-        state = getattr(context, "proxy_state", None)
-        if state is not None and state.is_running and state.started_mode == "tun":
-            raise RuntimeError("Независимый маршрут замера при активном TUN не обеспечен")
         from src.core.batch_probe import probe_profiles
+
+        try:
+            route = probe_route(context)
+        except ProbeUnavailable as e:
+            if on_unavailable is not None:
+                on_unavailable(str(e))
+            raise
 
         found = (context.profiles.get_profile(profile_id) for profile_id in profile_ids)
         probe_profiles(
@@ -49,6 +92,7 @@ def make_batch_probe(context: Any) -> BatchProbeFn:
             settings=context.config,
             binary_path=context.xray_manager.binary_path,
             on_result=emit,
+            route=route,
         )
 
     return batch_probe

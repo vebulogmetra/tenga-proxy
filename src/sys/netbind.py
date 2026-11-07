@@ -10,6 +10,7 @@ if IS_WINDOWS:
         interface_kind,
         physical_interface,
         socket_binder,
+        socket_mark,
     )
 else:
     from src.sys.linux.netbind import (
@@ -19,6 +20,7 @@ else:
         interface_kind,
         physical_interface,
         socket_binder,
+        socket_mark,
     )
 
 __all__ = [
@@ -28,4 +30,5 @@ __all__ = [
     "interface_kind",
     "physical_interface",
     "socket_binder",
+    "socket_mark",
 ]

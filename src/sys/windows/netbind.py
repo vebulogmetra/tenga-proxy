@@ -33,6 +33,11 @@ def socket_binder(interface: str) -> Callable[[socket.socket], None]:
     return bind
 
 
+def socket_mark() -> int | None:
+    """Таблицы nftables на Windows нет: метка не нужна."""
+    return None
+
+
 def binding_confirmed(interface: str) -> bool:
     route = netinfo.default_route(netinfo.snapshot())
     return route is not None and route.alias == interface

@@ -262,3 +262,8 @@ def test_linux_missing_rp_filter_counts_as_off(monkeypatch, tmp_path):
     monkeypatch.setattr(linux.subprocess, "run", lambda *_a, **_k: done)
 
     assert linux.binding_confirmed("eth0") is True
+
+
+def test_only_linux_marks_probe_sockets():
+    assert linux.socket_mark() == 0x7E6A
+    assert windows.socket_mark() is None

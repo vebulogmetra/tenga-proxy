@@ -12,6 +12,7 @@ import subprocess
 from collections.abc import Callable, Iterable
 from pathlib import Path
 
+from src.sys.firewall_policy import SOCKET_MARK
 from src.sys.linux.vpn import get_default_interface
 
 SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)
@@ -37,6 +38,11 @@ def _strict_rp_filter(interface: str) -> bool:
         except (OSError, ValueError):
             values.append(0)
     return max(values) == 1
+
+
+def socket_mark() -> int | None:
+    """Метка, с которой сокет проходит мимо таблицы `inet veblock`."""
+    return SOCKET_MARK
 
 
 def binding_confirmed(interface: str) -> bool:
