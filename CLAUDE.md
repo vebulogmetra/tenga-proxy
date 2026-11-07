@@ -210,6 +210,17 @@ True), `cancel`. `ConnectionMonitor` и `AppController` получают его
 `IS_WINDOWS` не читают; где это допустимо, перечисляет
 `tests/test_ui_platform_branches.py`.
 
+**Самообновление на Windows** - `src/core/app_update.py` берёт из релиза ссылку,
+размер и `digest` установщика, `src/core/app_installer.py` качает и сверяет файл в
+`%TEMP%\veblock-update\`, фасад `src/sys/app_install.py` запускает его с UAC и
+оставляет PowerShell-наблюдателя, который перезапускает приложение от имени
+пользователя (`[Run] runasoriginaluser` у установщика, запущенного через `runas`,
+стартовал бы новую версию с правами администратора). Шаги ведёт
+`AppController.install_app_update()`: подтверждение, загрузка, отключение, запуск,
+`Shell.quit()`. Служба не участвует. Linux не самообновляется: `can_self_update()`
+там `False`, GTK показывает «Открыть релиз». Дизайн:
+`docs/plans/2026-11-07-windows-self-update-design.md`.
+
 **Общий дизайн GTK и Qt** - `docs/plans/2026-11-02-shared-ui-design.md`: состояния,
 словарь («Сервер», а не «профиль»), окно, меню и сочетания клавиш. Намеренное отличие
 одно: логотип (Linux — голубь, Windows — монолит). Цвета состояний, акцент и размеры
