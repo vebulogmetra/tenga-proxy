@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
+import time
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
@@ -11,17 +13,21 @@ import pytest
 import requests
 
 from src.core import core_pid
+from src.core.app_installer import InstallCancelled, InstallerCorruptError, InstallerDownloadError
 from src.core.connection import ConnectionResult
 from src.core.context import AppContext
 from src.core.main_loop import ImmediateLoop
 from src.ui.controller import (
+    APP_UPDATE_UNAVAILABLE,
     BLOCK_RELEASED,
     BLOCK_RELEASED_AFTER_CRASH,
+    CONFIRM_APP_UPDATE,
     CONFIRM_DELETE,
     CONFIRM_URL_CHANGE,
     CORE_EXIT_GAVE_UP,
     CORE_EXIT_RESTART,
     AppController,
+    AppUpdateStatus,
     resume_monitoring,
 )
 from src.ui.logic.status import BLOCKED_BANNER, ConnectionState
@@ -1022,6 +1028,188 @@ def test_keep_working_is_cancelled_without_network(tmp_path):
 
 
 # --- обновления и ссылки ---
+
+
+EXE = b"exe"
+
+
+def _installable(config):
+    config.app_update_target = "v0.19.0"
+    config.app_update_has_asset = True
+    config.app_update_asset_url = (
+        "https://github.com/vebulogmetra/tenga-proxy/releases/download/v0.19.0/"
+        "veblock-0.19.0-windows-x64-setup.exe"
+    )
+    config.app_update_asset_size = len(EXE)
+    config.app_update_asset_digest = "sha256:" + hashlib.sha256(EXE).hexdigest()
+
+
+def _self_updating(tmp_path, **kwargs):
+    context = AppContext(config_dir=tmp_path)
+    assert context.config is not None
+    shell = FakeShell()
+    controller = AppController(
+        context, shell, ImmediateLoop(), can_self_update=lambda: True, **kwargs
+    )
+    _installable(context.config)
+    return controller, shell, context
+
+
+def _wait_for(predicate, timeout=5.0):
+    deadline = time.monotonic() + timeout
+    while not predicate() and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert predicate()
+
+
+def _fake_download(tmp_path, monkeypatch, *, error=None):
+    def download(url, size, digest, *, proxy_url=None, progress=None, directory=None, **_kw):
+        if error is not None:
+            raise error
+        path = tmp_path / "veblock-test-setup.exe"
+        path.write_bytes(EXE)
+        progress(len(EXE), len(EXE))
+        return path
+
+    monkeypatch.setattr("src.core.app_installer.download_installer", download)
+
+
+def test_install_is_refused_without_an_installer(made):
+    controller, shell, _ = made
+
+    controller.install_app_update()
+
+    assert shell.confirms == []
+    assert shell.last_toast == APP_UPDATE_UNAVAILABLE
+
+
+def test_install_asks_for_confirmation_first(tmp_path):
+    controller, shell, _context = _self_updating(tmp_path)
+
+    controller.install_app_update()
+
+    (confirm,) = shell.confirms
+    assert confirm.kind == CONFIRM_APP_UPDATE
+    assert confirm.body == (
+        "Будет установлена версия v0.19.0. Подключение прервётся, приложение перезапустится"
+    )
+    assert confirm.confirm_label == "Обновить"
+    assert controller.app_install_thread is None
+
+
+def test_install_downloads_disconnects_launches_and_quits(tmp_path, monkeypatch):
+    launched = []
+    controller, shell, context = _self_updating(tmp_path, launch_installer=launched.append)
+    _fake_download(tmp_path, monkeypatch)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    context.proxy_state.set_running(1, "system_proxy")
+
+    controller.install_app_update()
+    shell.confirms[0].on_confirm()
+    _wait_for(lambda: ("quit",) in shell.calls)
+
+    assert calls == [("disconnect",)]
+    assert launched == [tmp_path / "veblock-test-setup.exe"]
+    assert controller.app_update_status == AppUpdateStatus("Установка…", busy=True)
+    assert shell.enabled["install-app-update"] is False
+    assert ("refresh_app_update",) in shell.calls
+
+
+def test_install_skips_disconnect_when_not_connected(tmp_path, monkeypatch):
+    launched = []
+    controller, shell, _context = _self_updating(tmp_path, launch_installer=launched.append)
+    _fake_download(tmp_path, monkeypatch)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.install_app_update()
+    shell.confirms[0].on_confirm()
+    _wait_for(lambda: ("quit",) in shell.calls)
+
+    assert calls == []
+    assert len(launched) == 1
+
+
+def test_second_install_is_refused_while_busy(tmp_path, monkeypatch):
+    controller, shell, _context = _self_updating(tmp_path)
+    controller._set_app_update_status("Загрузка… 10 %", busy=True)
+
+    controller.install_app_update()
+
+    assert shell.confirms == []
+    assert shell.last_toast == "Обновление уже идёт"
+
+
+@pytest.mark.parametrize(
+    ("error", "text"),
+    [
+        (InstallerCorruptError("hash"), "Файл повреждён, попробуйте позже"),
+        (InstallerDownloadError("net"), "Не удалось скачать обновление"),
+    ],
+)
+def test_failed_download_is_reported_in_label_and_toast(tmp_path, monkeypatch, error, text):
+    controller, shell, _context = _self_updating(tmp_path)
+    _fake_download(tmp_path, monkeypatch, error=error)
+
+    controller.install_app_update()
+    shell.confirms[0].on_confirm()
+    controller.app_install_thread.join(5)
+
+    assert controller.app_update_status == AppUpdateStatus(text, busy=False)
+    assert shell.last_toast == text
+    assert shell.enabled["install-app-update"] is True
+    assert ("quit",) not in shell.calls
+
+
+def test_uac_refusal_keeps_the_app_running_and_removes_the_file(tmp_path, monkeypatch):
+    def refuse(_path):
+        raise InstallCancelled("нет")
+
+    controller, shell, _context = _self_updating(tmp_path, launch_installer=refuse)
+    _fake_download(tmp_path, monkeypatch)
+
+    controller.install_app_update()
+    shell.confirms[0].on_confirm()
+    _wait_for(lambda: controller.app_update_status.text == "Установка отменена")
+
+    assert controller.app_update_status.busy is False
+    assert shell.last_toast == "Установка отменена"
+    assert ("quit",) not in shell.calls
+    assert not (tmp_path / "veblock-test-setup.exe").exists()
+
+
+def test_tampered_file_is_not_launched(tmp_path, monkeypatch):
+    launched = []
+    controller, shell, context = _self_updating(tmp_path, launch_installer=launched.append)
+    _fake_download(tmp_path, monkeypatch)
+    # Файл подменили между загрузкой и запуском: хеш в конфиге уже другой.
+    context.config.app_update_asset_digest = "sha256:" + "0" * 64
+
+    controller.install_app_update()
+    shell.confirms[0].on_confirm()
+    _wait_for(lambda: controller.app_update_status.text == "Файл повреждён, попробуйте позже")
+
+    assert launched == []
+    assert ("quit",) not in shell.calls
+
+
+def test_daily_check_offers_the_update_button(tmp_path, monkeypatch):
+    from src.core import platform_info
+    from tests.test_core_app_update import WINDOWS_RELEASE
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    context = AppContext(config_dir=tmp_path)
+    shell = FakeShell()
+    controller = AppController(
+        context, shell, ImmediateLoop(), app_version=lambda: "0.18.0", can_self_update=lambda: True
+    )
+    controller.set_app_release_fetcher(lambda: [WINDOWS_RELEASE])
+
+    controller.refresh_app_releases_if_due()
+    controller.app_update_thread.join(5)
+
+    assert shell.toasts[-1] == ("Доступна версия v0.19.0", "Обновить", "app.install-app-update")
 
 
 def test_app_update_is_notified_once(tmp_path):

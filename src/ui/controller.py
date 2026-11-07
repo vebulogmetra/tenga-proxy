@@ -17,6 +17,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
 from src import __app_name__
@@ -24,6 +25,7 @@ from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
 from src.diag.assess import recommendations as rec
+from src.sys.app_install import can_self_update, launch_installer
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
 from src.ui.logic.status import BLOCKED_BANNER, ConnectionState, is_traffic_blocked
@@ -43,6 +45,12 @@ LATENCY_REFRESH_INTERVAL_MS = 150
 # Виды подтверждений: оболочка выбирает по ним кнопки и их внешний вид.
 CONFIRM_DELETE = "delete"
 CONFIRM_URL_CHANGE = "url-change"
+CONFIRM_APP_UPDATE = "app-update"
+APP_UPDATE_UNAVAILABLE = "Установщик недоступен, обновите вручную со страницы проекта"
+APP_UPDATE_DOWNLOAD_FAILED = "Не удалось скачать обновление"
+APP_UPDATE_CORRUPT = "Файл повреждён, попробуйте позже"
+APP_UPDATE_CANCELLED = "Установка отменена"
+APP_UPDATE_LAUNCH_FAILED = "Не удалось запустить установщик"
 SETTINGS_DNS = "dns"
 
 CORE_EXIT_RESTART = "Ядро остановилось, переподключаюсь"
@@ -52,6 +60,14 @@ BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился с�
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
 CORE_RESTART_COOLDOWN = 60.0
 VPN_WATCH_INTERVAL_MS = 5000
+
+
+@dataclass(frozen=True)
+class AppUpdateStatus:
+    """Что «О программе» показывает о ходе самообновления; пустой текст — ничего не идёт."""
+
+    text: str = ""
+    busy: bool = False
 
 
 @dataclass(frozen=True)
@@ -157,6 +173,8 @@ class AppController:
         *,
         network_available: Callable[[], bool] = lambda: True,
         app_version: Callable[[], str] = app_version,
+        can_self_update: Callable[[], bool] = can_self_update,
+        launch_installer: Callable[[Path], None] = launch_installer,
     ) -> None:
         self.context = context
         self._shell = shell
@@ -165,6 +183,10 @@ class AppController:
         # Вызываемый объект, а не строка: GTK-тесты подменяют `app_version`
         # в модуле приложения, и подмена должна действовать здесь.
         self._app_version = app_version
+        self._can_self_update = can_self_update
+        self._launch_installer = launch_installer
+        self.app_update_status = AppUpdateStatus()
+        self.app_install_thread = None
 
         # Потоки и раннер публичные: приложение ждёт их в тестовых помощниках.
         self.latency_runner: LatencyRunner | None = None
@@ -419,17 +441,27 @@ class AppController:
             name="tenga-connect",
         )
 
-    def disconnect_proxy(self) -> None:
-        """Stop the proxy in the background."""
+    def disconnect_proxy(self, then: Callable[[], None] | None = None) -> None:
+        """Stop the proxy in the background; `then` — после завершения, удачного или нет."""
         if self.connection_busy():
             self.toast("Подключение уже выполняется")
             return
 
+        def done(result) -> None:
+            self._on_disconnection_done(result)
+            if then is not None:
+                then()
+
+        def failed(error: BaseException) -> None:
+            self._on_connection_failed(error)
+            if then is not None:
+                then()
+
         service = self._ensure_connection_service()
         self.connection_thread = run_in_background(
             service.disconnect,
-            on_done=lambda result: self._on_disconnection_done(result),
-            on_error=self._on_connection_failed,
+            on_done=done,
+            on_error=failed,
             dispatch=self._loop.dispatch,
             name="tenga-disconnect",
         )
@@ -1208,7 +1240,16 @@ class AppController:
 
         def done(release):
             if release and config.app_update_notified != release.version:
-                self.toast(f"Доступна версия {release.version}. Откройте настройки → О программе")
+                if self.can_self_update() and release.installable:
+                    self.toast(
+                        f"Доступна версия {release.version}",
+                        button="Обновить",
+                        action="app.install-app-update",
+                    )
+                else:
+                    self.toast(
+                        f"Доступна версия {release.version}. Откройте настройки → О программе"
+                    )
                 config.app_update_notified = release.version
             context.save_config()
 
@@ -1218,6 +1259,140 @@ class AppController:
             on_error=lambda _error: context.save_config(),
             dispatch=self._loop.dispatch,
             name="tenga-app-update",
+        )
+
+    # --- самообновление ---
+
+    def can_self_update(self) -> bool:
+        return self._can_self_update()
+
+    def app_update_installable(self) -> bool:
+        """Известен установщик с контрольной суммой, и его можно поставить отсюда."""
+        config = self.context.config
+        return bool(
+            self.can_self_update()
+            and config.app_update_target
+            and config.app_update_asset_url
+            and config.app_update_asset_size > 0
+            and config.app_update_asset_digest
+        )
+
+    def _set_app_update_status(self, text: str, *, busy: bool) -> None:
+        self.app_update_status = AppUpdateStatus(text, busy)
+        self._shell.set_action_enabled("install-app-update", not busy)
+        self._shell.refresh_app_update()
+
+    def _fail_app_update(self, text: str) -> None:
+        # И в подпись, и тостом: установку могли начать из тоста при закрытых настройках.
+        self._set_app_update_status(text, busy=False)
+        self.toast(text)
+
+    def install_app_update(self) -> None:
+        """Скачать установщик, отключиться, запустить его с UAC и выйти."""
+        if self.app_update_status.busy:
+            self.toast("Обновление уже идёт")
+            return
+        if not self.app_update_installable():
+            self.toast(APP_UPDATE_UNAVAILABLE)
+            return
+        version = self.context.config.app_update_target
+        self._shell.confirm(
+            CONFIRM_APP_UPDATE,
+            f"Обновить {__app_name__}?",
+            f"Будет установлена версия {version}. Подключение прервётся, приложение перезапустится",
+            self._download_app_update,
+            confirm_label="Обновить",
+        )
+
+    def _show_download_progress(self, percent: int) -> None:
+        self._set_app_update_status(f"Загрузка… {percent} %", busy=True)
+
+    def _download_app_update(self) -> None:
+        from src.core.app_installer import InstallerCorruptError, download_installer
+        from src.sub.route import local_proxy_url
+
+        context = self.context
+        config = context.config
+        url = config.app_update_asset_url
+        size = config.app_update_asset_size
+        digest = config.app_update_asset_digest
+        self._show_download_progress(0)
+        shown = [0]
+
+        def progress(done: int, total: int) -> None:
+            # Из рабочего потока: в главный уходят только целые проценты.
+            percent = done * 100 // total
+            if percent != shown[0]:
+                shown[0] = percent
+                self._loop.dispatch(self._show_download_progress, percent)
+
+        def work():
+            # Загрузка при живом подключении: GitHub напрямую бывает закрыт.
+            return download_installer(
+                url,
+                size,
+                digest,
+                proxy_url=local_proxy_url(config, context.proxy_state),
+                progress=progress,
+            )
+
+        def done(path) -> None:
+            if self.connection_busy():
+                self._fail_app_update("Подключение ещё выполняется, повторите позже")
+                return
+            if context.proxy_state.is_running:
+                self._set_app_update_status("Отключение…", busy=True)
+                self.disconnect_proxy(then=lambda: self._launch_app_update(path))
+            else:
+                self._launch_app_update(path)
+
+        def failed(error: BaseException) -> None:
+            self._fail_app_update(
+                APP_UPDATE_CORRUPT
+                if isinstance(error, InstallerCorruptError)
+                else APP_UPDATE_DOWNLOAD_FAILED
+            )
+
+        self.app_install_thread = run_in_background(
+            work,
+            on_done=done,
+            on_error=failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-app-install",
+        )
+
+    def _launch_app_update(self, path: Path) -> None:
+        from src.core.app_installer import InstallCancelled, InstallerCorruptError, verify_installer
+
+        config = self.context.config
+        size, digest = config.app_update_asset_size, config.app_update_asset_digest
+        self._set_app_update_status("Установка…", busy=True)
+
+        def work() -> None:
+            # Хеш ещё раз перед запуском: файл лежал в каталоге, доступном пользователю.
+            verify_installer(path, size, digest)
+            self._launch_installer(path)
+
+        def done(_result) -> None:
+            # Дальше установщик: он остановит службу и заменит файлы, наблюдатель
+            # перезапустит приложение.
+            self._shell.quit()
+
+        def failed(error: BaseException) -> None:
+            Path(path).unlink(missing_ok=True)
+            if isinstance(error, InstallCancelled):
+                self._fail_app_update(APP_UPDATE_CANCELLED)
+            elif isinstance(error, InstallerCorruptError):
+                self._fail_app_update(APP_UPDATE_CORRUPT)
+            else:
+                self._fail_app_update(APP_UPDATE_LAUNCH_FAILED)
+
+        self.app_install_thread = run_in_background(
+            work,
+            on_done=done,
+            on_error=failed,
+            dispatch=self._loop.dispatch,
+            name="tenga-app-launch",
         )
 
     def import_app_link(self, raw: str) -> None:
