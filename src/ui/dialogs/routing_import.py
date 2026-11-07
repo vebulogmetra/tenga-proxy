@@ -31,7 +31,7 @@ class RoutingImportDialog(Adw.AlertDialog):
         super().__init__(
             heading="Импорт маршрутизации",
             body="Текущие списки будут заменены. Вернуть их можно в настройках: "
-            "«О приложении» → «Обслуживание».",
+            "«Маршрутизация» → «Дополнительно».",
         )
         self._titles: list[str] = []
         self.rest_row: Adw.PreferencesRow | None = None

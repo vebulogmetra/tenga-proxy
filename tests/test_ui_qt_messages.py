@@ -70,6 +70,12 @@ def test_routing_import_reports_dismissal(qapp):
     assert calls == ["dismiss"]
 
 
+def test_routing_import_points_to_the_routing_page():
+    from src.ui.qt.dialogs.routing_import import BODY
+
+    assert "«Маршрутизация» → «Дополнительно»" in BODY
+
+
 def test_shortcuts_cover_every_action_once(qapp):
     from src.ui.qt.dialogs.shortcuts import SECTIONS, SHORTCUTS, ShortcutsDialog, native_text
 

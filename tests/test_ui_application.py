@@ -1094,6 +1094,7 @@ def test_routing_import_dialog_reports_dismissal(gtk_ready):
         lambda: calls.append("confirm"),
         lambda: calls.append("dismiss"),
     )
+    assert "«Маршрутизация» → «Дополнительно»" in dialog.get_body()
     dialog.emit("response", "cancel")
     dialog.emit("response", "import")
     assert calls == ["dismiss", "confirm"]
