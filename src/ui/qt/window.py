@@ -592,6 +592,7 @@ class MainWindow(QMainWindow):
             own_rules=own_rules,
             vpn_enabled=vpn_enabled,
             vpn_is_up=vpn_enabled and status.vpn_ok,
+            checked=checked,
         )
         for position, row in enumerate((*view.connection, *view.routing)):
             key = str(position)
@@ -604,13 +605,9 @@ class MainWindow(QMainWindow):
                     self.monitoring_form if position < len(view.connection) else self.routing_form
                 ).addRow(row.title, value)
                 self._monitoring_values[key] = value
-            value.setText(
-                NOT_CHECKED if position == 0 and state.is_running and not checked else row.value
-            )
+            value.setText(row.value)
             value.setProperty("state", row.css_class)
-        self.last_check.setText(
-            last_check_text(status.last_check_time, checked=checked or not state.is_running)
-        )
+        self.last_check.setText(view.last_check_line)
         summary = health_text(
             running=state.is_running,
             checked=checked,

@@ -45,6 +45,8 @@ class MonitoringView:
     connection: tuple[MonitoringRow, ...]
     routing: tuple[MonitoringRow, ...]
     last_check: str
+    # Строка под группами: «Последняя проверка: …» или «Ожидается проверка соединения».
+    last_check_line: str = ""
 
 
 def format_last_check(timestamp: float) -> str:
@@ -153,8 +155,16 @@ def monitoring_view(
     own_rules: bool = False,
     vpn_enabled: bool = False,
     vpn_is_up: bool = False,
+    checked: bool | None = None,
 ) -> MonitoringView:
-    """Build the whole monitoring summary."""
+    """Build the whole monitoring summary.
+
+    `checked` — прошла ли проверка текущей сессии (`ConnectionPresentation.check_done`);
+    по умолчанию — была ли проверка вообще. Пока её нет, первая строка говорит
+    «Проверка ещё не выполнена», а не «Недоступен».
+    """
+    if checked is None:
+        checked = bool(status.last_check_time)
     if not is_running:
         routing_part = _blank_routing()
     elif not profile_found:
@@ -170,8 +180,12 @@ def monitoring_view(
             routing, own_rules=own_rules, vpn_enabled=vpn_enabled, vpn_is_up=vpn_is_up
         )
 
+    connection = _connection_rows(status, is_running=is_running, vpn_enabled=vpn_enabled)
+    if is_running and not checked:
+        connection = (MonitoringRow(connection[0].title, NOT_CHECKED, CLASS_DIM), *connection[1:])
     return MonitoringView(
-        connection=_connection_rows(status, is_running=is_running, vpn_enabled=vpn_enabled),
+        connection=connection,
         routing=routing_part,
         last_check=format_last_check(status.last_check_time),
+        last_check_line=last_check_text(status.last_check_time, checked=checked or not is_running),
     )

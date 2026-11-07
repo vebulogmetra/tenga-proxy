@@ -1,4 +1,4 @@
-"""Monitoring page: connection state, routing summary and a manual refresh."""
+"""Diagnostics page: connection state, routing summary, manual checks and the log."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from src.ui.logic.monitoring_view import (
     CLASS_DIM,
     CLASS_ERROR,
     CLASS_OK,
-    UNKNOWN,
+    LAST_CHECK_PENDING,
     MonitoringRow,
     MonitoringView,
 )
@@ -24,8 +24,8 @@ SECTION_CONNECTION = "connection"
 SECTION_ROUTING = "routing"
 
 
-class MonitoringPage(Adw.PreferencesPage):
-    """Two groups of labelled values plus the refresh control."""
+class MonitoringPage(Gtk.Box):
+    """Diagnostics on the right of the window: state, routing, checks and the log."""
 
     __gtype_name__ = "TengaMonitoringPage"
 
@@ -35,7 +35,9 @@ class MonitoringPage(Adw.PreferencesPage):
     }
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.add_css_class("card")
+        self.add_css_class("diagnostics-card")
 
         # Строки создаются один раз и обновляются на месте: пересборка групп на
         # каждом тике мониторинга (по умолчанию раз в 10 секунд) сбрасывала бы
@@ -46,38 +48,85 @@ class MonitoringPage(Adw.PreferencesPage):
         # затирали бы друг друга.
         self._rows: dict[tuple[str, str], Adw.ActionRow] = {}
         self._values: dict[tuple[str, str], Gtk.Label] = {}
+        self._groups: list[Adw.PreferencesGroup] = []
 
-        self._connection_group = Adw.PreferencesGroup(title="Соединение")
-        self.add(self._connection_group)
+        top = Gtk.Box(spacing=16, homogeneous=True)
+        self._connection_group = self._group("Состояние соединения")
+        self._routing_group = self._group("Маршрутизация")
+        top.append(self._connection_group)
+        top.append(self._routing_group)
+        self.append(top)
 
-        self._routing_group = Adw.PreferencesGroup(title="Маршрутизация")
-        self.add(self._routing_group)
+        self._build_checks()
 
-        self._build_footer()
         self._diagnostics_busy = False
         self._diagnostics_timer = 0
-        group = Adw.PreferencesGroup(
-            title="Журнал", description="Последние записи. Хранение — 3 дня; секреты маскируются."
+        log_group = self._group(
+            "Журнал", description="Последние записи. Хранение — 3 дня; секреты маскируются."
         )
-        self.add(group)
-        self.log_view = Gtk.TextView(
-            editable=False, monospace=True, wrap_mode=Gtk.WrapMode.WORD_CHAR
-        )
-        scroll = Gtk.ScrolledWindow(min_content_height=160, max_content_height=260)
+        log_group.set_vexpand(True)
+        self.log_view = Gtk.TextView(editable=False, monospace=True, wrap_mode=Gtk.WrapMode.NONE)
+        self.log_view.add_css_class("diagnostics-log")
+        scroll = Gtk.ScrolledWindow(vexpand=True, min_content_height=120)
+        scroll.add_css_class("card")
         scroll.set_child(self.log_view)
-        group.add(scroll)
-        buttons = Gtk.Box(spacing=8)
+        log_group.add(scroll)
+
+        controls = Gtk.Box(spacing=8, margin_top=8)
+        self.wrap_check = Gtk.CheckButton(label="Перенос строк")
+        self.wrap_check.connect("toggled", self._on_wrap_toggled)
+        controls.append(self.wrap_check)
+        controls.append(Gtk.Box(hexpand=True))
+        self.log_buttons: list[Gtk.Button] = []
         for label, callback in (
-            ("Обновить журнал", self.refresh_diagnostics),
-            ("Экспортировать", self._export_diagnostics),
+            ("Обновить", self.refresh_diagnostics),
+            ("Экспорт…", self._export_diagnostics),
             ("Очистить", self._clear_diagnostics),
         ):
             button = Gtk.Button(label=label)
             button.connect("clicked", callback)
-            buttons.append(button)
-        group.add(buttons)
-        self.connect("map", self._start_diagnostics)
-        self.connect("unmap", self._stop_diagnostics)
+            controls.append(button)
+            self.log_buttons.append(button)
+        log_group.add(controls)
+        self.append(log_group)
+
+    def _group(self, title: str, *, description: str | None = None) -> Adw.PreferencesGroup:
+        group = Adw.PreferencesGroup(title=title, description=description)
+        self._groups.append(group)
+        return group
+
+    def _build_checks(self) -> None:
+        self._last_check = Gtk.Label(label=LAST_CHECK_PENDING, xalign=0.0)
+        self._last_check.add_css_class("dim-label")
+        self.append(self._last_check)
+
+        buttons = Gtk.Box(spacing=8, homogeneous=True)
+        self.check_button = Gtk.Button(label="Проверить сейчас")
+        self.check_button.connect("clicked", lambda _b: self.emit("refresh-requested"))
+        buttons.append(self.check_button)
+        self.diagnostics_button = Gtk.Button(label="Диагностика сети…")
+        self.diagnostics_button.connect("clicked", lambda _b: self.emit("diagnostics-requested"))
+        buttons.append(self.diagnostics_button)
+        self.append(buttons)
+
+    def _on_wrap_toggled(self, button: Gtk.CheckButton) -> None:
+        self.log_view.set_wrap_mode(
+            Gtk.WrapMode.WORD_CHAR if button.get_active() else Gtk.WrapMode.NONE
+        )
+
+    def set_active(self, active: bool) -> None:
+        """Run the log timer only while the page is on screen.
+
+        Окно зовёт это при переключении страниц и при скрытии: map/unmap у
+        страницы в стеке не различает свёрнутое окно и спрятанную страницу.
+        """
+        if active:
+            self._start_diagnostics()
+        else:
+            self._stop_diagnostics()
+
+    def focus_log(self) -> None:
+        self.log_view.grab_focus()
 
     def _log_dir(self):
         from src.core.config import LOG_DIR
@@ -166,28 +215,6 @@ class MonitoringPage(Adw.PreferencesPage):
         )
         dialog.present(self.get_root())
 
-    def _build_footer(self) -> None:
-        group = Adw.PreferencesGroup()
-        self.add(group)
-
-        row = Adw.ActionRow(title="Последняя проверка")
-        self._last_check = Gtk.Label(label=UNKNOWN)
-        self._last_check.add_css_class("dim-label")
-        row.add_suffix(self._last_check)
-        group.add(row)
-
-        self.refresh_button = Gtk.Button(label="Обновить сейчас")
-        self.refresh_button.set_halign(Gtk.Align.CENTER)
-        self.refresh_button.set_margin_top(12)
-        self.refresh_button.connect("clicked", lambda _b: self.emit("refresh-requested"))
-        group.add(self.refresh_button)
-
-        self.diagnostics_button = Gtk.Button(label="Проверить сеть…")
-        self.diagnostics_button.set_halign(Gtk.Align.CENTER)
-        self.diagnostics_button.set_margin_top(6)
-        self.diagnostics_button.connect("clicked", lambda _b: self.emit("diagnostics-requested"))
-        group.add(self.diagnostics_button)
-
     def _ensure_row(
         self, section: str, group: Adw.PreferencesGroup, row: MonitoringRow
     ) -> Adw.ActionRow:
@@ -225,7 +252,7 @@ class MonitoringPage(Adw.PreferencesPage):
         """Render the given summary, reusing the existing rows."""
         self._apply(SECTION_CONNECTION, self._connection_group, view.connection)
         self._apply(SECTION_ROUTING, self._routing_group, view.routing)
-        self._last_check.set_text(view.last_check)
+        self._last_check.set_text(view.last_check_line or view.last_check)
 
     # --- аксессоры для тестов ---
 
@@ -244,3 +271,9 @@ class MonitoringPage(Adw.PreferencesPage):
 
     def get_last_check_text(self) -> str:
         return self._last_check.get_text()
+
+    def get_group_titles(self) -> list[str]:
+        return [group.get_title() for group in self._groups]
+
+    def log_timer_running_for_test(self) -> bool:
+        return bool(self._diagnostics_timer)

@@ -121,14 +121,14 @@ def test_last_check_formats_the_timestamp():
 
 def test_proxy_error_carries_the_error_class():
     status = FakeStatus(proxy_ok=False, proxy_error="Процесс xray-core не запущен")
-    view = monitoring_view(status, FakeRouting(), is_running=True)
+    view = monitoring_view(status, FakeRouting(), is_running=True, checked=True)
     proxy_row = next(row for row in view.connection if row.title == "Прокси")
     assert proxy_row.value == "Процесс xray-core не запущен"
     assert proxy_row.css_class == "status-error"
 
 
 def test_proxy_ok_carries_the_connected_class():
-    view = monitoring_view(FakeStatus(proxy_ok=True), FakeRouting(), is_running=True)
+    view = monitoring_view(FakeStatus(proxy_ok=True), FakeRouting(), is_running=True, checked=True)
     proxy_row = next(row for row in view.connection if row.title == "Прокси")
     assert proxy_row.css_class == "status-connected"
 
@@ -195,3 +195,33 @@ def test_check_pending_texts_are_shared():
     assert last_check_text(1_700_000_000.0).startswith("Последняя проверка: ")
     # Без запущенной сессии ждать нечего: время показывается, даже если его нет.
     assert last_check_text(0.0, checked=True) == "Последняя проверка: —"
+
+
+def test_first_row_says_not_checked_until_the_session_is_checked():
+    from src.ui.logic.monitoring_view import LAST_CHECK_PENDING, NOT_CHECKED, monitoring_view
+
+    view = monitoring_view(FakeStatus(proxy_ok=False), FakeRouting(), is_running=True)
+    assert view.connection[0].value == NOT_CHECKED
+    assert view.last_check_line == LAST_CHECK_PENDING
+
+    view = monitoring_view(
+        FakeStatus(proxy_ok=True, last_check_time=1_700_000_000.0),
+        FakeRouting(),
+        is_running=True,
+    )
+    assert view.connection[0].value == "Работает"
+    assert view.last_check_line.startswith("Последняя проверка: ")
+
+    # Проверка была, но для прошлой сессии: контроллер говорит checked=False.
+    view = monitoring_view(
+        FakeStatus(proxy_ok=True, last_check_time=1_700_000_000.0),
+        FakeRouting(),
+        is_running=True,
+        checked=False,
+    )
+    assert view.connection[0].value == NOT_CHECKED
+
+    # Без сессии ждать нечего.
+    view = monitoring_view(FakeStatus(), FakeRouting(), is_running=False)
+    assert view.connection[0].value == "Не запущен"
+    assert view.last_check_line == "Последняя проверка: —"
