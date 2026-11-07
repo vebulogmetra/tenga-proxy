@@ -268,17 +268,7 @@ class AboutPage(QWidget):
         form.addRow("Конфигурация", self._value(str(self._context.config_dir)))
 
         maintenance = QGroupBox("Обслуживание")
-        form = self._maintenance = QFormLayout(maintenance)
-        # Без подтверждения, как в Android: откат возвращает только то, что
-        # пользователь сам только что заменил импортом.
-        self.restore_routing_button = QPushButton("Вернуть")
-        self.restore_routing_button.clicked.connect(
-            lambda: self._app.activate_action("restore-routing")
-        )
-        self.restore_routing_row = self._with(
-            QLabel("Режим и списки до последнего импорта ссылкой"), self.restore_routing_button
-        )
-        form.addRow("Маршрутизация до импорта", self.restore_routing_row)
+        form = QFormLayout(maintenance)
         self.clear_logs_label = QLabel("Удаляет накопленные файлы логов")
         clear = QPushButton("Очистить")
         clear.clicked.connect(self._on_clear_logs)
@@ -302,7 +292,6 @@ class AboutPage(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(about)
         layout.addWidget(maintenance)
-        self.refresh()
 
     @staticmethod
     def _value(text: str) -> QLabel:
@@ -331,12 +320,6 @@ class AboutPage(QWidget):
         config.app_update_enabled = self.app_updates_check.isChecked()
         config.app_update_prerelease = self.app_prereleases_check.isChecked()
         config.core_update_enabled = self.core_updates_check.isChecked()
-
-    def refresh(self) -> None:
-        # Строка видна, только когда есть что возвращать, как в GTK.
-        self._maintenance.setRowVisible(
-            self.restore_routing_row, self._config.routing_backup is not None
-        )
 
     # --- обновление приложения ---
 

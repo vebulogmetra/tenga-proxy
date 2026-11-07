@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QListWidget,
+    QPushButton,
     QScrollArea,
     QSpinBox,
     QStackedWidget,
@@ -56,7 +57,15 @@ from src.ui.qt.theme import apply_theme
 if TYPE_CHECKING:
     from src.ui.qt.dialogs.settings_pages import AboutPage, SubscriptionsPage
 
-SECTIONS = ("Общие", "Мониторинг", "DNS", "Обход блокировок", "Подписки", "О программе")
+SECTIONS = (
+    "Общие",
+    "Мониторинг",
+    "DNS",
+    "Маршрутизация",
+    "Обход блокировок",
+    "Подписки",
+    "О программе",
+)
 
 SETTINGS_STYLE = """
 QDialog QWidget { font-size: 11pt; }
@@ -182,7 +191,7 @@ class SettingsDialog(QDialog):
         self.sections.setObjectName("settingsSections")
         self.sections.addItems(list(SECTIONS))
         for row, name in enumerate(
-            ("general", "monitor", "dns", "bypass", "subscriptions", "about")
+            ("general", "monitor", "dns", "routing", "bypass", "subscriptions", "about")
         ):
             self.sections.item(row).setIcon(QIcon(str(get_asset_path(f"icons/ui/{name}.svg"))))
         self.sections.setFixedWidth(200)
@@ -191,6 +200,7 @@ class SettingsDialog(QDialog):
             self._general_page(),
             self._monitoring_page(),
             self._dns_page(),
+            self._routing_page(),
             self._bypass_page(),
             page(self.subscriptions, self._request_group()),
             page(self.about),
@@ -229,12 +239,15 @@ class SettingsDialog(QDialog):
         footer.addWidget(buttons)
         layout.addLayout(footer)
 
+        self._loading = False
         self._load()
         self.autosave = Debounce(self.save, parent=self)
         watch(self._fields(), self._queue_save)
         self.finished.connect(lambda _result: self.autosave.flush())
 
     def _queue_save(self) -> None:
+        if self._loading:
+            return
         self.status.setProperty("error", False)
         self.status.setText("Ожидание сохранения…")
         mark_error(self.status, None)
@@ -356,6 +369,52 @@ class SettingsDialog(QDialog):
         form.addRow(self.dns_intercept_check)
         return page(provider, custom, options)
 
+    def _routing_page(self) -> QWidget:
+        from src.ui.logic.routing_form import GLOBAL_PAGE_HINT, VPN_LIST_HINT
+        from src.ui.qt.widgets.routing_form import RoutingForm
+
+        self.routing = RoutingForm(vpn_hint=VPN_LIST_HINT)
+
+        extra = QGroupBox("Дополнительно")
+        self.routing_extra = QFormLayout(extra)
+        # Без подтверждения, как в Android: откат возвращает только то, что
+        # пользователь сам только что заменил импортом.
+        self.restore_routing_button = QPushButton("Вернуть")
+        self.restore_routing_button.setMinimumWidth(100)
+        self.restore_routing_button.clicked.connect(
+            lambda: self._app.activate_action("restore-routing")
+        )
+        label = QLabel("Режим и списки до последнего импорта")
+        label.setWordWrap(True)
+        self.restore_routing_row = QWidget()
+        row = QHBoxLayout(self.restore_routing_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addWidget(label, 1)
+        row.addWidget(self.restore_routing_button)
+        self.routing_extra.addRow("Маршрутизация до импорта", self.restore_routing_row)
+        self.routing_extra.setRowVisible(
+            self.restore_routing_row, self._config.routing_backup is not None
+        )
+        return page(hint(GLOBAL_PAGE_HINT), self.routing, extra)
+
+    def _shared_routing(self):
+        from src.ui.logic.routing_import import effective_routing
+
+        return effective_routing(self._config.routing, self._context.config_dir)
+
+    def _load_routing(self) -> None:
+        from src.ui.logic.routing_form import form_values
+
+        shared = self._shared_routing()
+        self._loading = True
+        try:
+            self.routing.load(shared)
+        finally:
+            self._loading = False
+        # Что показано: без правок форма общие правила не пишет, и старая
+        # установка продолжает читать списки из своих файлов.
+        self._routing_loaded = form_values(shared)
+
     def _bypass_page(self) -> QWidget:
         fragment = QGroupBox("Фрагментация TLS")
         form = QFormLayout(fragment)
@@ -444,6 +503,7 @@ class SettingsDialog(QDialog):
             self.device_info_check,
             self.sub_exceptions_edit,
             self.sub_insecure_check,
+            *self.routing.fields(),
             *self.about.fields(),
         ]
 
@@ -565,6 +625,7 @@ class SettingsDialog(QDialog):
         self.device_info_check.setChecked(config.sub_send_device_info)
         self.sub_exceptions_edit.setText(" ".join(config.sub_source_exceptions))
         self.sub_insecure_check.setChecked(config.sub_insecure)
+        self._load_routing()
 
     def save(self) -> bool:
         """Проверить копию настроек и только тогда перенести её в живые."""
@@ -607,6 +668,20 @@ class SettingsDialog(QDialog):
             ensure_hwid(config)
         self.about.store(config)
 
+        if self.routing.values() != self._routing_loaded:
+            from src.ui.logic.routing_import import store_shared_routing
+
+            routing = copy.deepcopy(config.routing)
+            try:
+                self.routing.read(routing)
+            except ValueError as error:
+                self.status.setProperty("error", True)
+                self.status.setText(f"Исправьте настройки: {error}")
+                mark_error(self.status, self.status.text())
+                self.status.show()
+                return False
+            store_shared_routing(config, routing)
+
         errors = validate_settings(config)
         self.validation_errors = errors
         for field, attribute in ERROR_FIELDS.items():
@@ -618,6 +693,10 @@ class SettingsDialog(QDialog):
             self.status.show()
             return False
         self._config.__dict__.update(config.__dict__)
+        from src.ui.logic.routing_form import form_values
+
+        # Записанное — новая точка отсчёта: `refresh` не перечитает форму поверх.
+        self._routing_loaded = form_values(self._config.routing)
         self._persisted = None
         self.settings_saved.emit()
         if self._persisted is not True:
@@ -643,9 +722,17 @@ class SettingsDialog(QDialog):
         self._persisted = saved
 
     def refresh(self) -> None:
-        """Данные приложения изменились: список подписок и откат маршрутизации."""
+        """Данные приложения изменились: список подписок и общая маршрутизация."""
+        from src.ui.logic.routing_form import form_values
+
         self.subscriptions.refresh()
-        self.about.refresh()
+        self.routing_extra.setRowVisible(
+            self.restore_routing_row, self._config.routing_backup is not None
+        )
+        # Импорт или откат при открытом окне: показать новые правила. Свои
+        # несохранённые правки пользователя при этом не трогаются.
+        if form_values(self._shared_routing()) != self._routing_loaded:
+            self._load_routing()
 
     def show_section(self, title: str) -> None:
         self.sections.setCurrentRow(SECTIONS.index(title))

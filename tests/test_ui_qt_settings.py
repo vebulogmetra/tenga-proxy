@@ -11,7 +11,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QLineEdit, QMessageBox
 
 from src.core.context import AppContext
-from src.db.config import DnsProvider, ProxyMode, RoutingSettings
+from src.db.config import DnsProvider, ProxyMode, RoutingMode, RoutingSettings
 from src.db.data_store import LEGACY_USER_AGENT
 from src.ui.controller import CONFIRM_URL_CHANGE
 from src.ui.qt.application import QtApplication
@@ -377,15 +377,64 @@ def test_app_update_check_without_releases(app):
     assert about.app_update_label.text() == "Новых версий нет"
 
 
-def test_restore_routing_row_follows_the_backup(app):
+def test_routing_page_round_trips_the_shared_rules(app):
     dialog = _open(app)
-    about = dialog.about
-    assert not about._maintenance.isRowVisible(about.restore_routing_row)
+    dialog.show_section("Маршрутизация")
+    assert dialog.pages.currentIndex() == 3
+    dialog.routing.mode_combo.select(RoutingMode.CUSTOM)
+    dialog.routing.lists["proxy"].setPlainText("a.com\nb.com")
+
+    assert dialog.save()
+
+    assert app.context.config.routing.proxy_list == ["a.com", "b.com"]
+    assert app.context.config.routing.use_saved_lists is True
+    assert _saved(app)["routing"]["proxy_list"] == ["a.com", "b.com"]
+
+
+def test_untouched_routing_page_keeps_legacy_list_files(app):
+    (app.context.config_dir / "direct_list.txt").write_text("old.example\n", encoding="utf-8")
+    dialog = _open(app)
+    assert dialog.routing.lists["direct"].toPlainText() == "old.example"
+    dialog.interval_spin.setValue(27)
+
+    assert dialog.save()
+
+    assert app.context.config.routing.use_saved_lists is False
+
+
+def test_bad_routing_entry_blocks_saving(app):
+    dialog = _open(app)
+    dialog.routing.mode_combo.select(RoutingMode.CUSTOM)
+    dialog.routing.lists["direct"].setPlainText("http://user:pw@x.com")
+    assert not dialog.save()
+    assert dialog.routing.lists["direct"].property("error") is True
+    assert dialog.status.property("error") is True
+    assert app.context.config.routing.direct_list == []
+
+
+def test_restore_routing_row_follows_the_backup_on_the_routing_page(app):
+    dialog = _open(app)
+    assert not dialog.routing_extra.isRowVisible(dialog.restore_routing_row)
 
     app.context.config.routing_backup = RoutingSettings()
+    app.context.config.routing.proxy_list = ["imported.example"]
+    app.context.config.routing.use_saved_lists = True
     app.controller.sync_restore_routing()
 
-    assert about._maintenance.isRowVisible(about.restore_routing_row)
+    assert dialog.routing_extra.isRowVisible(dialog.restore_routing_row)
+    assert dialog.routing.lists["proxy"].toPlainText() == "imported.example"
+    assert not dialog.autosave.pending
+    assert not hasattr(dialog.about, "restore_routing_row")
+
+
+def test_refresh_keeps_unsaved_routing_edits(app):
+    dialog = _open(app)
+    dialog.routing.mode_combo.select(RoutingMode.CUSTOM)
+    dialog.routing.lists["proxy"].setPlainText("typing.example")
+
+    dialog.refresh()
+
+    assert dialog.routing.lists["proxy"].toPlainText() == "typing.example"
 
 
 def test_clear_logs_asks_first(app, monkeypatch):
