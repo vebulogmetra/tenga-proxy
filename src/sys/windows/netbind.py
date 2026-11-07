@@ -1,7 +1,8 @@
-"""IP_UNICAST_IF: выводит сокет пробы на нужный адаптер; проверяется на живой Windows.
+"""IP_UNICAST_IF: выводит сокет пробы на нужный адаптер.
 
-Пока проверки нет, `binding_confirmed` возвращает False, и прямые пробы под TUN не идут:
-лучше честный пропуск, чем отчёт о туннеле под видом прямого пути.
+Физический маршрут по умолчанию служба не трогает (на TUN ложатся `0.0.0.0/1` и
+`128.0.0.0/1`), поэтому привязка подтверждена, когда маршрут по умолчанию ведёт на адаптер.
+Сама опция под настоящим TUN проверяется в `tests/integration/`.
 """
 
 from __future__ import annotations
@@ -33,7 +34,8 @@ def socket_binder(interface: str) -> Callable[[socket.socket], None]:
 
 
 def binding_confirmed(interface: str) -> bool:
-    return False
+    route = netinfo.default_route(netinfo.snapshot())
+    return route is not None and route.alias == interface
 
 
 def physical_interface(exclude: Iterable[str] = ()) -> str | None:
@@ -43,7 +45,16 @@ def physical_interface(exclude: Iterable[str] = ()) -> str | None:
 
 def active_tunnel_interface() -> str | None:
     snapshot = netinfo.snapshot()
-    best = min(snapshot.routes, key=lambda route: route.metric, default=None)
+    halves = [
+        route
+        for route in snapshot.routes
+        if route.prefix == netinfo.SPLIT_PREFIX and netinfo.is_tunnel(snapshot.adapter(route.alias))
+    ]
+    if halves:
+        return min(halves, key=lambda route: route.metric).alias
+    # Чужой туннель, забравший маршрут по умолчанию целиком.
+    whole = [route for route in snapshot.routes if route.prefix == netinfo.DEFAULT_PREFIX]
+    best = min(whole, key=lambda route: route.metric, default=None)
     if best is None or not netinfo.is_tunnel(snapshot.adapter(best.alias)):
         return None
     return best.alias

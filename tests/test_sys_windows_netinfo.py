@@ -153,3 +153,28 @@ def test_loopback_pseudo_interface_is_not_an_adapter():
     data = dict(SNAPSHOT, ips=[*SNAPSHOT["ips"], loopback])
 
     assert netinfo.parse_snapshot(json.dumps(data)).adapter(loopback["alias"]) is None
+
+
+SPLIT_ROUTE = {"alias": "xray0", "index": 40, "prefix": "0.0.0.0/1", "nexthop": "0.0.0.0",
+               "metric": 0, "ifmetric": 1}  # fmt: skip
+
+
+def test_routes_keep_their_prefix_and_default_to_the_whole_space():
+    data = dict(SNAPSHOT, routes=[SPLIT_ROUTE, SNAPSHOT["routes"][1]])
+
+    snapshot = netinfo.parse_snapshot(json.dumps(data))
+
+    assert [route.prefix for route in snapshot.routes] == ["0.0.0.0/1", "0.0.0.0/0"]
+
+
+def test_default_route_ignores_the_split_halves():
+    # Служба ставит на TUN 0.0.0.0/1 и 128.0.0.0/1 с метрикой ниже любой физической.
+    data = dict(SNAPSHOT, routes=[SPLIT_ROUTE, SNAPSHOT["routes"][1]])
+    snapshot = netinfo.parse_snapshot(json.dumps(data))
+
+    assert netinfo.default_route(snapshot).alias == "Ethernet"
+
+
+def test_script_collects_the_split_halves_too():
+    assert "'0.0.0.0/1'" in netinfo.SCRIPT
+    assert "prefix = $_.DestinationPrefix" in netinfo.SCRIPT

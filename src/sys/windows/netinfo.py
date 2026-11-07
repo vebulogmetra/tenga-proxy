@@ -1,4 +1,4 @@
-"""Снимок сети Windows: адаптеры, их IPv4-адреса, DNS и маршруты по умолчанию.
+"""Снимок сети Windows: адаптеры, их IPv4-адреса, DNS, маршруты по умолчанию и половина `0.0.0.0/1`.
 
 Один вызов PowerShell возвращает всё сразу и кэшируется на пару секунд: при
 подключении сборщик конфига подряд спрашивает интерфейс, DNS и состояние VPN.
@@ -30,15 +30,20 @@ $result = @{
     @{ alias = $_.InterfaceAlias; ip = $_.IPAddress; index = $_.InterfaceIndex } })
   dns = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
     ForEach-Object { @{ alias = $_.InterfaceAlias; servers = @($_.ServerAddresses) } })
-  routes = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' `
-      -ErrorAction SilentlyContinue | ForEach-Object {
+  routes = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+      Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' -or $_.DestinationPrefix -eq '0.0.0.0/1' } |
+      ForEach-Object {
     $if = Get-NetIPInterface -InterfaceIndex $_.ifIndex -AddressFamily IPv4 `
       -ErrorAction SilentlyContinue
-    @{ alias = $_.InterfaceAlias; index = $_.ifIndex; nexthop = $_.NextHop;
-       metric = $_.RouteMetric; ifmetric = [int]$if.InterfaceMetric } })
+    @{ alias = $_.InterfaceAlias; index = $_.ifIndex; prefix = $_.DestinationPrefix;
+       nexthop = $_.NextHop; metric = $_.RouteMetric; ifmetric = [int]$if.InterfaceMetric } })
 }
 $result | ConvertTo-Json -Depth 5 -Compress
 """
+
+DEFAULT_PREFIX = "0.0.0.0/0"
+# Половина маршрута по умолчанию, которую служба ставит на TUN: по ней виден активный туннель.
+SPLIT_PREFIX = "0.0.0.0/1"
 
 # Описания адаптеров туннелей и VPN: через них нельзя выходить «напрямую».
 _TUNNEL_MARKERS = ("wintun", "wireguard", "tap-windows", "openvpn", "wan miniport", "ppp")
@@ -62,6 +67,7 @@ class Route:
     index: int
     nexthop: str
     metric: int
+    prefix: str = DEFAULT_PREFIX
 
 
 @dataclass
@@ -128,6 +134,7 @@ def parse_snapshot(text: str) -> NetSnapshot:
             index=int(item.get("index") or 0),
             nexthop=str(item.get("nexthop", "")),
             metric=int(item.get("metric") or 0) + int(item.get("ifmetric") or 0),
+            prefix=str(item.get("prefix") or DEFAULT_PREFIX),
         )
         for item in _as_list(data.get("routes"))
     ]
@@ -150,7 +157,9 @@ def default_route(snapshot: NetSnapshot, exclude=()) -> Route | None:
     candidates = [
         route
         for route in snapshot.routes
-        if route.alias not in skipped and not is_tunnel(snapshot.adapter(route.alias))
+        if route.prefix == DEFAULT_PREFIX
+        and route.alias not in skipped
+        and not is_tunnel(snapshot.adapter(route.alias))
     ]
     return min(candidates, key=lambda route: route.metric, default=None)
 

@@ -128,8 +128,55 @@ def test_windows_adapter_is_resolved_once_not_for_every_socket(monkeypatch):
     assert len(queries) == 1
 
 
-def test_windows_direct_probes_stay_off_until_the_option_is_confirmed():
+def _routed_snapshot(monkeypatch, routes):
+    import json
+
+    data = {
+        "adapters": [
+            {"alias": "Ethernet", "index": 12, "status": "Up", "description": "Intel Ethernet"},
+            {
+                "alias": "xray0",
+                "index": 40,
+                "status": "Up",
+                "description": "Wintun Userspace Tunnel",
+            },
+        ],
+        "ips": [],
+        "dns": [],
+        "routes": routes,
+    }
+    snapshot = netinfo.parse_snapshot(json.dumps(data))
+    monkeypatch.setattr(netinfo, "snapshot", lambda: snapshot)
+
+
+PHYSICAL = {"alias": "Ethernet", "index": 12, "nexthop": "192.168.0.1", "metric": 0, "ifmetric": 25}
+SPLIT = {"alias": "xray0", "index": 40, "prefix": "0.0.0.0/1", "nexthop": "0.0.0.0", "metric": 0,
+         "ifmetric": 1}  # fmt: skip
+
+
+def test_windows_binding_is_confirmed_by_the_physical_default_route(monkeypatch):
+    _routed_snapshot(monkeypatch, [SPLIT, PHYSICAL])
+
+    assert windows.binding_confirmed("Ethernet") is True
+    assert windows.binding_confirmed("Wi-Fi") is False
+
+
+def test_windows_binding_is_not_confirmed_without_a_default_route(monkeypatch):
+    _routed_snapshot(monkeypatch, [SPLIT])
+
     assert windows.binding_confirmed("Ethernet") is False
+
+
+def test_windows_active_tunnel_is_found_by_the_split_route(monkeypatch):
+    _routed_snapshot(monkeypatch, [SPLIT, PHYSICAL])
+
+    assert windows.active_tunnel_interface() == "xray0"
+
+
+def test_windows_no_tunnel_without_split_routes(monkeypatch):
+    _routed_snapshot(monkeypatch, [PHYSICAL])
+
+    assert windows.active_tunnel_interface() is None
 
 
 @pytest.mark.windows
@@ -137,8 +184,8 @@ def test_windows_direct_probes_stay_off_until_the_option_is_confirmed():
 def test_real_unicast_if_keeps_the_socket_on_the_adapter():
     """Опция принята, адрес источника — с этого адаптера. UDP connect пакетов не шлёт.
 
-    На машине без TUN маршрут и так идёт через этот адаптер: `binding_confirmed` этот тест не
-    обосновывает, открытый вопрос 5 дизайна требует проверки под настоящим TUN.
+    На машине без TUN маршрут и так идёт через этот адаптер: под настоящим TUN опцию
+    проверяет `tests/integration/`.
     """
     interface = windows.physical_interface()
     if interface is None:
