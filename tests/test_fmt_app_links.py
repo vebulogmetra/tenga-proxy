@@ -118,7 +118,12 @@ def test_manual_links_still_reject_bare_payloads_and_off():
         parse_app_link("happ://routing/off")
 
 
-@pytest.mark.parametrize("value", ["not base64 at all!!", "x" * 350_001, "", "a\nb"])
+# Свои id: имя теста попадает в PYTEST_CURRENT_TEST, а Windows не берёт переменные длиннее 32767.
+@pytest.mark.parametrize(
+    "value",
+    ["not base64 at all!!", "x" * 350_001, "", "a\nb"],
+    ids=["not-base64", "too-long", "empty", "newline"],
+)
 def test_subscription_routing_rejects_garbage(value):
     from src.fmt.app_links import parse_subscription_routing
 
