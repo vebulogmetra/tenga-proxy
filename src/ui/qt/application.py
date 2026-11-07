@@ -449,7 +449,10 @@ class QtApplication:
 
         if (profile := self._profile_or_toast(profile_id)) is None:
             return
-        dialog = ProfileRoutingDialog(profile)
+        from src.ui.logic.routing_import import effective_routing
+
+        shared = effective_routing(self.context.config.routing, self.context.config_dir)
+        dialog = ProfileRoutingDialog(profile, shared)
         dialog.routing_saved.connect(self.controller.save_profiles)
         self.show_dialog(dialog)
 

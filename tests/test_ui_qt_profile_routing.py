@@ -27,13 +27,17 @@ def _profile(vpn=None, routing=None):
     )
 
 
+def _dialog(profile, shared=None):
+    return ProfileRoutingDialog(profile, shared if shared is not None else RoutingSettings())
+
+
 def test_fields_are_loaded(qapp):
     profile = _profile(
         vpn=VpnSettings(enabled=True, connection_name="work"),
         routing=RoutingSettings(mode=RoutingMode.CUSTOM, proxy_list=["a.com", "b.com"]),
     )
 
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
 
     assert dialog.name_edit.text() == "P"
     assert dialog.address_label.text() == "host.example:443"
@@ -43,7 +47,7 @@ def test_fields_are_loaded(qapp):
 
 
 def test_vpn_fields_follow_the_switch(qapp):
-    dialog = ProfileRoutingDialog(_profile())
+    dialog = _dialog(_profile())
     assert not dialog.vpn_name_edit.isEnabled()
 
     dialog.vpn_check.setChecked(True)
@@ -52,7 +56,7 @@ def test_vpn_fields_follow_the_switch(qapp):
 
 
 def test_lists_sleep_in_proxy_all(qapp):
-    dialog = ProfileRoutingDialog(_profile())
+    dialog = _dialog(_profile())
 
     dialog.mode_combo.select(RoutingMode.PROXY_ALL)
     assert not dialog.lists["proxy"].isEnabled()
@@ -63,7 +67,7 @@ def test_lists_sleep_in_proxy_all(qapp):
 
 def test_save_writes_everything(qapp):
     profile = _profile()
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
     saved = []
     dialog.routing_saved.connect(lambda: saved.append(1))
     dialog.vpn_check.setChecked(True)
@@ -84,7 +88,7 @@ def test_save_writes_everything(qapp):
 
 def test_bad_entry_marks_its_list_and_keeps_the_profile(qapp):
     profile = _profile(routing=RoutingSettings(mode=RoutingMode.CUSTOM, direct_list=["x.com"]))
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
     dialog.lists["direct"].setPlainText("http://user:pw@x.com")
 
     assert not dialog.save()
@@ -96,7 +100,7 @@ def test_bad_entry_marks_its_list_and_keeps_the_profile(qapp):
 
 def test_blank_vpn_name_keeps_the_previous_one(qapp):
     profile = _profile(vpn=VpnSettings(enabled=True, connection_name="old"))
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
     dialog.vpn_name_edit.setText("  ")
 
     dialog.save()
@@ -105,14 +109,14 @@ def test_blank_vpn_name_keeps_the_previous_one(qapp):
 
 
 def test_unknown_order_falls_back_to_the_first(qapp):
-    dialog = ProfileRoutingDialog(_profile(routing=RoutingSettings(rule_order=["nonsense"])))
+    dialog = _dialog(_profile(routing=RoutingSettings(rule_order=["nonsense"])))
 
     assert dialog.order_combo.currentIndex() == 0
 
 
 def test_edits_autosave_and_closing_flushes(qapp):
     profile = _profile()
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
     saved = []
     dialog.routing_saved.connect(lambda: saved.append(1))
 
@@ -123,7 +127,52 @@ def test_edits_autosave_and_closing_flushes(qapp):
     assert saved == [1]
     assert profile.bean.name == "Новое"
 
-    dialog = ProfileRoutingDialog(profile)
+    dialog = _dialog(profile)
     dialog.routing_saved.connect(lambda: saved.append(2))
     dialog.bypass_check.toggle()
     wait_until(lambda: 2 in saved, timeout=2)
+
+
+# --- свои правила и общие ---------------------------------------------------
+
+
+def test_server_without_own_rules_shows_shared_dimmed(qapp):
+    profile = _profile()
+    profile.routing_settings = None
+    dialog = _dialog(profile, RoutingSettings(mode=RoutingMode.CUSTOM, proxy_list=["s.com"]))
+    assert not dialog.own_rules_check.isChecked()
+    assert dialog.lists["proxy"].toPlainText() == "s.com"
+    assert not dialog.lists["proxy"].isEnabled()
+    assert not dialog.mode_combo.isEnabled()
+
+
+def test_saving_without_own_rules_keeps_them_off(qapp):
+    profile = _profile()
+    profile.routing_settings = None
+    dialog = _dialog(profile, RoutingSettings(proxy_list=["s.com"]))
+    dialog.vpn_check.setChecked(True)
+    assert dialog.save()
+    assert profile.routing_settings is None
+    assert profile.vpn_settings.enabled
+
+
+def test_enabling_own_rules_copies_the_shared_ones(qapp):
+    profile = _profile()
+    profile.routing_settings = None
+    shared = RoutingSettings(mode=RoutingMode.CUSTOM, proxy_list=["s.com"])
+    dialog = _dialog(profile, shared)
+    dialog.own_rules_check.setChecked(True)
+    assert dialog.lists["proxy"].isEnabled()
+    assert dialog.save()
+    assert profile.routing_settings is not None and profile.routing_settings is not shared
+    assert profile.routing_settings.proxy_list == ["s.com"]
+
+
+def test_disabling_own_rules_drops_them_and_keeps_the_text(qapp):
+    profile = _profile(routing=RoutingSettings(mode=RoutingMode.CUSTOM, proxy_list=["own.com"]))
+    dialog = _dialog(profile)
+    assert dialog.own_rules_check.isChecked()
+    dialog.own_rules_check.setChecked(False)
+    assert dialog.save()
+    assert profile.routing_settings is None
+    assert dialog.lists["proxy"].toPlainText() == "own.com"

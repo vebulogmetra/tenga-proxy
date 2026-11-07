@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+import copy
+
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -16,33 +17,15 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QScrollArea,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from src.db.config import RoutingMode, RoutingSettings, VpnSettings
+from src.db.config import RoutingSettings, VpnSettings
 from src.ui.logic import platform_texts
-from src.ui.logic.forms import parse_host_list
-from src.ui.logic.routing_form import (
-    BLOCK_HINT,
-    LIST_HINT,
-    ORDER_LABELS,
-    ORDER_PRESETS,
-    current_catalog,
-    order_key,
-    ru_direct_subtitle,
-)
-from src.ui.qt.dialogs.base import Debounce, FormStyle, KeyedCombo, mark_error, watch
-
-LISTS = (
-    ("block", "Блокировать", BLOCK_HINT),
-    ("proxy", "Через прокси", LIST_HINT),
-    ("direct", "Напрямую", LIST_HINT),
-    ("vpn", "Через VPN", LIST_HINT),
-)
+from src.ui.qt.dialogs.base import Debounce, FormStyle, watch
 
 
 def _check(text: str, subtitle: str = "") -> QCheckBox:
@@ -54,14 +37,17 @@ def _check(text: str, subtitle: str = "") -> QCheckBox:
 class ProfileRoutingDialog(QDialog):
     routing_saved = Signal()
 
-    def __init__(self, profile, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, profile, shared_routing: RoutingSettings, parent: QWidget | None = None
+    ) -> None:
         super().__init__(parent)
         self.setWindowTitle("VPN и маршруты")
         self.setModal(True)
         self.setMinimumSize(560, 600)
         self._form_style = FormStyle(self)
         self._profile = profile
-        self.lists: dict[str, QPlainTextEdit] = {}
+        # Действующие общие правила: их показывает форма, пока своих нет.
+        self._shared = shared_routing
 
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_vpn_page(), "VPN")
@@ -90,11 +76,8 @@ class ProfileRoutingDialog(QDialog):
                 self.vpn_auto_check,
                 self.vpn_interface_edit,
                 self.direct_interface_edit,
-                self.mode_combo,
-                self.order_combo,
-                self.bypass_check,
-                self.ru_direct_check,
-                *self.lists.values(),
+                self.own_rules_check,
+                *self.form.fields(),
             ],
             self.autosave.queue,
         )
@@ -154,39 +137,25 @@ class ProfileRoutingDialog(QDialog):
         return page
 
     def _build_routing_page(self) -> QWidget:
+        from src.ui.logic.routing_form import OWN_RULES_HINT, OWN_RULES_TITLE
+        from src.ui.qt.widgets.routing_form import RoutingForm
+
         page = QWidget()
         column = QVBoxLayout(page)
-
-        mode = QGroupBox("Режим")
-        form = QFormLayout(mode)
-        self.mode_combo = KeyedCombo(RoutingMode.ALL, RoutingMode.LABELS)
-        self.mode_combo.currentIndexChanged.connect(self._sync_mode)
-        form.addRow("Правила", self.mode_combo)
-        self.order_combo = KeyedCombo(ORDER_PRESETS, ORDER_LABELS)
-        form.addRow("Приоритет групп", self.order_combo)
-        self.bypass_check = _check(
-            "Локальные сети напрямую",
-            "127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16 и другие — после ваших списков",
-        )
-        form.addRow(self.bypass_check)
-        self.ru_direct_check = _check(
-            "Российские сайты и IP напрямую", ru_direct_subtitle(current_catalog())
-        )
-        form.addRow(self.ru_direct_check)
-        column.addWidget(mode)
-
-        font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
-        for key, title, hint in LISTS:
-            box = QGroupBox(title)
-            box.setToolTip(hint)
-            inner = QVBoxLayout(box)
-            edit = QPlainTextEdit()
-            edit.setFont(font)
-            edit.setPlaceholderText(hint)
-            edit.setMinimumHeight(110)
-            inner.addWidget(edit)
-            self.lists[key] = edit
-            column.addWidget(box)
+        self.own_rules_check = _check(OWN_RULES_TITLE, OWN_RULES_HINT)
+        self.own_rules_check.toggled.connect(self._sync_own_rules)
+        column.addWidget(self.own_rules_check)
+        hint = QLabel(OWN_RULES_HINT)
+        hint.setWordWrap(True)
+        hint.setEnabled(False)  # приглушённый цвет системной палитры
+        column.addWidget(hint)
+        self.form = RoutingForm()
+        column.addWidget(self.form)
+        self.mode_combo = self.form.mode_combo
+        self.order_combo = self.form.order_combo
+        self.bypass_check = self.form.bypass_check
+        self.ru_direct_check = self.form.ru_direct_check
+        self.lists = self.form.lists
         return page
 
     # --- состояние ---
@@ -201,12 +170,10 @@ class ProfileRoutingDialog(QDialog):
         ):
             widget.setEnabled(enabled)
 
-    def _sync_mode(self) -> None:
-        # В режиме «всё через прокси» списки не применяются: активными они
-        # обещали бы несуществующий эффект. «Локальные сети» действуют всегда.
-        custom = self.mode_combo.selected() == RoutingMode.CUSTOM
-        for widget in (*self.lists.values(), self.order_combo, self.ru_direct_check):
-            widget.setEnabled(custom)
+    def _sync_own_rules(self) -> None:
+        # Выключено — форма показывает общие правила только для чтения; текст
+        # остаётся, пока открыто окно, поэтому повторное включение ничего не теряет.
+        self.form.set_enabled(self.own_rules_check.isChecked())
 
     def _load(self) -> None:
         profile = self._profile
@@ -222,34 +189,25 @@ class ProfileRoutingDialog(QDialog):
         self.direct_interface_edit.setText(getattr(vpn, "direct_interface", "") or "")
         self._sync_vpn()
 
-        routing = getattr(profile, "routing_settings", None) or RoutingSettings()
-        self.mode_combo.select(routing.mode)
-        self.bypass_check.setChecked(routing.bypass_local_networks)
-        self.ru_direct_check.setChecked(getattr(routing, "ru_direct", False))
-        try:
-            order = routing.get_rule_order()
-        except AttributeError:
-            order = []
-        self.order_combo.select(order_key(order))
-        for key, edit in self.lists.items():
-            edit.setPlainText("\n".join(getattr(routing, f"{key}_list", None) or []))
-        self._sync_mode()
+        routing = getattr(profile, "routing_settings", None)
+        self.own_rules_check.setChecked(routing is not None)
+        # Без своих правил форма показывает общие: включение начнётся с их копии.
+        self.form.load(routing if routing is not None else self._shared)
+        self._sync_own_rules()
 
     def save(self) -> bool:
         """Записать форму в профиль; ошибка в списке — ничего не меняется."""
-        lists: dict[str, list[str]] = {}
-        first_error = ""
-        for key, edit in self.lists.items():
+        routing = None
+        if self.own_rules_check.isChecked():
+            current = getattr(self._profile, "routing_settings", None)
+            routing = copy.deepcopy(current or RoutingSettings())
             try:
-                lists[key] = parse_host_list(edit.toPlainText())
-                mark_error(edit, None)
+                self.form.read(routing)
             except ValueError as error:
-                mark_error(edit, str(error))
-                first_error = first_error or str(error)
-        self.status.setText(first_error)
-        self.status.setVisible(bool(first_error))
-        if first_error:
-            return False
+                self.status.setText(str(error))
+                self.status.show()
+                return False
+        self.status.hide()
 
         profile = self._profile
         name = self.name_edit.text().strip()
@@ -268,15 +226,8 @@ class ProfileRoutingDialog(QDialog):
         vpn.interface_name = self.vpn_interface_edit.text().strip()
         vpn.direct_interface = self.direct_interface_edit.text().strip()
 
-        if getattr(profile, "routing_settings", None) is None:
-            profile.routing_settings = RoutingSettings()
-        routing = profile.routing_settings
-        routing.mode = self.mode_combo.selected()
-        routing.bypass_local_networks = self.bypass_check.isChecked()
-        routing.ru_direct = self.ru_direct_check.isChecked()
-        routing.rule_order = list(ORDER_PRESETS[self.order_combo.selected()])
-        for key, values in lists.items():
-            setattr(routing, f"{key}_list", values)
+        # None — сервер использует общие правила из настроек приложения.
+        profile.routing_settings = routing
 
         self.routing_saved.emit()
         return True
