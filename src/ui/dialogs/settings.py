@@ -92,6 +92,9 @@ class SettingsDialog(Adw.Dialog):
         self.set_title("Настройки")
         self.set_content_width(SETTINGS_WIDTH)
         self.set_content_height(SETTINGS_HEIGHT)
+        # Без минимума libadwaita предупреждает и не знает, когда ужимать окно
+        # настроек в узкий режим; 360×294 — минимум из документации Adw.Dialog.
+        self.set_size_request(360, 294)
         self._pages: dict[str, Adw.PreferencesPage] = {}
         # Итог последней записи от приложения: None — никто не ответил (тесты).
         self._persisted: bool | None = None

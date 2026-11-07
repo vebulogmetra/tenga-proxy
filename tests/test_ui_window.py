@@ -454,7 +454,9 @@ def test_window_has_a_side_panel_and_two_right_pages(window):
     assert not hasattr(window, "view_stack")
     assert not hasattr(window, "view_switcher")
     assert window.right_stack.get_child_by_name("servers") is not None
-    assert window.right_stack.get_child_by_name("monitoring") is window.monitoring_page
+    assert window.right_stack.get_child_by_name("monitoring").get_child().get_child() is (
+        window.monitoring_page
+    )
     assert window.right_stack.get_visible_child_name() == "servers"
     assert isinstance(window.columns, Gtk.Box)
     assert window.columns.get_first_child() is window.panel_clamp
@@ -634,3 +636,13 @@ def test_forms_open_over_the_settings(window, adw_app):
     assert adw_app.current_dialog is settings
     adw_app._on_dialog_closed(settings)
     assert adw_app.current_dialog is None
+
+
+def test_the_right_column_fits_the_minimum_height(window):
+    """Диагностика выше окна 900×540: её страница прокручивается, а не растит стек."""
+    from gi.repository import Gtk
+
+    from src.ui.logic.geometry import MIN_HEIGHT
+
+    minimum, _natural, _b1, _b2 = window.right_stack.measure(Gtk.Orientation.VERTICAL, -1)
+    assert minimum < MIN_HEIGHT - 100

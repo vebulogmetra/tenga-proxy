@@ -79,3 +79,9 @@ def test_service_identifiers_are_kept():
     assert SERVICE_NAME == "TengaProxySvc"
     assert PIPE_NAME == r"\\.\pipe\tenga-proxy-svc"
     assert DISPLAY_NAME == "Veblock"
+
+
+def test_gtk_never_imports_the_monolith():
+    """Монолит — логотип Windows; на Linux панель рисует голубя."""
+    gtk = [p for p in Path("src/ui").rglob("*.py") if "qt" not in p.parts]
+    assert not [p for p in gtk if "monolith" in p.read_text(encoding="utf-8")]

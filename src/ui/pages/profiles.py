@@ -64,32 +64,12 @@ class RowItem(GObject.Object):
         return self.row.title
 
     @property
-    def count_text(self) -> str:
-        """Profile count of a group, empty for a leaf."""
-        return str(self.row.count) if isinstance(self.row, GroupRow) else ""
-
-    @property
-    def suffix_text(self) -> str:
-        """Right-hand label of the name cell: group count or the active badge."""
-        if not self.is_group and self.row.is_active:
-            return "Подключён"
-        return self.count_text
-
-    @property
     def proxy_type(self) -> str:
         return "" if self.is_group else self.row.proxy_type.upper()
 
     @property
     def address(self) -> str:
         return "" if self.is_group else self.row.address
-
-    @property
-    def ping(self) -> str:
-        return "" if self.is_group else ping_text(self.row.latency_ms)
-
-    @property
-    def icon_name(self) -> str:
-        return self.row.icon_name if isinstance(self.row, GroupRow) else ""
 
 
 # Сколько проходов разметки удерживать прокрутку после пересборки.

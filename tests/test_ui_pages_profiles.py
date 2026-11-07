@@ -137,46 +137,6 @@ def test_active_profile_is_flagged(page, data):
     assert page.get_active_titles() == ["Гамма"]
 
 
-def test_group_count_is_a_separate_label(gtk_ready, data):
-    """The count must survive ellipsization of a long group name."""
-    from src.ui.logic.profiles_view import build_profile_rows
-    from src.ui.pages.profiles import RowItem
-
-    groups, profiles = data
-    groups[1].name = "очень-длинное-имя-группы-" + "х" * 120
-    rows = build_profile_rows(groups, profiles)
-    group_row = next(row for row in rows if row.group_id == 1)
-
-    item = RowItem(group_row)
-    assert item.title == groups[1].name
-    assert item.count_text == "2"
-
-
-def test_profile_rows_carry_no_count(gtk_ready, data):
-    from src.ui.logic.profiles_view import build_profile_rows
-    from src.ui.pages.profiles import RowItem
-
-    groups, profiles = data
-    rows = build_profile_rows(groups, profiles)
-    leaf = RowItem(rows[0].children[0])
-    assert leaf.count_text == ""
-
-
-def test_the_active_profile_carries_a_text_badge(gtk_ready, data):
-    # Цвет — не единственный признак: метка видна и на фоне выделения.
-    from src.ui.logic.profiles_view import build_profile_rows
-    from src.ui.pages.profiles import RowItem
-
-    groups, profiles = data
-    rows = build_profile_rows(groups, profiles, active_profile_id=3)
-    group = next(row for row in rows if row.group_id == 2)
-    other = next(row for row in rows if row.group_id == 1)
-
-    assert RowItem(group.children[0]).suffix_text == "Подключён"
-    assert RowItem(group).suffix_text == "1"
-    assert RowItem(other.children[0]).suffix_text == ""
-
-
 def test_a_context_click_on_a_profile_reports_it(page, data):
     page.set_data(*data)
     page.expand_all()

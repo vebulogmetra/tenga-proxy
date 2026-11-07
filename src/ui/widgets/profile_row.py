@@ -112,7 +112,9 @@ class GroupRowWidget(Gtk.Box):
     __gtype_name__ = "TengaGroupRowWidget"
 
     def __init__(self) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        # По центру строки: стрелка `Gtk.TreeExpander` стоит по центру, и
+        # прижатое к верху название оказывалось выше неё.
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=6, valign=Gtk.Align.CENTER)
         self.add_css_class("group-row")
         self.group_id = -1
 

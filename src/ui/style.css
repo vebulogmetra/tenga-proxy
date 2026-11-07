@@ -64,18 +64,6 @@
   font-size: 1.05em;
 }
 
-.latency-good {
-  color: @success_color;
-}
-
-.latency-medium {
-  color: @warning_color;
-}
-
-.latency-bad {
-  color: @error_color;
-}
-
 /* Список серверов: двухстрочные строки, как в Qt. */
 .library-card {
   padding: 12px 12px 8px;
@@ -142,4 +130,9 @@
 .group-ping-progress trough,
 .group-ping-progress progress {
   min-height: 4px;
+}
+
+/* Выбранная подписка в настройках: на неё действуют кнопки под списком. */
+row.subscription-selected {
+  background-color: alpha(@accent_bg_color, 0.18);
 }

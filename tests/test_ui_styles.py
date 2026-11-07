@@ -66,3 +66,19 @@ def test_form_keeps_its_default_width(gtk_ready):
     dialog = FormDialog("Тест", "Сохранить")
     assert dialog.page.get_size_request().width == DEFAULT_WIDTH
     assert dialog.get_follows_content_size()
+
+
+def test_marker_classes_have_rules():
+    """Класс-признак без правила ничего не показывает: выделение подписки было невидимым."""
+    from src.ui.widgets import profile_row, subscriptions_list
+
+    css = Path("src/ui/style.css").read_text(encoding="utf-8")
+    for css_class in (
+        subscriptions_list.SELECTED_CLASS,
+        profile_row.ACTIVE_CLASS,
+        profile_row.EXPIRED_CLASS,
+        "connection-dot",
+        "metric-value",
+        "compact",
+    ):
+        assert f".{css_class}" in css, css_class

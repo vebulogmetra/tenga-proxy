@@ -185,11 +185,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.right_stack = Gtk.Stack(
             vexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE
         )
-        for widget in (self.right_stack,):
-            widget.set_margin_top(8)
-            widget.set_margin_bottom(8)
-            widget.set_margin_start(8)
-            widget.set_margin_end(8)
+        self.right_stack.set_margin_top(8)
+        self.right_stack.set_margin_bottom(8)
+        self.right_stack.set_margin_start(8)
+        self.right_stack.set_margin_end(8)
 
         servers = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         servers.append(self.profiles_page)
@@ -203,7 +202,11 @@ class MainWindow(Adw.ApplicationWindow):
         servers.append(footer)
 
         self.right_stack.add_named(servers, "servers")
-        self.right_stack.add_named(self.monitoring_page, "monitoring")
+        # Стек берёт высоту самой высокой страницы: без прокрутки диагностика
+        # (около 620 px) не давала окну сжаться до MIN_HEIGHT и срезала низ.
+        monitoring = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        monitoring.set_child(self.monitoring_page)
+        self.right_stack.add_named(monitoring, "monitoring")
         right.append(self.right_stack)
         self.columns.append(right)
         toolbar.set_content(self.columns)
