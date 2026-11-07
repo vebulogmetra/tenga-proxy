@@ -2,8 +2,8 @@
    Диалоги используют собственный FORM_STYLE, GTK эти правила не загружает. */
 
 #statusCard {
-    border: 1px solid palette(mid);
-    border-radius: 8px;
+    border: none;
+    border-right: 1px solid palette(mid);
 }
 
 #statusTitle {
@@ -12,7 +12,7 @@
 }
 
 #statusCard[state="status-connected"] #statusTitle {
-    color: #2e9d58;
+    color: palette(text);
 }
 
 #statusCard[state="status-error"] #statusTitle,
@@ -47,14 +47,48 @@
     border: 1px solid palette(mid);
     border-radius: 4px;
 }
-QTreeView { border: 1px solid palette(mid); border-radius: 6px; }
+#profileContainer QTreeView { border: 1px solid palette(mid); border-radius: 6px; }
 #profileContainer { background: palette(base); border: 1px solid palette(mid); border-radius: 10px; }
 #profileContainer QTreeView { border: none; border-radius: 0; }
-QTreeView::item { padding: 6px 4px; }
-QTreeView::item:selected { background: palette(highlight); color: palette(highlighted-text); }
-QHeaderView::section { padding: 7px 4px; }
-QLineEdit { min-height: 26px; padding: 3px 8px; }
-QToolButton { min-height: 26px; padding: 3px 8px; }
+#profileContainer QTreeView::item { padding: 6px 4px; }
+#profileContainer QTreeView::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+#profileContainer QHeaderView::section { padding: 7px 4px; }
+#profileContainer QLineEdit { min-height: 26px; padding: 3px 8px; }
+#profileContainer QToolButton { min-height: 26px; padding: 3px 8px; }
 
 #metricValue { font-size: 12pt; font-weight: 600; }
 #metricCaption, #statusMode { color: palette(placeholder-text); }
+
+#brandLabel { font-size: 19pt; font-weight: 600; }
+#profileContainer QTreeView::item { padding: 0; }
+#profileContainer QTreeView::item:focus { border: none; }
+#connectionInstruction { color: palette(placeholder-text); }
+#statusCard #statusTitle { padding: 8px 0; }
+#statusCard #statusMode { padding: 8px 0; }
+#statusCard #healthSummary { padding: 16px 0; }
+
+/* Shared typography and restrained connection-state accents. */
+QMainWindow QWidget { font-size: 11pt; }
+QPushButton, QToolButton { min-height: 28px; padding: 4px 10px; }
+#statusTitle { font-size: 20pt; }
+#metricValue { font-size: 15pt; color: #36c9b5; }
+#serverCaption { color: palette(placeholder-text); padding-top: 10px; }
+#statusCard #statusMode { border-top: 1px solid palette(mid); padding: 12px 0; }
+#statusCard #healthSummary { border-top: 1px solid palette(mid); }
+#connectionDot { color: #8a969d; font-size: 17pt; }
+#statusCard[state="status-connected"] #connectionDot { color: #36c9b5; }
+#statusCard[state="status-connecting"] #connectionDot,
+#statusCard[state="status-disconnecting"] #connectionDot { color: #ffa64d; }
+#statusCard[state="status-error"] #connectionDot,
+#statusCard[state="status-blocked"] #connectionDot { color: #e07078; }
+
+#profileContainer QTreeView::branch:selected { background: palette(base); }
+
+
+#monitoringPanel QGroupBox {
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    margin-top: 20px;
+    padding: 10px;
+}
+#monitoringPanel QGroupBox::title { subcontrol-origin: margin; padding: 0 4px; }

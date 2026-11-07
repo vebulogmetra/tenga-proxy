@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from functools import cache
+from functools import lru_cache
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QIcon, QPainter, QPixmap
@@ -22,7 +22,7 @@ from src.core.config import get_asset_path
 from src.ui.logic.status import StatusView, action_hint
 from src.ui.qt.icons import flagged
 
-LOGO_SIZE = 108
+LOGO_SIZE = 260
 FLAG_SIZE = 16
 
 
@@ -44,24 +44,27 @@ class ElidedLabel(QLabel):
         self._elide()
 
 
-@cache
-def logo_pixmap(css_class: str, size: int = LOGO_SIZE) -> QPixmap:
+@lru_cache(maxsize=64)
+def logo_pixmap(css_class: str, size: int = LOGO_SIZE, dpr: float = 1.0) -> QPixmap:
     source = get_asset_path("icons/win/monolith.svg").read_bytes()
     color = {
         "status-disconnected": b"#8a969d",
         "status-error": b"#e07078",
         "status-blocked": b"#e07078",
-        "status-connecting": b"#a9b8c4",
+        "status-connecting": b"#ffa64d",
+        "status-disconnecting": b"#ffa64d",
     }.get(css_class, b"#5ed3c7")
     if css_class != "status-connected":
         source = source.replace(b"#5ed3c7", color).replace(b"#a9ffe0", color)
+    if css_class in ("status-disconnected", "status-empty"):
+        source = source.replace(b'stop-opacity=".48"', b'stop-opacity="0"')
     renderer = QSvgRenderer(source)
-    pixmap = QPixmap(size * 4, size * 4)
+    pixmap = QPixmap(round(size * dpr), round(size * dpr))
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
     renderer.render(painter)
     painter.end()
-    pixmap.setDevicePixelRatio(4)
+    pixmap.setDevicePixelRatio(dpr)
     return pixmap
 
 
@@ -88,7 +91,7 @@ class StatusCard(QFrame):
         self.metrics = QWidget()
         metrics_layout = QHBoxLayout(self.metrics)
         metrics_layout.setContentsMargins(0, 6, 0, 0)
-        metrics_layout.setSpacing(24)
+        metrics_layout.setSpacing(16)
         self.metric_values = []
         for caption in ("Задержка", "↓ Получено", "↑ Отправлено"):
             item = QWidget()
@@ -99,6 +102,7 @@ class StatusCard(QFrame):
             value.setObjectName("metricValue")
             label = QLabel(caption)
             label.setObjectName("metricCaption")
+            label.setWordWrap(False)
             for text in (value, label):
                 text.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 text.setTextFormat(Qt.TextFormat.PlainText)
@@ -133,9 +137,18 @@ class StatusCard(QFrame):
             label.setTextFormat(Qt.TextFormat.PlainText)
             label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        texts.addWidget(self.title)
+        self.state_dot = QLabel("●")
+        self.state_dot.setObjectName("connectionDot")
+        status_row = QHBoxLayout()
+        status_row.addStretch()
+        status_row.addWidget(self.state_dot)
+        status_row.addWidget(self.title)
+        status_row.addStretch()
+        texts.addLayout(status_row)
+        self.server_caption = QLabel("Активный сервер")
+        self.server_caption.setObjectName("serverCaption")
+        self.server_caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.subtitle.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        texts.addWidget(self.mode)
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(20, 10, 20, 12)
         self.grid.setSpacing(6)
@@ -146,8 +159,6 @@ class StatusCard(QFrame):
         if not self.flag.isHidden():
             width += FLAG_SIZE + 6
         available = self.text_box.width()
-        if self.compact:
-            available = min(available, (self.width() - self.logo.width() - 52) // 2)
         self.name_box.setFixedWidth(min(max(0, available), width))
 
     def eventFilter(self, watched, event) -> bool:
@@ -161,27 +172,66 @@ class StatusCard(QFrame):
             self._arrange()
 
     def _arrange(self) -> None:
-        for widget in (self.logo, self.text_box, self.name_box, self.metrics, self.health):
+        for widget in (
+            self.logo,
+            self.instruction,
+            self.text_box,
+            self.server_caption,
+            self.name_box,
+            self.mode,
+            self.metrics,
+            self.health,
+        ):
             self.grid.removeWidget(widget)
-        for column in range(3):
-            self.grid.setColumnStretch(column, 1 if self.compact else 0)
-        if self.compact:
-            self.grid.setColumnStretch(1, 0)
-            self.logo.setFixedSize(104, 104)
-            self.grid.addWidget(self.name_box, 0, 0, alignment=Qt.AlignmentFlag.AlignHCenter)
-            self.grid.addWidget(self.text_box, 1, 0)
-            self.grid.addWidget(self.logo, 0, 1, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
-            self.grid.addWidget(self.metrics, 0, 2, 2, 1, alignment=Qt.AlignmentFlag.AlignCenter)
-            self.grid.addWidget(self.health, 2, 0, 1, 3)
-        else:
-            self.logo.setFixedSize(120, 120)
-            self.grid.addWidget(self.name_box, 0, 0, alignment=Qt.AlignmentFlag.AlignHCenter)
-            self.grid.addWidget(self.logo, 1, 0, alignment=Qt.AlignmentFlag.AlignCenter)
-            self.grid.addWidget(self.text_box, 2, 0)
-            self.grid.addWidget(self.metrics, 3, 0, alignment=Qt.AlignmentFlag.AlignHCenter)
-            self.grid.addWidget(self.health, 4, 0)
-        self.logo.setIconSize(self.logo.size() * 0.9)
+        size = 152 if self.compact else 280
+        self.instruction.setStyleSheet("font-size: 9pt;" if self.compact else "")
+        self.title.setStyleSheet("font-size: 17pt; padding: 4px 0;" if self.compact else "")
+        self.server_caption.setStyleSheet("padding-top: 2px;" if self.compact else "")
+        self.mode.setStyleSheet("padding: 5px 0;" if self.compact else "")
+        self.health.setStyleSheet("padding: 6px 0;" if self.compact else "")
+        for item, value in self.metric_values:
+            value.setStyleSheet("font-size: 12pt;" if self.compact else "")
+            item.layout().itemAt(1).widget().setStyleSheet(
+                "font-size: 9pt;" if self.compact else ""
+            )
+        self.logo.setFixedSize(size, size)
+        self.logo.setIconSize(self.logo.size() * 0.94)
+        for row, widget in enumerate(
+            (
+                self.logo,
+                self.instruction,
+                self.text_box,
+                self.server_caption,
+                self.name_box,
+                self.mode,
+                self.metrics,
+                self.health,
+            )
+        ):
+            if widget in (self.logo, self.name_box, self.metrics):
+                self.grid.addWidget(widget, row, 0, alignment=Qt.AlignmentFlag.AlignHCenter)
+            else:
+                self.grid.addWidget(widget, row, 0)
+        self.metrics.layout().setSpacing(8 if self.compact else 16)
+        self.setProperty("compact", self.compact)
+        self.grid.setRowStretch(7, 1)
+        self.grid.addWidget(self.health, 8, 0)
+        self._update_icon()
+        self.grid.setColumnStretch(0, 1)
         self.health.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+    def _update_icon(self) -> None:
+        key = (
+            getattr(self, "_icon_state", "status-disconnected"),
+            self.logo.iconSize().width(),
+            self.devicePixelRatioF(),
+        )
+        if key != getattr(self, "_icon_key", None):
+            pixmap = logo_pixmap(*key)
+            icon = QIcon(pixmap)
+            icon.addPixmap(pixmap, QIcon.Mode.Disabled)
+            self.logo.setIcon(icon)
+            self._icon_key = key
 
     def update_view(self, view: StatusView) -> None:
         self.title.setText(view.title)
@@ -193,6 +243,10 @@ class StatusCard(QFrame):
         self.subtitle.setText(name)
         self.subtitle.setToolTip(view.subtitle)
         self.name_box.setVisible(bool(view.subtitle))
+        self.server_caption.setText(
+            "Активный сервер" if view.css_class == "status-connected" else "Сервер"
+        )
+        self.server_caption.setVisible(bool(view.subtitle))
         self.subtitle.setVisible(bool(view.subtitle))
         self._fit_name()
         values = dict(view.metric_items)
@@ -206,12 +260,13 @@ class StatusCard(QFrame):
         self.mode.setVisible(bool(view.mode))
         instruction = action_hint(view)
         self.instruction.setText(instruction)
-        self.instruction.hide()
-        self.logo.setIcon(QIcon(logo_pixmap(view.css_class)))
+        self.instruction.show()
+        self._icon_state = view.css_class
+        self._update_icon()
         self.logo.setEnabled(view.action_enabled)
         self.logo.setAccessibleName(view.button_label)
         self.logo.setToolTip(instruction)
         self.setProperty("state", view.css_class)
-        for widget in (self, self.title, self.logo):
+        for widget in (self, self.title, self.logo, self.state_dot):
             widget.style().unpolish(widget)
             widget.style().polish(widget)

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QRect, QSize
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QStyle,
@@ -11,20 +12,111 @@ from PySide6.QtWidgets import (
     QStyleOptionViewItem,
 )
 
-from src.ui.qt.models import GROUP, KIND_ROLE, PROGRESS_ROLE
+from src.ui.qt.models import (
+    ACTIVE_ROLE,
+    ADDRESS_COLUMN,
+    GROUP,
+    KIND_ROLE,
+    PING_COLUMN,
+    PROFILE,
+    PROGRESS_ROLE,
+    TYPE_COLUMN,
+)
 
 PROGRESS_HEIGHT = 10
 EXTRA_HEIGHT = 20
 
 
 class ProfileDelegate(QStyledItemDelegate):
+    menu_requested = Signal(object, object)
+
+    def editorEvent(self, event, model, option, index) -> bool:
+        if (
+            event.type() == QEvent.Type.MouseButtonRelease
+            and event.button() == Qt.MouseButton.LeftButton
+            and event.position().x() >= option.rect.right() - 32
+        ):
+            self.menu_requested.emit(index, event.position().toPoint())
+            return True
+        return super().editorEvent(event, model, option, index)
+
     def sizeHint(self, option, index) -> QSize:
         size = super().sizeHint(option, index)
+        if index.data(KIND_ROLE) == PROFILE:
+            size.setHeight(max(size.height(), 64))
         if index.data(KIND_ROLE) == GROUP and index.data(PROGRESS_ROLE) is not None:
             size.setHeight(size.height() + EXTRA_HEIGHT)
         return size
 
     def paint(self, painter, option, index) -> None:
+        if index.data(KIND_ROLE) == PROFILE and index.column() == 0:
+            painter.save()
+            item = QStyleOptionViewItem(option)
+            self.initStyleOption(item, index)
+            item.text = ""
+            item.icon = QIcon()
+            style = option.widget.style() if option.widget else QApplication.style()
+            style.drawControl(QStyle.ControlElement.CE_ItemViewItem, item, painter, option.widget)
+            selected = bool(option.state & QStyle.StateFlag.State_Selected)
+            active = bool(index.data(ACTIVE_ROLE))
+            background = option.palette.base().color()
+            tint = option.palette.highlight().color() if selected else QColor("#36c9b5")
+            if selected or active:
+                amount = 0.15 if selected else 0.08
+                background = QColor.fromRgbF(
+                    background.redF() * (1 - amount) + tint.redF() * amount,
+                    background.greenF() * (1 - amount) + tint.greenF() * amount,
+                    background.blueF() * (1 - amount) + tint.blueF() * amount,
+                )
+            painter.fillRect(option.rect, background)
+            if selected:
+                painter.setPen(option.palette.highlight().color())
+                painter.drawRoundedRect(option.rect.adjusted(1, 1, -1, -1), 6, 6)
+            painter.setPen(option.palette.text().color())
+            rect = option.rect.adjusted(12, 8, -12, -8)
+            title = str(index.data() or "").removesuffix("  ·  Подключён")
+            icon = index.data(Qt.ItemDataRole.DecorationRole)
+            if icon is not None and not icon.isNull():
+                icon.paint(painter, QRect(rect.left(), rect.top() + 2, 16, 16))
+                rect.adjust(24, 0, 0, 0)
+            font = item.font
+            font.setBold(True)
+            painter.setFont(font)
+            if active:
+                painter.fillRect(
+                    QRect(option.rect.left(), option.rect.top() + 8, 3, option.rect.height() - 16),
+                    QColor("#36c9b5"),
+                )
+            text = QFontMetrics(font).elidedText(
+                title, Qt.TextElideMode.ElideRight, max(0, rect.width() - 144)
+            )
+            painter.drawText(rect, Qt.AlignmentFlag.AlignTop, text)
+            painter.setFont(option.font)
+            detail = " · ".join(
+                str(index.siblingAtColumn(c).data() or "") for c in (TYPE_COLUMN, ADDRESS_COLUMN)
+            )
+            painter.setPen(option.palette.placeholderText().color())
+            painter.drawText(
+                rect,
+                Qt.AlignmentFlag.AlignBottom,
+                option.fontMetrics.elidedText(
+                    detail, Qt.TextElideMode.ElideRight, max(0, rect.width() - 144)
+                ),
+            )
+            right = rect.adjusted(0, 0, -24, 0)
+            painter.drawText(
+                right,
+                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
+                str(index.siblingAtColumn(PING_COLUMN).data() or ""),
+            )
+            if active:
+                painter.setPen(QColor("#36c9b5"))
+                painter.drawText(
+                    right, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "Подключён"
+                )
+            painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "⋮")
+            painter.restore()
+            return
         progress = index.data(PROGRESS_ROLE)
         if index.data(KIND_ROLE) != GROUP or progress is None:
             super().paint(painter, option, index)

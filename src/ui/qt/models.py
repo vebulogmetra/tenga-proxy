@@ -26,6 +26,7 @@ KIND_ROLE = Qt.ItemDataRole.UserRole + 1
 ID_ROLE = Qt.ItemDataRole.UserRole + 2
 DETAILS_ROLE = Qt.ItemDataRole.UserRole + 3
 PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 4
+ACTIVE_ROLE = Qt.ItemDataRole.UserRole + 5
 GROUP, PROFILE = "group", "profile"
 
 # Истёкшая подписка: тот же красный, что у ошибок в карточке.
@@ -99,7 +100,7 @@ class ProfileTreeModel(QStandardItemModel):
         name = _cell(title)
         if row.is_active:
             name.setText(f"{title}  ·  Подключён")
-        name.setToolTip(row.title)
+        name.setToolTip(f"{row.title}\n{row.proxy_type.upper()} · {row.address}")
         if icon is not None:
             name.setIcon(icon)
         cells = [
@@ -114,6 +115,7 @@ class ProfileTreeModel(QStandardItemModel):
         )
         for cell in cells:
             cell.setData(PROFILE, KIND_ROLE)
+            cell.setData(row.is_active, ACTIVE_ROLE)
             cell.setData(row.profile_id, ID_ROLE)
             if row.is_active:
                 font = QFont(cell.font())

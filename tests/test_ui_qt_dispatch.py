@@ -14,6 +14,26 @@ from tests.support.qt import process_events, wait_until
 pytestmark = pytest.mark.qt
 
 
+def test_worker_result_after_loop_deletion_is_discarded(qapp):
+    from shiboken6 import delete
+
+    loop = QtLoop()
+    delete(loop)
+    errors = []
+
+    def worker_task():
+        try:
+            loop.dispatch(lambda: errors.append("callback ran"))
+        except RuntimeError as error:
+            errors.append(error)
+
+    worker = threading.Thread(target=worker_task)
+    worker.start()
+    worker.join()
+    process_events()
+    assert errors == []
+
+
 def test_dispatch_from_a_worker_runs_on_the_main_thread(qapp):
     loop = QtLoop()
     seen = []

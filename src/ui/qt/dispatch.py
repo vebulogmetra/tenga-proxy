@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from threading import Event
 
 from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal, Slot
+from shiboken6 import isValid
 
 
 @dataclass
@@ -36,7 +37,14 @@ class QtLoop(QObject):
         self._timers: set[QTimer] = set()
 
     def dispatch(self, fn: Callable[..., object], *args: object) -> None:
-        self._call.emit(lambda: fn(*args))
+        if not isValid(self):
+            return
+        try:
+            self._call.emit(lambda: fn(*args))
+        except RuntimeError:
+            # The GUI may be destroyed between the validity check and emission.
+            if isValid(self):
+                raise
 
     @Slot(object)
     def _run(self, thunk: Callable[[], object]) -> None:

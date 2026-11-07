@@ -373,7 +373,9 @@ class QtApplication:
 
         dialog = SettingsDialog(self, dispatch=self.loop.dispatch)
         # Кнопки «Сохранить» нет: правки уходят в контроллер по мере ввода.
-        dialog.settings_saved.connect(self.controller.apply_settings)
+        dialog.settings_saved.connect(
+            lambda: dialog.set_save_result(self.controller.apply_settings())
+        )
         if section is not None:
             dialog.show_section(section)
         self.show_dialog(dialog)

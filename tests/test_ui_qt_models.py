@@ -59,7 +59,7 @@ def test_flag_prefix_turns_into_an_icon(qapp):
 
     assert berlin.text() == "Берлин  ·  Подключён"
     assert not berlin.icon().isNull()
-    assert berlin.toolTip() == "🇩🇪 Берлин"
+    assert berlin.toolTip().splitlines() == ["🇩🇪 Берлин", "VLESS · de.example:443"]
 
 
 def test_active_profile_is_bold(qapp):

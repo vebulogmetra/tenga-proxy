@@ -13,6 +13,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from src.core.config import get_asset_path
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
 from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
 from src.sub.device import ensure_hwid
@@ -57,27 +59,39 @@ if TYPE_CHECKING:
 SECTIONS = ("Общие", "Мониторинг", "DNS", "Обход блокировок", "Подписки", "О программе")
 
 SETTINGS_STYLE = """
+QDialog QWidget { font-size: 11pt; }
+QCheckBox::indicator { width: 18px; height: 18px; }
+QCheckBox#trayToggle::indicator { width: 36px; height: 20px; image: url("TOGGLE_OFF"); }
+QCheckBox#trayToggle::indicator:checked { image: url("TOGGLE_ON"); }
 QSpinBox::up-button, QSpinBox::down-button { width: 0; height: 0; border: none; }
 QGroupBox {
-    border: none;
-    margin-top: 24px;
-    padding-top: 12px;
+    border: 1px solid palette(mid);
+    border-radius: 8px;
+    margin-top: 20px;
+    padding: 10px;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     padding: 0;
     font-weight: 600;
+    font-size: 12pt;
 }
+QLabel#settingsTitle { font-size: 20pt; font-weight: 600; padding: 8px 16px; }
 QListWidget#settingsSections { border: none; background: transparent; outline: none; }
 QListWidget#settingsSections::item { padding: 10px 12px; border-radius: 8px; }
 QListWidget#settingsSections::item:hover { background: palette(alternate-base); }
 QListWidget#settingsSections::item:selected {
     background: palette(alternate-base);
     color: palette(text);
+    border-left: 3px solid #36c9b5;
 }
 QListWidget#settingsSections::item:focus { border: 1px solid palette(highlight); }
 """
+
+SETTINGS_STYLE = SETTINGS_STYLE.replace(
+    "TOGGLE_OFF", get_asset_path("icons/ui/toggle-off.svg").as_posix()
+).replace("TOGGLE_ON", get_asset_path("icons/ui/toggle-on.svg").as_posix())
 
 # Поле проверки (`validate_settings`) → атрибут виджета.
 ERROR_FIELDS = {
@@ -117,11 +131,11 @@ def page(*groups: QWidget) -> QScrollArea:
     body = QWidget()
     column = QVBoxLayout(body)
     column.setContentsMargins(16, 4, 16, 16)
-    column.setSpacing(20)
+    column.setSpacing(10)
     for group in groups:
         for form in group.findChildren(QFormLayout):
             form.setContentsMargins(0, 8, 0, 0)
-            form.setVerticalSpacing(12)
+            form.setVerticalSpacing(8)
             form.setHorizontalSpacing(20)
             form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
@@ -145,9 +159,9 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Настройки")
+        self.setWindowTitle("Настройки — Veblock")
         self.setModal(True)
-        self.resize(760, 560)
+        self.resize(960, 700)
         self.setMinimumSize(640, 440)
         self._form_style = FormStyle(self, SETTINGS_STYLE)
         self._app = app
@@ -167,7 +181,11 @@ class SettingsDialog(QDialog):
         self.sections = QListWidget()
         self.sections.setObjectName("settingsSections")
         self.sections.addItems(list(SECTIONS))
-        self.sections.setFixedWidth(180)
+        for row, name in enumerate(
+            ("general", "monitor", "dns", "bypass", "subscriptions", "about")
+        ):
+            self.sections.item(row).setIcon(QIcon(str(get_asset_path(f"icons/ui/{name}.svg"))))
+        self.sections.setFixedWidth(200)
         self.pages = QStackedWidget()
         for widget in (
             self._general_page(),
@@ -183,25 +201,45 @@ class SettingsDialog(QDialog):
 
         self.status = QLabel()
         self.status.setWordWrap(True)
-        self.status.setProperty("error", True)
-        self.status.hide()
+        self.status.setProperty("error", False)
+        self.status.setText("Изменения сохраняются автоматически")
         buttons = QDialogButtonBox()
         close = buttons.addButton("Закрыть", QDialogButtonBox.ButtonRole.RejectRole)
         close.setDefault(True)
         buttons.rejected.connect(self.reject)
 
         body = QHBoxLayout()
-        body.addWidget(self.sections)
-        body.addWidget(self.pages, 1)
+        navigation = QVBoxLayout()
+        navigation.addWidget(QLabel("Настройки"))
+        navigation.addWidget(self.sections, 1)
+        body.addLayout(navigation)
+        content = QVBoxLayout()
+        self.section_title = QLabel(SECTIONS[0])
+        self.section_title.setObjectName("settingsTitle")
+        self.sections.currentRowChanged.connect(
+            lambda row: self.section_title.setText(SECTIONS[row]) if row >= 0 else None
+        )
+        content.addWidget(self.section_title)
+        content.addWidget(self.pages, 1)
+        body.addLayout(content, 1)
         layout = QVBoxLayout(self)
         layout.addLayout(body, 1)
-        layout.addWidget(self.status)
-        layout.addWidget(buttons)
+        footer = QHBoxLayout()
+        footer.addWidget(self.status, 1)
+        footer.addWidget(buttons)
+        layout.addLayout(footer)
 
         self._load()
         self.autosave = Debounce(self.save, parent=self)
-        watch(self._fields(), self.autosave.queue)
+        watch(self._fields(), self._queue_save)
         self.finished.connect(lambda _result: self.autosave.flush())
+
+    def _queue_save(self) -> None:
+        self.status.setProperty("error", False)
+        self.status.setText("Ожидание сохранения…")
+        mark_error(self.status, None)
+        self.status.show()
+        self.autosave.queue()
 
     # --- страницы ---
 
@@ -248,6 +286,7 @@ class SettingsDialog(QDialog):
             "Сворачивать в трей при закрытии окна",
             "Без трея закрытие окна всегда завершает приложение",
         )
+        self.close_to_tray_check.setObjectName("trayToggle")
         form.addRow(self.close_to_tray_check)
 
         logs = QGroupBox("Журнал")
@@ -260,7 +299,7 @@ class SettingsDialog(QDialog):
                 item = form.itemAt(row, QFormLayout.ItemRole.LabelRole)
                 if item is not None:
                     item.widget().setMinimumWidth(160)
-        return page(inbound, runtime, window, logs)
+        return page(runtime, inbound, window, logs)
 
     def _monitoring_page(self) -> QWidget:
         monitoring = QGroupBox("Проверка соединения")
@@ -424,6 +463,10 @@ class SettingsDialog(QDialog):
 
     def _sync_mode(self) -> None:
         tun = self.mode_combo.selected() == ProxyMode.TUN
+        form = self.mode_combo.parentWidget().layout()
+        form.setRowVisible(self.tun_name_edit, tun)
+        form.setRowVisible(self.tun_mtu_spin, tun)
+        self.kill_switch_check.setVisible(tun and kill_switch_available())
         self.tun_name_edit.setEnabled(tun)
         self.tun_mtu_spin.setEnabled(tun)
         self.kill_switch_check.setEnabled(tun)
@@ -436,22 +479,33 @@ class SettingsDialog(QDialog):
         from src.core.config import find_xray_binary
 
         self._tun_problems = []
+        self._tun_check_pending = True
+        self._sync_tun_access()
         self.tun_access_thread = self.run(
             lambda: tun_access.tun_problems(find_xray_binary()),
             self._on_tun_access_checked,
+            lambda _error: self._on_tun_access_checked(["Не удалось проверить доступ к TUN"]),
             name="tenga-tun-access",
         )
 
     def _on_tun_access_checked(self, problems: list[str]) -> None:
+        self._tun_check_pending = False
         self._tun_problems = list(problems)
         self._sync_tun_access()
 
     def _sync_tun_access(self) -> None:
         problems = self._tun_problems or []
-        self.tun_access_label.setText("TUN не заработает:\n" + "\n".join(problems))
-        self.tun_access_label.setVisible(
-            self.mode_combo.selected() == ProxyMode.TUN and bool(problems)
+        pending = getattr(self, "_tun_check_pending", False)
+        text = (
+            "Проверка доступа к TUN…"
+            if pending
+            else "TUN не заработает:\n" + "\n".join(problems)
+            if problems
+            else "Предварительная проверка доступа к TUN пройдена"
         )
+        self.tun_access_label.setText(text)
+        mark_error(self.tun_access_label, text if problems else None)
+        self.tun_access_label.setVisible(self.mode_combo.selected() == ProxyMode.TUN)
 
     def _sync_monitoring(self) -> None:
         monitoring = self.monitoring_check.isChecked()
@@ -558,15 +612,35 @@ class SettingsDialog(QDialog):
         for field, attribute in ERROR_FIELDS.items():
             mark_error(getattr(self, attribute), errors.get(field))
         if errors:
+            self.status.setProperty("error", True)
             self.status.setText("Исправьте настройки: " + next(iter(errors.values())))
+            mark_error(self.status, self.status.text())
             self.status.show()
             return False
-        self.status.hide()
         self._config.__dict__.update(config.__dict__)
+        self._persisted = None
         self.settings_saved.emit()
+        if self._persisted is not True:
+            self.status.setText("Не удалось сохранить настройки. Повторите изменение.")
+            self.status.setProperty("error", True)
+            mark_error(self.status, self.status.text())
+            self.status.show()
+            return False
+        self.status.setProperty("error", False)
+        from src.ui.logic.settings_state import pending_settings
+
+        self.status.setText(
+            "Изменения сохранены"
+            + (" · Требуется переподключение" if pending_settings(self._context) else "")
+        )
+        mark_error(self.status, None)
+        self.status.show()
         return True
 
     # --- окно ---
+
+    def set_save_result(self, saved: bool) -> None:
+        self._persisted = saved
 
     def refresh(self) -> None:
         """Данные приложения изменились: список подписок и откат маршрутизации."""

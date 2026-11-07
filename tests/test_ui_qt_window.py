@@ -178,21 +178,16 @@ def test_close_to_tray_can_be_turned_off(made, monkeypatch):
     assert quits == [1]
 
 
-def test_monitoring_panel_visibility_is_remembered(made, qapp):
-    made.context.config.monitoring_panel = False
+def test_legacy_monitoring_setting_does_not_open_diagnostics(made, qapp):
+    made.context.config.monitoring_panel = True
     made.activate()
     window = made.window
     assert not window.monitoring_button.isChecked()
-    assert window.monitoring_body.isHidden()
-
+    assert window.right_stack.currentWidget() is window.servers_page
     window.monitoring_button.setChecked(True)
-    window.save_geometry()
-
+    assert window.right_stack.currentWidget() is window.monitoring_body
+    window.monitoring_button.setChecked(False)
     assert made.context.config.monitoring_panel is True
-    assert window.monitoring_body.isVisible()
-
-
-# --- журнал ---
 
 
 def _diagnostics(made, tmp_path):
@@ -216,13 +211,60 @@ def test_journal_is_read_in_the_background(made, tmp_path):
 def test_journal_reads_only_while_visible(made, tmp_path):
     panel, _logs = _diagnostics(made, tmp_path)
     assert not panel.active
+
     made.window.show_diagnostics()
     assert panel.active
 
     made.window.monitoring_button.setChecked(False)
-    assert panel.active
-    made.window.diagnostics_window.close()
     assert not panel.active
+    made.window.show_diagnostics()
+    assert panel.active
+    made.window.hide()
+    assert not panel.active
+
+
+def test_search_action_returns_from_diagnostics(made):
+    made.activate()
+    made.window.show_diagnostics()
+    made.activate_action("search")
+    process_events()
+    assert made.window.right_stack.currentWidget() is made.window.servers_page
+    assert made.window.search.hasFocus()
+
+
+def test_journal_result_is_ignored_after_widget_destruction(qapp, monkeypatch):
+    from threading import Event
+
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from shiboken6 import isValid
+
+    from src.ui.qt.widgets.diagnostics import DiagnosticsPanel
+
+    started, release = Event(), Event()
+    delivered = []
+
+    def read(_directory):
+        started.set()
+        release.wait(3)
+        return "Синтетический журнал"
+
+    monkeypatch.setattr("src.ui.qt.widgets.diagnostics.read_diagnostics", read)
+    panel = DiagnosticsPanel(
+        dispatch=lambda callback, value: delivered.append((callback, value)),
+        show_dialog=lambda _dialog: None,
+    )
+    panel.refresh()
+    try:
+        assert started.wait(1)
+        panel.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        assert not isValid(panel)
+    finally:
+        release.set()
+        panel.thread.join(3)
+    assert delivered
+    for callback, value in delivered:
+        callback(value)
 
 
 def test_export_writes_the_cleaned_journal(made, tmp_path):

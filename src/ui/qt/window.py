@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QEvent, QModelIndex, QPoint, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
-    QDialog,
     QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QToolButton,
     QTreeView,
     QVBoxLayout,
@@ -67,7 +68,7 @@ from src.ui.qt.models import (
 )
 from src.ui.qt.widgets.diagnostics import DiagnosticsPanel
 from src.ui.qt.widgets.profile_delegate import ProfileDelegate
-from src.ui.qt.widgets.status_card import StatusCard
+from src.ui.qt.widgets.status_card import ElidedLabel, StatusCard
 from src.ui.qt.widgets.toast import Toast
 
 if TYPE_CHECKING:
@@ -155,19 +156,17 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         layout = QVBoxLayout(central)
-        self.content_layout = layout
         toolbar = QHBoxLayout()
-        brand = QLabel("Veblock")
+        brand = QLabel("Серверы")
+        self.page_title = brand
         brand.setObjectName("brandLabel")
         toolbar.addWidget(brand)
         toolbar.addStretch(1)
         self.settings_button = QPushButton("Настройки")
         self.settings_button.clicked.connect(lambda: self._app.activate_action("settings"))
         toolbar.addWidget(self.settings_button)
-        layout.addLayout(toolbar)
 
         self.status_card = StatusCard()
-        self.status_card.setMaximumWidth(CONTENT_MAX_WIDTH)
         self.status_card.action_clicked.connect(
             lambda: self._app.activate_action("toggle-connection")
         )
@@ -175,7 +174,7 @@ class MainWindow(QMainWindow):
         self.monitoring_button.setObjectName("monitoringToggle")
         self.monitoring_button.setText("Диагностика")
         self.monitoring_button.setCheckable(True)
-        self.monitoring_button.setChecked(self._context.config.monitoring_panel)
+        self.monitoring_button.setChecked(False)
         self.menu_button = QPushButton("Меню")
         self.menu_button.setAccessibleName("Главное меню")
         self.menu_button.setToolTip("Главное меню")
@@ -189,13 +188,6 @@ class MainWindow(QMainWindow):
                 self.main_menu.addAction("Журнал…", self.show_diagnostics)
         self.menu_button.setMenu(self.main_menu)
         toolbar.addWidget(self.menu_button)
-        hero_row = QHBoxLayout()
-        hero_row.setContentsMargins(12, 0, 12, 0)
-        hero_row.addStretch(1)
-        hero_row.addWidget(self.status_card, 1000)
-        hero_row.addStretch(1)
-        layout.addLayout(hero_row)
-
         self.pending_banner = QFrame()
         self.pending_banner.setObjectName("pendingBanner")
         banner = QHBoxLayout(self.pending_banner)
@@ -208,7 +200,6 @@ class MainWindow(QMainWindow):
         )
         banner.addWidget(self.reconnect_button)
         self.pending_banner.hide()
-        layout.addWidget(self.pending_banner)
 
         self.blocked_banner = QFrame()
         self.blocked_banner.setObjectName("pendingBanner")
@@ -220,7 +211,6 @@ class MainWindow(QMainWindow):
         )
         blocked.addWidget(self.release_block_button)
         self.blocked_banner.hide()
-        layout.addWidget(self.blocked_banner)
 
         self.library_container = QFrame()
         self.library_container.setObjectName("profileContainer")
@@ -231,13 +221,6 @@ class MainWindow(QMainWindow):
         library = QVBoxLayout(self.library_container)
         library.setContentsMargins(16, 12, 16, 12)
         library.setSpacing(10)
-        library_row = QHBoxLayout()
-        library_row.setContentsMargins(12, 0, 12, 0)
-        library_row.addStretch(1)
-        library_row.addWidget(self.library_container, 1000)
-        library_row.addStretch(1)
-        layout.addLayout(library_row, 1)
-
         tools = QHBoxLayout()
         self.search = QLineEdit()
         self.search.setPlaceholderText(SEARCH_PLACEHOLDER)
@@ -261,7 +244,9 @@ class MainWindow(QMainWindow):
         self.tree.selectionModel().currentChanged.connect(self._selection_changed)
         self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tree.setUniformRowHeights(False)
-        self.tree.setItemDelegate(ProfileDelegate(self.tree))
+        delegate = ProfileDelegate(self.tree)
+        self.tree.setItemDelegate(delegate)
+        delegate.menu_requested.connect(self._row_menu)
         self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree.setAlternatingRowColors(False)
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -294,13 +279,16 @@ class MainWindow(QMainWindow):
         library.addWidget(self.toast_widget)
 
         bottom = QHBoxLayout()
-        self.selection_label = QLabel()
+        self.selection_label = ElidedLabel()
+        self.selection_label.setMinimumWidth(0)
+        self.selection_label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         self.selection_label.setTextFormat(Qt.TextFormat.PlainText)
-        self.selection_label.setWordWrap(True)
+        self.selection_label.setWordWrap(False)
         bottom.addWidget(self.selection_label, 1)
         self.switch_button = QPushButton(SWITCH_LABEL)
         self.switch_button.clicked.connect(self._switch_selected)
         bottom.addWidget(self.switch_button)
+        self.selection_layout = bottom
         library.addLayout(bottom)
 
         self.setCentralWidget(central)
@@ -309,49 +297,84 @@ class MainWindow(QMainWindow):
         self.footer_container.setMaximumWidth(CONTENT_MAX_WIDTH)
         footer = QHBoxLayout(self.footer_container)
         footer.setContentsMargins(0, 0, 0, 0)
-        self.footer_status = QLabel()
-        self.footer_status.setTextFormat(Qt.TextFormat.PlainText)
-        self.footer_status.setWordWrap(True)
-        footer.addWidget(self.footer_status, 1)
         footer.addWidget(self.monitoring_button)
-        footer_row = QHBoxLayout()
-        footer_row.setContentsMargins(12, 0, 12, 0)
-        footer_row.addStretch(1)
-        footer_row.addWidget(self.footer_container, 1000)
-        footer_row.addStretch(1)
-        layout.addLayout(footer_row)
+        footer.addStretch(1)
+        self.latency_button = QPushButton("Проверить задержку")
+        self.latency_button.clicked.connect(lambda: self._app.activate_action("test-latency"))
+        footer.addWidget(self.latency_button)
+        self.servers_page = QWidget()
+        servers = QVBoxLayout(self.servers_page)
+        servers.setContentsMargins(0, 0, 0, 0)
+        servers.addWidget(self.library_container, 1)
+        servers.addWidget(self.footer_container)
+        self.right_stack = QStackedWidget()
+        self.right_stack.addWidget(self.servers_page)
+        self.right_stack.addWidget(self.monitoring_body)
+        right = QWidget()
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(16, 8, 8, 8)
+        right_layout.addLayout(toolbar)
+        right_layout.addWidget(self.pending_banner)
+        right_layout.addWidget(self.blocked_banner)
+        right_layout.addWidget(self.right_stack, 1)
+        self.back_button = QPushButton("← Серверы")
+        self.back_button.clicked.connect(lambda: self.monitoring_button.setChecked(False))
+        toolbar.insertWidget(0, self.back_button)
+        self.back_button.hide()
+        columns = QHBoxLayout()
+        columns.setSpacing(8)
+        self.status_card.setMinimumWidth(280)
+        self.status_card.setMaximumWidth(360)
+        columns.addWidget(self.status_card, 1)
+        columns.addWidget(right, 2)
+        layout.addLayout(columns, 1)
+        self.sort_button = QToolButton()
+        self.sort_button.setText("Сортировка")
+        self.sort_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        sort_menu = QMenu(self.sort_button)
+        for key, title in (
+            (SortKey.NAME, "По имени"),
+            (SortKey.TYPE, "По типу"),
+            (SortKey.PING, "По задержке"),
+        ):
+            sort_menu.addAction(title).triggered.connect(
+                lambda _checked=False, k=key: self.set_sort(
+                    k, ascending=(not self._ascending if k == self._sort_key else True)
+                )
+            )
+        self.sort_button.setMenu(sort_menu)
+        tools.addWidget(self.sort_button)
+        self.tree.setHeaderHidden(True)
+        for column in (TYPE_COLUMN, ADDRESS_COLUMN, PING_COLUMN):
+            self.tree.hideColumn(column)
 
     def _build_monitoring(self) -> None:
-        self.monitoring_window = QDialog(self, Qt.WindowType.Window)
-        self.monitoring_window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.monitoring_window.setWindowTitle("Диагностика — Veblock")
-        self.monitoring_window.resize(720, 270)
-        self.monitoring_window.installEventFilter(self)
-        self.monitoring_window_layout = QVBoxLayout(self.monitoring_window)
         body = QFrame()
         body.setObjectName("monitoringPanel")
         body.setMaximumWidth(CONTENT_MAX_WIDTH)
-        body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         panel = QVBoxLayout(body)
         panel.setContentsMargins(16, 12, 16, 12)
         panel.setSpacing(12)
         column = QHBoxLayout()
-        column.setSpacing(32)
-        self.monitoring_form = QFormLayout()
+        column.setSpacing(16)
+        connection_group = QGroupBox("Состояние соединения")
+        self.monitoring_form = QFormLayout(connection_group)
         self.monitoring_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        column.addLayout(self.monitoring_form, 1)
-        self.routing_form = QFormLayout()
+        column.addWidget(connection_group, 1)
+        routing_group = QGroupBox("Маршрутизация")
+        self.routing_form = QFormLayout(routing_group)
         self.routing_form.setFormAlignment(Qt.AlignmentFlag.AlignTop)
-        column.addLayout(self.routing_form, 1)
+        column.addWidget(routing_group, 1)
         panel.addLayout(column)
         commands = QHBoxLayout()
         self.last_check = QLabel()
         self.last_check.setWordWrap(True)
-        commands.addWidget(self.last_check, 1)
+        panel.addWidget(self.last_check)
         self.check_button = QPushButton("Проверить сейчас")
         self.check_button.clicked.connect(self._on_check_now)
         commands.addWidget(self.check_button)
-        self.network_check_button = QPushButton("Проверить сеть…")
+        self.network_check_button = QPushButton("Диагностика сети…")
         self.network_check_button.clicked.connect(
             lambda: self._app.activate_action("network-diagnostics")
         )
@@ -359,29 +382,14 @@ class MainWindow(QMainWindow):
         self.diagnostics = DiagnosticsPanel(
             dispatch=self._app.loop.dispatch, show_dialog=self._app.show_dialog
         )
-        self.diagnostics_window = QDialog(self, Qt.WindowType.Window)
-        self.diagnostics_window.setWindowTitle("Журнал — Veblock")
-        self.diagnostics_window.resize(960, 600)
-        journal_layout = QVBoxLayout(self.diagnostics_window)
-        journal_layout.addWidget(self.diagnostics)
-        self.log_button = QPushButton("Открыть журнал…")
-        self.log_button.clicked.connect(self.show_diagnostics)
-        commands.addWidget(self.log_button)
         panel.addLayout(commands)
+        panel.addWidget(self.diagnostics, 1)
         self.monitoring_body = body
-        self.monitoring_row = QHBoxLayout()
-        self.monitoring_row.setContentsMargins(12, 0, 12, 0)
-        self.monitoring_row.addStretch(1)
-        self.monitoring_row.addWidget(body, 1000)
-        self.monitoring_row.addStretch(1)
-        self.content_layout.addLayout(self.monitoring_row)
-        body.hide()
         self.monitoring_button.toggled.connect(self._on_monitoring_toggled)
 
     def show_diagnostics(self) -> None:
-        self.diagnostics_window.show()
-        self.diagnostics_window.raise_()
-        self.diagnostics_window.activateWindow()
+        self.monitoring_button.setChecked(True)
+        self.diagnostics.view.setFocus()
 
     # --- состояние ---
 
@@ -597,12 +605,6 @@ class MainWindow(QMainWindow):
         )
         self.status_card.health.setText(summary)
         self.status_card.health.setVisible(bool(summary))
-        if hasattr(self, "footer_status"):
-            self.footer_status.setText(
-                "Подробности подключения и журнал"
-                if not self.presentation.error
-                else "Ошибка — откройте диагностику"
-            )
 
     # --- запросы оболочки контроллера ---
 
@@ -641,6 +643,7 @@ class MainWindow(QMainWindow):
         self.toast_widget.show_message(text, button=button, on_click=on_click)
 
     def focus_search(self) -> None:
+        self.monitoring_button.setChecked(False)
         self.search.setFocus()
         self.search.selectAll()
 
@@ -682,41 +685,16 @@ class MainWindow(QMainWindow):
         self.refresh_monitoring()
 
     def _on_monitoring_toggled(self, visible: bool) -> None:
-        self._context.config.monitoring_panel = visible
-        self.status_card.set_compact(self.height() < 720)
+        self.right_stack.setCurrentIndex(1 if visible else 0)
+        self.back_button.setVisible(visible)
+        self.page_title.setText("Диагностика" if visible else "Серверы")
         self._place_monitoring()
+        if not visible:
+            self.tree.setFocus()
 
     def _place_monitoring(self) -> None:
-        if not hasattr(self, "monitoring_body") or getattr(self, "_placing_monitoring", False):
-            return
-        self._placing_monitoring = True
-        try:
-            visible = self.monitoring_button.isChecked() and self.isVisible()
-            separate = self.height() < 760 or self.width() < 1050
-            if visible and not separate:
-                self.status_card.set_compact(True)
-            if separate:
-                if self.monitoring_body.parent() is not self.monitoring_window:
-                    self.monitoring_row.removeWidget(self.monitoring_body)
-                    self.monitoring_window_layout.addWidget(self.monitoring_body)
-                self.monitoring_body.setVisible(visible)
-                self.monitoring_window.setVisible(visible)
-            else:
-                self.monitoring_window.hide()
-                if self.monitoring_body.parent() is not self.centralWidget():
-                    self.monitoring_window_layout.removeWidget(self.monitoring_body)
-                    self.monitoring_row.insertWidget(1, self.monitoring_body, 1000)
-                self.monitoring_body.setVisible(visible)
-        finally:
-            self._placing_monitoring = False
-
-    def eventFilter(self, watched, event) -> bool:
-        if (
-            watched is getattr(self, "monitoring_window", None)
-            and event.type() == QEvent.Type.Close
-        ):
-            self.monitoring_button.setChecked(False)
-        return super().eventFilter(watched, event)
+        if hasattr(self, "right_stack"):
+            self.diagnostics.set_active(self.monitoring_button.isChecked() and self.isVisible())
 
     def _schedule_palette_refresh(self, *_args) -> None:
         if not getattr(self, "_palette_refresh_pending", False):
@@ -735,14 +713,19 @@ class MainWindow(QMainWindow):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         if hasattr(self, "status_card"):
+            if hasattr(self, "selection_layout"):
+                self.selection_layout.setDirection(
+                    QHBoxLayout.Direction.TopToBottom
+                    if self.width() < 1050
+                    else QHBoxLayout.Direction.LeftToRight
+                )
             compact = self.status_card.compact
-            self.status_card.set_compact(self.height() < (780 if compact else 720))
+            self.status_card.set_compact(self.height() < (750 if compact else 680))
             self._place_monitoring()
 
     def hideEvent(self, event) -> None:
-        if hasattr(self, "diagnostics_window"):
-            self.diagnostics_window.hide()
-            self.monitoring_window.hide()
+        if hasattr(self, "diagnostics"):
+            self.diagnostics.set_active(False)
         super().hideEvent(event)
 
     def toggle_group(self, group_id: int) -> None:
@@ -774,6 +757,10 @@ class MainWindow(QMainWindow):
                 lambda _checked=False, n=name: self._app.activate_action(n, row_id)
             )
         return menu
+
+    def _row_menu(self, index, point) -> None:
+        self.tree.setCurrentIndex(index)
+        self.context_menu(index).exec(self.tree.viewport().mapToGlobal(point))
 
     def _on_context_menu(self, point) -> None:
         index = self.tree.indexAt(point)
@@ -811,8 +798,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         """С треем окно прячется, без него закрытие завершает приложение."""
         self.save_geometry()
-        self.diagnostics_window.hide()
-        self.monitoring_window.hide()
+        self.diagnostics.set_active(False)
         if self._app.tray is not None and self._context.config.close_to_tray:
             event.ignore()
             self.hide()
@@ -828,8 +814,6 @@ class MainWindow(QMainWindow):
         self._detached = True
         self._context.proxy_state.remove_listener(self._on_proxy_state_changed)
         self._app.qt.paletteChanged.disconnect(self._schedule_palette_refresh)
-        self.monitoring_window.hide()
-        self.diagnostics_window.hide()
         self.diagnostics.set_active(False)
 
     def save_geometry(self) -> None:

@@ -44,6 +44,29 @@ def _saved(app) -> dict:
     return json.loads((app.context.config_dir / "settings.json").read_text(encoding="utf-8"))
 
 
+def test_save_failure_is_not_reported_as_success(app, monkeypatch):
+    dialog = _open(app)
+    monkeypatch.setattr(app.context, "save_config", lambda: False)
+    dialog.interval_spin.setValue(27)
+    assert dialog.status.text() == "Ожидание сохранения…"
+    assert not dialog.save()
+    assert "Не удалось сохранить" in dialog.status.text()
+    assert dialog.status.property("error") is True
+
+
+def test_proxy_mode_hides_tun_fields_without_losing_values(app):
+    dialog = _open(app)
+    dialog.mode_combo.select(ProxyMode.TUN)
+    dialog.tun_name_edit.setText("synthetic-tun")
+    dialog.mode_combo.select(ProxyMode.SYSTEM_PROXY)
+    assert dialog.tun_name_edit.isHidden()
+    assert dialog.tun_mtu_spin.isHidden()
+    assert dialog.save()
+    dialog.mode_combo.select(ProxyMode.TUN)
+    assert not dialog.tun_name_edit.isHidden()
+    assert dialog.tun_name_edit.text() == "synthetic-tun"
+
+
 def test_settings_action_opens_the_settings_window(app):
     app.actions["settings"].trigger()
 
@@ -134,7 +157,7 @@ def test_invalid_field_is_marked_and_nothing_changes(app):
     dialog.address_edit.setText("127.0.0.1")
     assert dialog.save()
     assert dialog.address_edit.property("error") is False
-    assert dialog.status.isHidden()
+    assert dialog.status.text().startswith("Изменения сохранены")
 
 
 def test_edits_autosave_and_closing_flushes(app):
@@ -183,7 +206,7 @@ def test_missing_tun_rights_are_shown(app, monkeypatch):
 
     dialog = _open(app)
 
-    wait_until(lambda: not dialog.tun_access_label.isHidden())
+    wait_until(lambda: "нет правила sudoers" in dialog.tun_access_label.text())
     assert "нет правила sudoers" in dialog.tun_access_label.text()
     dialog.mode_combo.select(ProxyMode.SYSTEM_PROXY)
     assert dialog.tun_access_label.isHidden()

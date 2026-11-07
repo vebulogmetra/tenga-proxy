@@ -121,3 +121,33 @@ come from the desktop settings, there is no separate switch in the application.
 
 The window is adaptive. Below 550 points wide the view switcher moves from the
 header bar to the bottom, so the application stays usable in a narrow window.
+
+
+## Windows window (Qt)
+
+The connection panel stays on the left. Click the monolith to connect or
+disconnect; it is disabled during an operation. Teal indicates a running session,
+orange an operation, and red an error. The separate health message reports whether
+connectivity has actually been checked.
+
+The right side contains search, add and sorting menus, groups and two-line server
+rows. The active server has a teal marker and a Connected label. Selecting another
+row does not switch the session: use the explicit switch action below the list,
+where the target name is displayed. Enter and double-click retain their connection
+action.
+
+Diagnostics replaces the right pane with connection status, routing and the log.
+Back to Servers restores search, selection and scrolling. Log refresh runs only
+while visible; export masks secrets, and clearing requires confirmation. Network
+diagnostics remains a separate action.
+
+Settings opens a separate window with the six existing sections and automatic
+saving. Its footer distinguishes pending changes, a successful write and errors.
+Invalid values are not written. Runtime changes need an explicit reconnect; theme
+changes apply immediately. TUN fields are hidden in system proxy mode while their
+values are preserved. Light, dark and system themes remain available.
+
+[Synthetic main window](../design/windows-ui/main-dark-1180.png),
+[diagnostics](../design/windows-ui/diagnostics.png),
+[settings](../design/windows-ui/settings.png).
+The tab navigation described above applies to GTK on Linux.

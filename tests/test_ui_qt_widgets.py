@@ -13,6 +13,31 @@ from src.ui.qt.widgets.toast import Toast
 pytestmark = pytest.mark.qt
 
 
+@pytest.mark.parametrize("disconnecting", [False, True])
+def test_busy_monolith_keeps_orange_glow_when_disabled(qapp, disconnecting):
+    from dataclasses import replace
+
+    from PySide6.QtGui import QIcon
+
+    card = StatusCard()
+    view = status_view(ConnectionState.CONNECTING, profile_name="Проба")
+    if disconnecting:
+        view = replace(view, title="Отключение…")
+    card.update_view(view)
+    assert not card.logo.isEnabled()
+    image = card.logo.icon().pixmap(260, 260, QIcon.Mode.Disabled).toImage()
+    orange = 0
+    for y in range(image.height()):
+        for x in range(image.width()):
+            color = image.pixelColor(x, y)
+            orange += (
+                color.alpha() > 100
+                and color.red() > color.green() * 1.2
+                and color.green() > color.blue() * 1.2
+            )
+    assert orange > 100
+
+
 def test_card_shows_the_connected_view(qapp):
     card = StatusCard()
 
@@ -30,7 +55,7 @@ def test_card_shows_the_connected_view(qapp):
     assert card.title.text() == "Подключено"
     assert card.subtitle.text() == "Проба"
     assert [value.text() for _, value in card.metric_values] == ["209 мс", "2 B", "1 B"]
-    assert card.instruction.isHidden()
+    assert not card.instruction.isHidden()
     assert card.logo.toolTip() == "Нажмите на логотип для отключения"
     assert card.logo.accessibleName() == "Отключить"
     assert card.instruction.text() == "Нажмите на логотип для отключения"
@@ -104,9 +129,9 @@ def test_connected_card_separates_profile_and_metrics(qapp, compact):
     qapp.processEvents()
     assert card.mode.text() == "Режим TUN"
     assert card.metrics.isVisible()
-    assert not card.instruction.isVisible()
+    assert card.instruction.isVisible()
     if not compact:
-        assert card.name_box.geometry().bottom() < card.logo.geometry().top()
+        assert card.name_box.geometry().top() > card.logo.geometry().bottom()
         assert card.metrics.geometry().top() > card.text_box.geometry().bottom()
     assert [value.text() for _, value in card.metric_values] == ["209 мс", "2.0 KB", "1.0 KB"]
     card.close()

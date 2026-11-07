@@ -209,35 +209,62 @@ def test_failed_disconnect_does_not_claim_stopped(app):
     assert "Не удалось отключиться" in app.window.status_card.health.text()
 
 
-def test_diagnostics_reuses_widgets_and_changes_placement(app):
+def test_diagnostics_reuses_widgets_and_stays_inside_window(app):
+    entry = add(app)
     app.activate()
     window = app.window
-    window.resize(1180, 950)
-    window.monitoring_button.setChecked(True)
+    select(app, entry)
+    model = window.model
+    for size in ((1180, 950), (900, 540), (1600, 950)):
+        window.resize(*size)
+        window.show_diagnostics()
+        process_events()
+        assert window.right_stack.currentWidget() is window.monitoring_body
+        assert window.monitoring_body.parent() is window.right_stack
+        assert window.diagnostics.active
+        label = window._monitoring_values["0"]
+        window.refresh_monitoring()
+        assert label is window._monitoring_values["0"]
+        window.back_button.click()
+        assert window.right_stack.currentWidget() is window.servers_page
+        assert window.model is model
+        assert window.selected_profile_id() == entry.id
+        assert not window.diagnostics.active
+
+
+def test_diagnostics_retains_search_scroll_and_stops_when_hidden(app):
+    entries = [add(app, f"Сервер {number:03}") for number in range(45)]
+    app.activate()
+    window = app.window
+    window.search.setText("Сервер")
+    select(app, entries[30])
+    window.tree.verticalScrollBar().setValue(400)
+    position = window.tree.verticalScrollBar().value()
+    window.show_diagnostics()
+    window.hide()
+    assert not window.diagnostics.active
+    window.present()
+    assert window.diagnostics.active
+    window.show_error("Синтетический отказ")
+    assert window.right_stack.currentWidget() is window.monitoring_body
+    window.back_button.click()
+    assert window.search.text() == "Сервер"
+    assert window.selected_profile_id() == entries[30].id
+    assert window.tree.verticalScrollBar().value() == position
+    assert "Синтетический отказ" in window.status_card.health.text()
+
+
+def test_metrics_updates_reuse_monolith_render(app):
+    from src.ui.qt.widgets.status_card import logo_pixmap
+
+    entry = add(app)
+    app.activate()
+    app.context.proxy_state.set_running(entry.id)
     process_events()
-    assert window.monitoring_body.parent() is window.centralWidget()
-    assert window.monitoring_body.width() == window.library_container.width()
-    assert window.monitoring_body.x() == window.library_container.x()
-    assert window.footer_container.width() == window.library_container.width()
-    assert window.check_button.y() == window.log_button.y()
-    assert window.network_check_button.y() == window.log_button.y()
-    label = window._monitoring_values["0"]
-    window.refresh_monitoring()
-    assert label is window._monitoring_values["0"]
-    window.resize(900, 600)
-    process_events()
-    assert window.monitoring_body.parent() is window.monitoring_window
-    assert window.monitoring_window.isVisible()
-    window.resize(1600, 950)
-    process_events()
-    assert window.monitoring_body.parent() is window.centralWidget()
-    assert window.monitoring_body.width() == window.library_container.width()
-    assert window.monitoring_body.x() == window.library_container.x()
-    window.resize(900, 600)
-    process_events()
-    window.monitoring_window.close()
-    assert not window.monitoring_button.isChecked()
-    assert not app.context.config.monitoring_panel
+    before = logo_pixmap.cache_info()
+    for _ in range(10):
+        app.window.refresh_status()
+    assert logo_pixmap.cache_info().misses == before.misses
 
 
 def test_compact_mode_has_hysteresis_and_centered_logo(app):
@@ -393,14 +420,20 @@ def test_server_container_is_bounded_centered_and_can_shrink(app):
     process_events()
     container = window.library_container
     assert container.width() == 1000
-    assert window.status_card.width() == container.width()
-    assert window.status_card.geometry().left() == container.geometry().left()
-    assert abs(container.geometry().center().x() - window.centralWidget().rect().center().x()) <= 2
+    assert window.status_card.width() < container.width()
+    assert (
+        window.status_card.mapTo(window, window.status_card.rect().topRight()).x()
+        < container.mapTo(window, container.rect().topLeft()).x()
+    )
+    assert window.status_card.width() <= window.width() // 2
     window.resize(900, 600)
     process_events()
     assert window.width() == 900
     assert container.width() < window.centralWidget().width()
-    assert window.status_card.width() == container.width()
-    assert window.status_card.geometry().left() == container.geometry().left()
+    assert window.status_card.width() < container.width()
+    assert (
+        window.status_card.mapTo(window, window.status_card.rect().topRight()).x()
+        < container.mapTo(window, container.rect().topLeft()).x()
+    )
     assert window.tree.parent() is window.list_box
     assert window.search.parent() is container
