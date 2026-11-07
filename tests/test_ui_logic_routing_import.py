@@ -126,3 +126,19 @@ def test_config_base_restores_pipe_optional_nested_settings():
     loaded = DataStore.from_dict({"routing_backup": {"direct_list": ["a.example"]}})
     assert loaded.routing_backup == RoutingSettings(direct_list=["a.example"])
     assert DataStore.from_dict({"routing_backup": None}).routing_backup is None
+
+
+def test_store_shared_routing_switches_to_saved_lists(tmp_path):
+    from src.ui.logic.routing_import import store_shared_routing
+
+    config = _legacy(tmp_path)
+    edited = effective_routing(config.routing, tmp_path)
+    edited.proxy_list = ["new.example"]
+
+    store_shared_routing(config, edited)
+
+    assert config.routing.use_saved_lists is True
+    assert config.routing.proxy_list == ["new.example"]
+    # Списки из файлов, которых форма не касалась, не теряются.
+    assert config.routing.direct_list == ["old.example"]
+    assert config.routing_backup is None

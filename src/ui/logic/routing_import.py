@@ -110,3 +110,14 @@ def restore_backup(config) -> bool:
     config.routing = backup
     config.routing_backup = None
     return True
+
+
+def store_shared_routing(config, routing: RoutingSettings) -> None:
+    """Записать общие правила из формы настроек.
+
+    Форма заполняется через `effective_routing`, поэтому списки из текстовых
+    файлов старой установки уже внутри. После записи файлы не читаются.
+    """
+    routing = copy.deepcopy(routing)
+    routing.use_saved_lists = True
+    config.routing = routing
