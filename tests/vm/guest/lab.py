@@ -434,6 +434,9 @@ class Application:
 def _write_xray_config(name: str, inbound: dict, send_through: str) -> Path:
     config = {
         "log": {"loglevel": "info"},
+        # Имена сайтов (адрес пробы задержки) разрешает DNS лаборатории: системного
+        # резолвера в пространстве лаборатории нет.
+        "dns": {"servers": [DNS_SERVER]},
         "inbounds": [inbound],
         "outbounds": [
             {
@@ -441,6 +444,7 @@ def _write_xray_config(name: str, inbound: dict, send_through: str) -> Path:
                 "sendThrough": send_through,
                 # По умолчанию ядро не выпускает на служебные адреса, а TEST-NET — как раз они
                 "settings": {"finalRules": [{"action": "allow"}]},
+                "streamSettings": {"sockopt": {"domainStrategy": "UseIPv4"}},
             }
         ],
     }
