@@ -13,55 +13,30 @@ def window(adw_app):
     return adw_app.get_active_window()
 
 
-def test_window_has_three_pages(window):
-    names = [page.get_name() for page in window.view_stack.get_pages()]
-    assert names == ["profiles", "subscriptions", "monitoring"]
-
-
 def test_window_has_a_status_card(window):
     from src.ui.widgets.status_card import StatusCard
 
     assert isinstance(window.status_card, StatusCard)
 
 
-def test_narrow_window_moves_the_switcher_down(window):
-    """Проверяется поведение, а не факт установки: list_breakpoints() есть только с 1.6."""
-    from gi.repository import GLib
-
-    window.set_default_size(420, 700)
-    window.present()
-
-    # Брейкпоинт применяется не в этой итерации цикла, а когда композитор
-    # выделит окну размер: выход по «очередь пуста» ловил момент до того,
-    # как размер доехал, и тест падал через раз.
-    context = GLib.MainContext.default()
-    deadline = GLib.get_monotonic_time() + 5_000_000
-    while window.get_current_breakpoint() is None and GLib.get_monotonic_time() < deadline:
-        context.iteration(True)
-
-    assert window.get_current_breakpoint() is not None
-    assert window.view_switcher_bar.get_reveal() is True
-    assert window.view_switcher.get_visible() is False
-
-
 def test_default_size_comes_from_saved_geometry(adw_app):
     from src.ui.logic.geometry import Geometry, format_geometry
 
-    adw_app.context.config.window_size = format_geometry(Geometry(900, 800))
+    adw_app.context.config.window_size = format_geometry(Geometry(1000, 800))
     adw_app.activate()
     window = adw_app.get_active_window()
 
-    assert window.get_default_size() == (900, 800)
+    assert window.get_default_size() == (1000, 800)
 
 
 def test_close_request_saves_geometry(window, adw_app):
     from src.ui.logic.geometry import parse_geometry
 
-    window.set_default_size(880, 660)
+    window.set_default_size(980, 660)
     window.emit("close-request")
 
     saved = parse_geometry(adw_app.context.config.window_size)
-    assert (saved.width, saved.height) == (880, 660)
+    assert (saved.width, saved.height) == (980, 660)
 
 
 def test_empty_store_asks_to_add_a_server(window, adw_app):
@@ -82,23 +57,15 @@ def test_status_card_follows_proxy_state(window, adw_app):
     assert window.status_card.get_title() == "Подключено"
 
 
-def test_default_width_is_wider_than_the_narrow_breakpoint():
-    """Окно по умолчанию не должно открываться в компактном режиме."""
-    from src.ui.logic.geometry import DEFAULT_GEOMETRY
-    from src.ui.window import NARROW_WIDTH
-
-    assert DEFAULT_GEOMETRY.width > NARROW_WIDTH
-
-
 def test_geometry_is_saved_without_close_request(window, adw_app):
     """Выход по сигналу не эмитирует close-request, геометрия всё равно нужна."""
     from src.ui.logic.geometry import parse_geometry
 
-    window.set_default_size(910, 640)
+    window.set_default_size(1010, 640)
     window.save_geometry()
 
     saved = parse_geometry(adw_app.context.config.window_size)
-    assert (saved.width, saved.height) == (910, 640)
+    assert (saved.width, saved.height) == (1010, 640)
 
 
 def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app):
@@ -120,32 +87,6 @@ def test_pages_are_real_widgets(window):
     assert isinstance(window.profiles_page, ProfilesPage)
     assert isinstance(window.subscriptions_page, SubscriptionsPage)
     assert isinstance(window.monitoring_page, MonitoringPage)
-
-
-def test_search_toggles_the_bar_of_the_visible_page(window):
-    window.view_stack.set_visible_child_name("profiles")
-    window.set_search_enabled(True)
-    assert window.profiles_page.search_bar.get_search_mode() is True
-
-    window.view_stack.set_visible_child_name("subscriptions")
-    window.set_search_enabled(True)
-    assert window.subscriptions_page.search_bar.get_search_mode() is True
-
-
-def test_search_is_disabled_on_the_monitoring_page(window):
-    """Мониторинг — не список, искать там нечего."""
-    window.view_stack.set_visible_child_name("monitoring")
-    window.set_search_enabled(True)
-    assert window.search_button.get_sensitive() is False
-
-
-def test_switching_pages_closes_the_previous_search(window):
-    window.view_stack.set_visible_child_name("profiles")
-    window.set_search_enabled(True)
-
-    window.view_stack.set_visible_child_name("subscriptions")
-
-    assert window.profiles_page.search_bar.get_search_mode() is False
 
 
 def test_refresh_pages_survives_an_empty_store(window):
@@ -354,11 +295,12 @@ def test_selecting_another_profile_offers_an_explicit_switch(window, adw_app):
     window.profiles_page.expand_all()
 
     window.profiles_page.select_profile(second.id)
-    assert window.status_card.switch_button.get_visible() is True
+    assert window.profiles_page.switch_button.get_visible() is True
     assert window.status_card.get_subtitle() == "Первый"
+    assert not hasattr(window.status_card, "switch_button")
 
     window.profiles_page.select_profile(first.id)
-    assert window.status_card.switch_button.get_visible() is False
+    assert window.profiles_page.switch_button.get_visible() is False
 
 
 def test_the_switch_connects_the_selected_profile(window, adw_app, monkeypatch):
@@ -371,7 +313,7 @@ def test_the_switch_connects_the_selected_profile(window, adw_app, monkeypatch):
 
     connected = []
     monkeypatch.setattr(adw_app.controller, "connect_profile", connected.append)
-    window.status_card.switch_button.emit("clicked")
+    window.profiles_page.switch_button.emit("clicked")
 
     assert connected == [second.id]
 
@@ -484,3 +426,137 @@ def test_blocked_banner_follows_the_traffic_state(window):
     window.refresh_status()
 
     assert not window.blocked_banner.get_revealed()
+
+
+# --- компоновка как в Qt ------------------------------------------------------
+
+
+def _menu_labels(model):
+    labels = []
+    for index in range(model.get_n_items()):
+        label = model.get_item_attribute_value(index, "label", None)
+        if label is not None:
+            labels.append(label.get_string())
+        for link in ("section", "submenu"):
+            child = model.get_item_link(index, link)
+            if child is not None:
+                labels.extend(_menu_labels(child))
+    return labels
+
+
+def test_window_has_a_side_panel_and_two_right_pages(window):
+    from gi.repository import Gtk
+
+    assert not hasattr(window, "view_stack")
+    assert not hasattr(window, "view_switcher")
+    assert window.right_stack.get_child_by_name("servers") is not None
+    assert window.right_stack.get_child_by_name("monitoring") is window.monitoring_page
+    assert window.right_stack.get_visible_child_name() == "servers"
+    assert isinstance(window.columns, Gtk.Box)
+    assert window.columns.get_first_child() is window.panel_clamp
+    assert window.panel_clamp.get_child() is window.status_card
+
+
+def test_header_shows_the_page_title_and_actions(window):
+    assert window.page_title.get_text() == "Серверы"
+    assert window.back_button.get_visible() is False
+    assert window.settings_button.get_label() == "Настройки"
+    assert window.settings_button.get_action_name() == "app.settings"
+    assert window.menu_button.get_tooltip_text() == "Главное меню"
+    assert not hasattr(window, "search_button")
+
+
+def test_main_menu_follows_the_shared_list(window):
+    from src.ui.logic.menus import MAIN_MENU
+
+    labels = _menu_labels(window.menu_button.get_menu_model())
+    assert labels == [label for _n, label in MAIN_MENU]
+    assert "Журнал…" in labels
+
+
+def test_footer_has_the_diagnostics_toggle_and_latency(window):
+    assert window.diagnostics_toggle.get_label() == "Диагностика"
+    assert window.latency_button.get_label() == "Проверить задержку"
+    assert window.latency_button.get_action_name() == "app.test-latency"
+
+
+def test_search_action_focuses_the_entry_and_returns_to_servers(window, adw_app):
+    window.present()
+    window.diagnostics_toggle.set_active(True)
+    adw_app.activate_action("search", None)
+    assert window.right_stack.get_visible_child_name() == "servers"
+    _drain_main_loop()
+    assert window.profiles_page.search_entry.get_focus_child() is not None or (
+        window.get_focus() is not None
+        and window.get_focus().is_ancestor(window.profiles_page.search_entry)
+    )
+
+
+def test_short_window_makes_the_panel_compact(window):
+    from gi.repository import GLib
+
+    window.set_default_size(1000, 560)
+    window.present()
+    context = GLib.MainContext.default()
+    deadline = GLib.get_monotonic_time() + 5_000_000
+    while window.get_current_breakpoint() is None and GLib.get_monotonic_time() < deadline:
+        context.iteration(True)
+
+    assert window.status_card.get_property("compact") is True
+
+
+def test_ping_button_tests_the_profile(window, adw_app, monkeypatch):
+    first, _second = _two_profiles(adw_app)
+    tested = []
+    monkeypatch.setattr(adw_app.controller, "test_latency_for", tested.append)
+    window.profiles_page.emit("profile-ping", first.id)
+    assert tested == [first.id]
+
+
+def test_toggle_switches_the_right_page_and_header(window, monkeypatch):
+    monkeypatch.setattr(window.monitoring_page, "refresh_diagnostics", lambda *_a: None)
+    window.present()
+    window.diagnostics_toggle.set_active(True)
+    assert window.right_stack.get_visible_child_name() == "monitoring"
+    assert window.page_title.get_text() == "Диагностика"
+    assert window.back_button.get_visible() is True
+    assert window.monitoring_page.log_timer_running_for_test() is True
+
+    window.back_button.emit("clicked")
+    assert window.right_stack.get_visible_child_name() == "servers"
+    assert window.page_title.get_text() == "Серверы"
+    assert window.diagnostics_toggle.get_active() is False
+    assert window.monitoring_page.log_timer_running_for_test() is False
+
+
+def test_show_log_action_opens_diagnostics_and_focuses_the_log(window, adw_app, monkeypatch):
+    monkeypatch.setattr(window.monitoring_page, "refresh_diagnostics", lambda *_a: None)
+    adw_app.activate_action("show-log", None)
+    _drain_main_loop()
+    assert window.right_stack.get_visible_child_name() == "monitoring"
+    assert window.get_focus() is window.monitoring_page.log_view
+
+
+def test_switching_pages_keeps_query_and_selection(window, adw_app, monkeypatch):
+    monkeypatch.setattr(window.monitoring_page, "refresh_diagnostics", lambda *_a: None)
+    first, _second = _two_profiles(adw_app)
+    window.refresh_pages()
+    window.profiles_page.search_entry.set_text("Перв")
+    window.profiles_page.set_query("Перв")
+    window.profiles_page.expand_all()
+    window.profiles_page.select_profile(first.id)
+
+    window.diagnostics_toggle.set_active(True)
+    window.diagnostics_toggle.set_active(False)
+
+    assert window.profiles_page.search_entry.get_text() == "Перв"
+    assert window.profiles_page.get_selected_profile_id() == first.id
+
+
+def test_hiding_the_window_stops_the_log_timer(window, monkeypatch):
+    monkeypatch.setattr(window.monitoring_page, "refresh_diagnostics", lambda *_a: None)
+    window.present()
+    window.diagnostics_toggle.set_active(True)
+    assert window.monitoring_page.log_timer_running_for_test() is True
+    window.set_visible(False)
+    assert window.monitoring_page.log_timer_running_for_test() is False

@@ -275,8 +275,9 @@ class TengaApplication(Adw.Application):
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
             "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
-            "search": self._toggle_search,
+            "search": self._focus_search,
             "settings": self._open_settings,
+            "show-log": self._show_log,
             "about": self._open_about,
             "shortcuts": self._open_shortcuts,
             "quit": self.quit,
@@ -532,9 +533,15 @@ class TengaApplication(Adw.Application):
 
     # Действия страниц
 
-    def _toggle_search(self) -> None:
+    def _focus_search(self) -> None:
         if self._window is not None:
-            self._window.search_button.set_active(not self._window.search_button.get_active())
+            self._window.focus_search()
+
+    def _show_log(self) -> None:
+        """«Журнал…» в меню: диагностика с фокусом в журнале."""
+        self._activate_window()
+        if self._window is not None:
+            self._window.show_log()
 
     # Ожидание фоновых задач: только для тестов, в рабочем коде всё идёт
     # через главный цикл.

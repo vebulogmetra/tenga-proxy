@@ -14,7 +14,12 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, Gtk
 
 from src.core.config import get_asset_path
-from src.ui.logic.appearance import normalize_theme
+from src.ui.logic.appearance import (
+    COMPACT_HEIGHT,
+    PANEL_MAX_WIDTH,
+    PANEL_MIN_WIDTH,
+    normalize_theme,
+)
 from src.ui.logic.geometry import (
     MIN_HEIGHT,
     MIN_WIDTH,
@@ -22,7 +27,7 @@ from src.ui.logic.geometry import (
     format_geometry,
     parse_geometry,
 )
-from src.ui.logic.menus import ADD_MENU, MAIN_MENU
+from src.ui.logic.menus import MAIN_MENU
 from src.ui.logic.monitoring_view import format_last_check, monitoring_view
 from src.ui.logic.status import (
     BLOCKED_BANNER,
@@ -37,16 +42,16 @@ from src.ui.logic.status import (
 from src.ui.pages.monitoring import MonitoringPage
 from src.ui.pages.profiles import ProfilesPage
 from src.ui.pages.subscriptions import SubscriptionsPage
-from src.ui.widgets.status_card import LOGO_SIZE_COMPACT, StatusCard
+from src.ui.widgets.status_card import StatusCard
 
 if TYPE_CHECKING:
     from src.core.context import AppContext
 
 logger = logging.getLogger("tenga.ui.window")
 
-NARROW_WIDTH = 550
-COMPACT_HEIGHT = 560
 APP_ICON = "tenga-proxy"
+
+PAGE_TITLES = {"servers": "Серверы", "monitoring": "Диагностика"}
 
 
 class _EmptyStatus:
@@ -107,7 +112,7 @@ def load_icons() -> None:
 
 
 class MainWindow(Adw.ApplicationWindow):
-    """Shell of the redesigned interface: header bar, status card, page stack."""
+    """Status panel on the left; servers or diagnostics on the right, as in Qt."""
 
     __gtype_name__ = "TengaMainWindow"
 
@@ -119,7 +124,8 @@ class MainWindow(Adw.ApplicationWindow):
 
         geometry = parse_geometry(getattr(context.config, "window_size", ""))
         self.set_default_size(geometry.width, geometry.height)
-        # Без явного минимума libadwaita не может вычислить брейкпоинты.
+        # Без явного минимума libadwaita не может вычислить брейкпоинты; он же
+        # не даёт сжать панель и список дальше общего с Qt минимума.
         self.set_size_request(MIN_WIDTH, MIN_HEIGHT)
         if geometry.maximized:
             self.maximize()
@@ -129,6 +135,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._register_row_actions()
 
         self.connect("close-request", self._on_close_request)
+        self.connect("notify::visible", self._sync_log_timer)
         context.proxy_state.add_listener(self._on_proxy_state_changed)
         self.refresh_status()
         self.refresh_pages()
@@ -139,30 +146,23 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_content(self.toast_overlay)
         self.toast_overlay.set_child(toolbar)
 
-        self.view_stack = Adw.ViewStack()
         self._add_pages()
+        toolbar.add_top_bar(self._build_header())
 
-        header = Adw.HeaderBar()
-        # NARROW: подписи уходят под значки, поэтому третья вкладка не
-        # обрезается на окне шириной чуть больше брейкпоинта.
-        self.view_switcher = Adw.ViewSwitcher(
-            stack=self.view_stack,
-            policy=Adw.ViewSwitcherPolicy.NARROW,
-        )
-        header.set_title_widget(self.view_switcher)
-        header.pack_start(self._build_add_button())
-        header.pack_end(self._build_main_menu_button())
-        header.pack_end(self._build_search_button())
-        toolbar.add_top_bar(header)
-
-        self.view_switcher_bar = Adw.ViewSwitcherBar(stack=self.view_stack)
-        toolbar.add_bottom_bar(self.view_switcher_bar)
-
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        # Панель состояния слева, страницы справа — как в Qt.
+        self.columns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
         self.status_card = StatusCard()
         self.status_card.connect("action-clicked", self._on_status_action)
-        self.status_card.connect("switch-clicked", self._on_switch_clicked)
-        content.append(self.status_card)
+        self.panel_clamp = Adw.Clamp(
+            child=self.status_card,
+            maximum_size=PANEL_MAX_WIDTH,
+            tightening_threshold=PANEL_MIN_WIDTH,
+            hexpand=False,
+        )
+        self.columns.append(self.panel_clamp)
+        self.columns.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
         self.pending_banner = Adw.Banner(
             title="Изменения применятся после переподключения",
             button_label="Переподключить",
@@ -171,7 +171,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.pending_banner.connect(
             "button-clicked", lambda _banner: self.get_application().reconnect_current()
         )
-        content.append(self.pending_banner)
+        right.append(self.pending_banner)
         self.blocked_banner = Adw.Banner(
             title=BLOCKED_BANNER,
             button_label=RELEASE_BLOCK_LABEL,
@@ -181,11 +181,53 @@ class MainWindow(Adw.ApplicationWindow):
             "button-clicked",
             lambda _banner: self.get_application().activate_action("release-block", None),
         )
-        content.append(self.blocked_banner)
+        right.append(self.blocked_banner)
 
-        self.view_stack.set_vexpand(True)
-        content.append(self.view_stack)
-        toolbar.set_content(content)
+        self.right_stack = Gtk.Stack(
+            vexpand=True, transition_type=Gtk.StackTransitionType.CROSSFADE
+        )
+        for widget in (self.right_stack,):
+            widget.set_margin_top(8)
+            widget.set_margin_bottom(8)
+            widget.set_margin_start(8)
+            widget.set_margin_end(8)
+
+        servers = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        servers.append(self.profiles_page)
+        footer = Gtk.Box(spacing=8)
+        self.diagnostics_toggle = Gtk.ToggleButton(label="Диагностика")
+        self.diagnostics_toggle.connect("toggled", self._on_diagnostics_toggled)
+        footer.append(self.diagnostics_toggle)
+        footer.append(Gtk.Box(hexpand=True))
+        self.latency_button = Gtk.Button(label="Проверить задержку", action_name="app.test-latency")
+        footer.append(self.latency_button)
+        servers.append(footer)
+
+        self.right_stack.add_named(servers, "servers")
+        self.right_stack.add_named(self.monitoring_page, "monitoring")
+        right.append(self.right_stack)
+        self.columns.append(right)
+        toolbar.set_content(self.columns)
+
+    def _build_header(self) -> Adw.HeaderBar:
+        header = Adw.HeaderBar()
+        self.back_button = Gtk.Button(label="← Серверы", visible=False)
+        self.back_button.connect("clicked", lambda _b: self.show_servers())
+        header.pack_start(self.back_button)
+
+        self.page_title = Gtk.Label(label=PAGE_TITLES["servers"])
+        self.page_title.add_css_class("title")
+        header.set_title_widget(self.page_title)
+
+        menu = Gio.Menu()
+        for name, label in MAIN_MENU:
+            menu.append(label, f"app.{name}")
+        self.menu_button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
+        self.menu_button.set_tooltip_text("Главное меню")
+        header.pack_end(self.menu_button)
+        self.settings_button = Gtk.Button(label="Настройки", action_name="app.settings")
+        header.pack_end(self.settings_button)
+        return header
 
     def _add_pages(self) -> None:
         self.profiles_page = ProfilesPage()
@@ -198,74 +240,53 @@ class MainWindow(Adw.ApplicationWindow):
         )
         self.profiles_page.connect("profile-activated", self._on_profile_activated)
         self.profiles_page.connect("selection-changed", lambda _page: self.refresh_status())
+        self.profiles_page.connect("switch-clicked", self._on_switch_clicked)
+        self.profiles_page.connect(
+            "profile-ping", lambda _page, profile_id: self._row_test_profile(profile_id)
+        )
         self.subscriptions_page.connect("subscription-activated", self._on_subscription_edit)
         self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
-        self.view_stack.add_titled_with_icon(
-            self.profiles_page, "profiles", "Серверы", "network-server-symbolic"
-        )
-        self.view_stack.add_titled_with_icon(
-            self.subscriptions_page, "subscriptions", "Подписки", "folder-download-symbolic"
-        )
-        self.view_stack.add_titled_with_icon(
-            self.monitoring_page, "monitoring", "Диагностика", "utilities-system-monitor-symbolic"
-        )
-
-        self.view_stack.connect("notify::visible-child-name", self._on_page_changed)
-
-    def _build_add_button(self) -> Gtk.MenuButton:
-        menu = Gio.Menu()
-        for name, label in ADD_MENU:
-            menu.append(label, f"app.{name}")
-
-        button = Gtk.MenuButton(icon_name="list-add-symbolic", menu_model=menu)
-        button.set_tooltip_text("Добавить")
-        return button
-
-    def _build_main_menu_button(self) -> Gtk.MenuButton:
-        menu = Gio.Menu()
-        for name, label in MAIN_MENU:
-            menu.append(label, f"app.{name}")
-
-        button = Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu)
-        button.set_tooltip_text("Главное меню")
-        return button
-
-    def _build_search_button(self) -> Gtk.ToggleButton:
-        self.search_button = Gtk.ToggleButton(icon_name="system-search-symbolic")
-        self.search_button.set_tooltip_text("Поиск (Ctrl+F)")
-        self.search_button.connect("toggled", self._on_search_toggled)
-        return self.search_button
-
     def _install_breakpoint(self) -> None:
-        """Adapt to small windows: switcher in the bottom bar, smaller logo.
+        """Shrink the status panel on a low window; the logo stays visible."""
+        condition = Adw.BreakpointCondition.new_length(
+            Adw.BreakpointConditionLengthType.MAX_HEIGHT, COMPACT_HEIGHT, Adw.LengthUnit.SP
+        )
+        breakpoint_ = Adw.Breakpoint.new(condition)
+        breakpoint_.add_setter(self.status_card, "compact", True)
+        self.add_breakpoint(breakpoint_)
 
-        Из подошедших брейкпоинтов действует только последний, поэтому узкому
-        и низкому окну нужен свой, с обоими наборами значений.
-        """
+    # --- переключение страниц ---
 
-        def narrow():
-            return Adw.BreakpointCondition.new_length(
-                Adw.BreakpointConditionLengthType.MAX_WIDTH, NARROW_WIDTH, Adw.LengthUnit.SP
-            )
+    def _on_diagnostics_toggled(self, button: Gtk.ToggleButton) -> None:
+        name = "monitoring" if button.get_active() else "servers"
+        self.right_stack.set_visible_child_name(name)
+        self.page_title.set_text(PAGE_TITLES[name])
+        self.back_button.set_visible(name == "monitoring")
+        self._sync_log_timer()
+        if name == "servers":
+            self.profiles_page.list_view.grab_focus()
 
-        def short():
-            return Adw.BreakpointCondition.new_length(
-                Adw.BreakpointConditionLengthType.MAX_HEIGHT, COMPACT_HEIGHT, Adw.LengthUnit.SP
-            )
+    def _sync_log_timer(self, *_args) -> None:
+        """One log timer, running only while the diagnostics page is on screen."""
+        self.monitoring_page.set_active(self.diagnostics_toggle.get_active() and self.get_visible())
 
-        for condition, is_narrow, is_short in (
-            (narrow(), True, False),
-            (short(), False, True),
-            (Adw.BreakpointCondition.new_and(narrow(), short()), True, True),
-        ):
-            breakpoint_ = Adw.Breakpoint.new(condition)
-            if is_narrow:
-                breakpoint_.add_setter(self.view_switcher_bar, "reveal", True)
-                breakpoint_.add_setter(self.view_switcher, "visible", False)
-            if is_short:
-                breakpoint_.add_setter(self.status_card.logo_image, "pixel-size", LOGO_SIZE_COMPACT)
-            self.add_breakpoint(breakpoint_)
+    def show_servers(self) -> None:
+        """Return to the server list, keeping its search, selection and scroll."""
+        self.diagnostics_toggle.set_active(False)
+
+    def show_diagnostics(self) -> None:
+        self.diagnostics_toggle.set_active(True)
+
+    def show_log(self) -> None:
+        """«Журнал…» в меню: диагностика с фокусом в журнале."""
+        self.show_diagnostics()
+        self.monitoring_page.focus_log()
+
+    def focus_search(self) -> None:
+        """Ctrl+F: back to the servers and into the search field."""
+        self.show_servers()
+        self.profiles_page.focus_search()
 
     # --- действия строк ---
 
@@ -490,8 +511,6 @@ class MainWindow(Adw.ApplicationWindow):
 
     # --- страницы ---
 
-    SEARCHABLE_PAGES = ("profiles", "subscriptions")
-
     def refresh_pages(self) -> None:
         """Reload every page from the current store and proxy state."""
         store = self._context.profiles
@@ -531,6 +550,11 @@ class MainWindow(Adw.ApplicationWindow):
             and getattr(vpn_settings, "connection_name", "")
         )
 
+        checked = self._presentation.check_done(
+            running=state.is_running,
+            active_id=state.started_profile_id if state.is_running else None,
+            last_check_time=status.last_check_time,
+        )
         self.monitoring_page.update(
             monitoring_view(
                 status,
@@ -543,37 +567,9 @@ class MainWindow(Adw.ApplicationWindow):
                 # запрашивается у NetworkManager: перерисовка не должна ходить
                 # в систему.
                 vpn_is_up=vpn_enabled and status.vpn_ok,
+                checked=checked,
             )
         )
-
-    def set_search_enabled(self, enabled: bool) -> None:
-        """Open or close the search bar of the visible page."""
-        page = self._visible_search_page()
-        if page is None:
-            return
-        page.set_search_enabled(enabled)
-
-    def _visible_search_page(self):
-        name = self.view_stack.get_visible_child_name()
-        if name == "profiles":
-            return self.profiles_page
-        if name == "subscriptions":
-            return self.subscriptions_page
-        return None
-
-    def _on_page_changed(self, _stack, _param) -> None:
-        """Close the search of the page we just left and disable it where unused."""
-        for page in (self.profiles_page, self.subscriptions_page):
-            if page is not self._visible_search_page():
-                page.set_search_enabled(False)
-
-        searchable = self.view_stack.get_visible_child_name() in self.SEARCHABLE_PAGES
-        self.search_button.set_sensitive(searchable)
-        if not searchable:
-            self.search_button.set_active(False)
-
-    def _on_search_toggled(self, button: Gtk.ToggleButton) -> None:
-        self.set_search_enabled(button.get_active())
 
     def _on_profile_activated(self, _page, profile_id: int) -> None:
         app = self.get_application()
@@ -634,7 +630,7 @@ class MainWindow(Adw.ApplicationWindow):
             if selected is not None and state.is_running and selected.id != state.started_profile_id
             else ""
         )
-        self.status_card.set_switch_target(switch_to, enabled=not busy)
+        self.profiles_page.set_switch_target(switch_to, enabled=not busy)
 
         monitor = self._context.monitor
         status = monitor.status if monitor is not None else _EmptyStatus()
@@ -681,7 +677,7 @@ class MainWindow(Adw.ApplicationWindow):
         if app is not None:
             app.activate_action("toggle-connection", None)
 
-    def _on_switch_clicked(self, _card: StatusCard) -> None:
+    def _on_switch_clicked(self, _page: ProfilesPage) -> None:
         selected_id = self.profiles_page.get_selected_profile_id()
         app = self.get_application()
         if app is not None and selected_id is not None:

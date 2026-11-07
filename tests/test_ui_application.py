@@ -25,6 +25,8 @@ EXPECTED_ACTIONS = {
     "hide-window",
     "activate-window",
     "connect-profile",
+    "search",
+    "show-log",
 }
 
 
@@ -404,7 +406,7 @@ def test_connect_without_a_selection_reuses_the_last_profile(adw_app):
 
     adw_app.select_profile(entry.id)
     adw_app.wait_for_connection_for_test()
-    adw_app.get_active_window().profiles_page.column_view.get_model().unselect_all()
+    adw_app.get_active_window().profiles_page.list_view.get_model().unselect_all()
 
     adw_app.activate_action("connect", None)
     adw_app.wait_for_connection_for_test()

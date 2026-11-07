@@ -29,3 +29,11 @@ def test_main_menu_has_the_log_item_after_settings():
     names = [name for name, _label in MAIN_MENU]
     assert names.index("show-log") == names.index("settings") + 1
     assert dict(MAIN_MENU)["show-log"] == "Журнал…"
+
+
+def test_every_main_menu_item_is_an_action_in_both_toolkits():
+    gtk = (ROOT / "src/ui/application.py").read_text(encoding="utf-8")
+    qt = (ROOT / "src/ui/qt/application.py").read_text(encoding="utf-8")
+    for name, _label in MAIN_MENU:
+        assert f'"{name}":' in gtk, name
+        assert f'"{name}":' in qt, name

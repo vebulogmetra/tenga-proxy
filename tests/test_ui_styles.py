@@ -36,7 +36,7 @@ def test_stylesheet_parses_without_errors():
     assert errors == []
 
 
-def test_toast_overlay_covers_the_navigation(gtk_ready, monkeypatch):
+def test_toast_overlay_covers_both_columns(gtk_ready, monkeypatch):
     from types import SimpleNamespace
 
     from gi.repository import Adw
@@ -51,7 +51,7 @@ def test_toast_overlay_covers_the_navigation(gtk_ready, monkeypatch):
     main = window.MainWindow(application=None, context=context)
     try:
         ancestors = []
-        parent = main.view_switcher_bar.get_parent()
+        parent = main.columns.get_parent()
         while parent is not None:
             ancestors.append(parent)
             parent = parent.get_parent()
