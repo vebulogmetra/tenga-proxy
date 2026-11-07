@@ -32,15 +32,30 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.logic.geometry import Geometry, format_geometry, parse_geometry
+from src.ui.logic.geometry import (
+    DEFAULT_GEOMETRY,
+    MIN_HEIGHT,
+    MIN_WIDTH,
+    Geometry,
+    format_geometry,
+    parse_geometry,
+)
 from src.ui.logic.menus import ADD_MENU, MAIN_MENU
-from src.ui.logic.monitoring_view import format_last_check, monitoring_view
+from src.ui.logic.monitoring_view import (
+    NOT_CHECKED,
+    format_last_check,
+    last_check_text,
+    monitoring_view,
+)
 from src.ui.logic.profiles_view import (
     EMPTY_DESCRIPTION,
     EMPTY_TITLE,
+    NO_RESULTS_TEXT,
     SEARCH_PLACEHOLDER,
+    SELECTED_NONE,
     SortKey,
     build_profile_rows,
+    selected_text,
 )
 from src.ui.logic.status import (
     BLOCKED_BANNER,
@@ -130,9 +145,11 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Monoliten")
         available = self.screen().availableGeometry()
-        self.setMinimumSize(min(900, available.width()), min(540, available.height() - 40))
+        self.setMinimumSize(
+            min(MIN_WIDTH, available.width()), min(MIN_HEIGHT, available.height() - 40)
+        )
         geometry = parse_geometry(
-            getattr(context.config, "window_size", ""), default=Geometry(1180, 760)
+            getattr(context.config, "window_size", ""), default=DEFAULT_GEOMETRY
         )
         self.resize(
             min(geometry.width, available.width()), min(geometry.height, available.height() - 40)
@@ -185,8 +202,6 @@ class MainWindow(QMainWindow):
             if action is not None:
                 entry = self.main_menu.addAction(label)
                 entry.triggered.connect(action.trigger)
-            if name == "settings":
-                self.main_menu.addAction("Журнал…", self.show_diagnostics)
         self.menu_button.setMenu(self.main_menu)
         toolbar.addWidget(self.menu_button)
         self.pending_banner = QFrame()
@@ -426,8 +441,8 @@ class MainWindow(QMainWindow):
             blocked=blocked,
         )
         self.status_card.update_view(view)
-        selected_name = flagged(selected.name)[1] if selected else "Сервер не выбран"
-        self.selection_label.setText(f"Выбран: {selected_name}" if selected else selected_name)
+        selected_name = flagged(selected.name)[1] if selected else SELECTED_NONE
+        self.selection_label.setText(selected_text(selected.name if selected else ""))
         self.selection_label.setToolTip(
             f"{selected.proxy_type.upper()} · {selected.bean.server_address}:{selected.bean.server_port}"
             if selected
@@ -543,9 +558,7 @@ class MainWindow(QMainWindow):
         self.tree.setVisible(has_profiles or bool(rows))
         self.empty_label.setVisible(not has_profiles)
         self.empty_label.setText(
-            "Ничего не найдено. Измените запрос."
-            if self.search.text()
-            else f"{EMPTY_TITLE}\n{EMPTY_DESCRIPTION}"
+            NO_RESULTS_TEXT if self.search.text() else f"{EMPTY_TITLE}\n{EMPTY_DESCRIPTION}"
         )
         self.refresh_status()
 
@@ -592,15 +605,11 @@ class MainWindow(QMainWindow):
                 ).addRow(row.title, value)
                 self._monitoring_values[key] = value
             value.setText(
-                "Проверка ещё не выполнена"
-                if position == 0 and state.is_running and not checked
-                else row.value
+                NOT_CHECKED if position == 0 and state.is_running and not checked else row.value
             )
             value.setProperty("state", row.css_class)
         self.last_check.setText(
-            f"Последняя проверка: {view.last_check}"
-            if checked or not state.is_running
-            else "Ожидается проверка соединения"
+            last_check_text(status.last_check_time, checked=checked or not state.is_running)
         )
         summary = health_text(
             running=state.is_running,

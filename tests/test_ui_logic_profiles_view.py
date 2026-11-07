@@ -165,3 +165,13 @@ def test_empty_group_is_hidden_without_a_query():
     groups = {0: FakeGroup(id=0, name="Default")}
     rows = build_profile_rows(groups, {0: []})
     assert rows == []
+
+
+def test_no_results_text_is_shared():
+    from src.ui.logic.profiles_view import NO_RESULTS_TEXT, SELECTED_NONE, selected_text
+
+    assert NO_RESULTS_TEXT == "Ничего не найдено. Измените запрос."
+    assert SELECTED_NONE == "Сервер не выбран"
+    assert selected_text("🇩🇪 Берлин") == "Выбран: Берлин"
+    assert selected_text("Берлин") == "Выбран: Берлин"
+    assert selected_text("") == SELECTED_NONE

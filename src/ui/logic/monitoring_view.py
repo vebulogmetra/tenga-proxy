@@ -13,6 +13,9 @@ from typing import Any
 UNKNOWN = "—"
 NOT_SET = "не задан"
 NOT_CONFIGURED = "не настроен"
+NOT_CHECKED = "Проверка ещё не выполнена"
+LAST_CHECK_PENDING = "Ожидается проверка соединения"
+LAST_CHECK_PREFIX = "Последняя проверка: "
 
 _PROXY_ALL = "proxy_all"
 _TIME_FORMAT = "%H:%M:%S"
@@ -49,6 +52,15 @@ def format_last_check(timestamp: float) -> str:
     if not timestamp:
         return UNKNOWN
     return datetime.datetime.fromtimestamp(timestamp).strftime(_TIME_FORMAT)
+
+
+def last_check_text(timestamp: float, *, checked: bool | None = None) -> str:
+    """Line under the monitoring groups; `checked` defaults to "a check has happened"."""
+    if checked is None:
+        checked = bool(timestamp)
+    if not checked:
+        return LAST_CHECK_PENDING
+    return LAST_CHECK_PREFIX + format_last_check(timestamp)
 
 
 def _blank_routing() -> tuple[MonitoringRow, ...]:

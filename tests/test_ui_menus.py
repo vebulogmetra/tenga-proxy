@@ -21,3 +21,11 @@ def test_ctrl_d_is_declared_in_both_toolkits():
     qt = (ROOT / "src/ui/qt/dialogs/shortcuts.py").read_text(encoding="utf-8")
     assert re.search(r'"app\.network-diagnostics": \["<Control>d"\]', gtk)
     assert re.search(r'"network-diagnostics": "Ctrl\+D"', qt)
+
+
+def test_main_menu_has_the_log_item_after_settings():
+    from src.ui.logic.menus import MAIN_MENU
+
+    names = [name for name, _label in MAIN_MENU]
+    assert names.index("show-log") == names.index("settings") + 1
+    assert dict(MAIN_MENU)["show-log"] == "Журнал…"

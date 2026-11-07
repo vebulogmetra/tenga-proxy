@@ -184,3 +184,14 @@ def test_monitoring_view_passes_own_rules_through():
     assert values(view.routing)["Правила"] == "Сервера"
     blank = monitoring_view(FakeStatus(), FakeRouting(), is_running=False, own_rules=True)
     assert values(blank.routing)["Правила"] == UNKNOWN
+
+
+def test_check_pending_texts_are_shared():
+    from src.ui.logic.monitoring_view import LAST_CHECK_PENDING, NOT_CHECKED, last_check_text
+
+    assert NOT_CHECKED == "Проверка ещё не выполнена"
+    assert LAST_CHECK_PENDING == "Ожидается проверка соединения"
+    assert last_check_text(0.0) == LAST_CHECK_PENDING
+    assert last_check_text(1_700_000_000.0).startswith("Последняя проверка: ")
+    # Без запущенной сессии ждать нечего: время показывается, даже если его нет.
+    assert last_check_text(0.0, checked=True) == "Последняя проверка: —"

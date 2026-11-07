@@ -226,6 +226,7 @@ class QtApplication:
             "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
             "search": self._focus_search,
             "settings": self.open_settings,
+            "show-log": self._show_log,
             "about": self.open_about,
             "shortcuts": self.open_shortcuts,
             "quit": self.quit,
@@ -514,6 +515,11 @@ class QtApplication:
     def _hide_window(self) -> None:
         if self.window is not None:
             self.window.hide()
+
+    def _show_log(self) -> None:
+        if self.window is not None:
+            self.activate()
+            self.window.show_diagnostics()
 
     def _focus_search(self) -> None:
         if self.window is not None:

@@ -49,6 +49,11 @@ from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TUN_NAME,
     LOG_LEVELS,
+    SAVE_FAILED,
+    SAVE_IDLE,
+    SAVE_PENDING,
+    invalid_text,
+    save_status_text,
     validate_settings,
 )
 from src.ui.qt.dialogs.base import Debounce, FormStyle, KeyedCombo, mark_error, watch
@@ -214,7 +219,7 @@ class SettingsDialog(QDialog):
         self.status = QLabel()
         self.status.setWordWrap(True)
         self.status.setProperty("error", False)
-        self.status.setText("Изменения сохраняются автоматически")
+        self.status.setText(SAVE_IDLE)
         buttons = QDialogButtonBox()
         close = buttons.addButton("Закрыть", QDialogButtonBox.ButtonRole.RejectRole)
         close.setDefault(True)
@@ -251,7 +256,7 @@ class SettingsDialog(QDialog):
         if self._loading:
             return
         self.status.setProperty("error", False)
-        self.status.setText("Ожидание сохранения…")
+        self.status.setText(SAVE_PENDING)
         mark_error(self.status, None)
         self.status.show()
         self.autosave.queue()
@@ -678,7 +683,7 @@ class SettingsDialog(QDialog):
                 self.routing.read(routing)
             except ValueError as error:
                 self.status.setProperty("error", True)
-                self.status.setText(f"Исправьте настройки: {error}")
+                self.status.setText(invalid_text(str(error)))
                 mark_error(self.status, self.status.text())
                 self.status.show()
                 return False
@@ -690,7 +695,7 @@ class SettingsDialog(QDialog):
             mark_error(getattr(self, attribute), errors.get(field))
         if errors:
             self.status.setProperty("error", True)
-            self.status.setText("Исправьте настройки: " + next(iter(errors.values())))
+            self.status.setText(invalid_text(next(iter(errors.values()))))
             mark_error(self.status, self.status.text())
             self.status.show()
             return False
@@ -702,7 +707,7 @@ class SettingsDialog(QDialog):
         self._persisted = None
         self.settings_saved.emit()
         if self._persisted is not True:
-            self.status.setText("Не удалось сохранить настройки. Повторите изменение.")
+            self.status.setText(SAVE_FAILED)
             self.status.setProperty("error", True)
             mark_error(self.status, self.status.text())
             self.status.show()
@@ -711,8 +716,7 @@ class SettingsDialog(QDialog):
         from src.ui.logic.settings_state import pending_settings
 
         self.status.setText(
-            "Изменения сохранены"
-            + (" · Требуется переподключение" if pending_settings(self._context) else "")
+            save_status_text(saved=True, reconnect=bool(pending_settings(self._context)))
         )
         mark_error(self.status, None)
         self.status.show()

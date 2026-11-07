@@ -13,6 +13,26 @@ LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
 DEFAULT_TUN_NAME = "xray0"
 
+# Строка статуса окна настроек.
+SAVE_IDLE = "Изменения сохраняются автоматически"
+SAVE_PENDING = "Ожидание сохранения…"
+SAVE_FAILED = "Не удалось сохранить настройки. Повторите изменение."
+SAVE_DONE = "Изменения сохранены"
+SAVE_RECONNECT = "Требуется переподключение"
+SAVE_INVALID_PREFIX = "Исправьте настройки: "
+
+
+def save_status_text(*, saved: bool, reconnect: bool) -> str:
+    """Status line after an autosave attempt."""
+    if not saved:
+        return SAVE_FAILED
+    return f"{SAVE_DONE} · {SAVE_RECONNECT}" if reconnect else SAVE_DONE
+
+
+def invalid_text(error: str) -> str:
+    """Status line when a field does not pass validation."""
+    return SAVE_INVALID_PREFIX + error
+
 
 def valid_dns_address(value: str) -> bool:
     if not value or value == "local":

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from src.ui.logic.country_flags import split_flag_prefix
+
 SUBSCRIPTION_ICON = "network-server-symbolic"
 GROUP_ICON = "folder-symbolic"
 
@@ -19,6 +21,9 @@ UNKNOWN_PING = "—"
 EMPTY_TITLE = "Серверов пока нет"
 EMPTY_DESCRIPTION = "Добавьте сервер по ссылке или подключите подписку."
 SEARCH_PLACEHOLDER = "Имя, тип, адрес или группа"
+NO_RESULTS_TEXT = "Ничего не найдено. Измените запрос."
+SELECTED_NONE = "Сервер не выбран"
+SELECTED_PREFIX = "Выбран: "
 
 
 class SortKey(StrEnum):
@@ -161,3 +166,10 @@ def build_profile_rows(
         )
 
     return rows
+
+
+def selected_text(name: str) -> str:
+    """Caption of the selection row under the list: the name without its flag."""
+    if not name:
+        return SELECTED_NONE
+    return SELECTED_PREFIX + split_flag_prefix(name)[1]
