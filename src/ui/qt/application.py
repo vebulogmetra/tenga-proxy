@@ -163,6 +163,12 @@ class _QtShell:
     def open_settings_section(self, section: str) -> None:
         self._app.open_settings_section(section)
 
+    def refresh_app_update(self) -> None:
+        self._app.refresh_dialog()
+
+    def quit(self) -> None:
+        self._app.quit()
+
     def activate_window(self) -> None:
         self._app.activate()
 

@@ -106,6 +106,12 @@ class FakeShell:
     def open_settings_section(self, section):
         self.calls.append(("open_settings", section))
 
+    def refresh_app_update(self):
+        self.calls.append(("refresh_app_update",))
+
+    def quit(self):
+        self.calls.append(("quit",))
+
     def activate_window(self):
         self.calls.append(("activate_window",))
 

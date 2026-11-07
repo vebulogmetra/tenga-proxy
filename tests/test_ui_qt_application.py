@@ -226,6 +226,16 @@ def test_toast_button_runs_its_action(made):
     assert seen == [1]
 
 
+def test_shell_quit_stops_the_event_loop(made, monkeypatch):
+    app, _service = made
+    seen = []
+    monkeypatch.setattr(app.qt, "quit", lambda: seen.append("quit"))
+
+    app.controller._shell.quit()
+
+    assert seen == ["quit"]
+
+
 def test_search_filters_the_tree(made):
     app, _service = made
     _add_profile(app, "Альфа")

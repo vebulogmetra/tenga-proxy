@@ -323,6 +323,9 @@ class AboutPage(QWidget):
 
     # --- обновление приложения ---
 
+    def refresh_app_update(self) -> None:
+        """Заполняется в Task 8."""
+
     def _open_app_release(self) -> None:
         from src.core.app_update import safe_release_url
 

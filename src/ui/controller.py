@@ -124,6 +124,12 @@ class Shell(Protocol):
     def open_settings_section(self, section: str) -> None:
         """Открыть настройки на разделе; пока раздел один — `SETTINGS_DNS`."""
 
+    def refresh_app_update(self) -> None:
+        """Состояние самообновления изменилось: подпись и кнопка в «О программе»."""
+
+    def quit(self) -> None:
+        """Штатный выход: ядро гасится, блокировка снимается."""
+
     def activate_window(self) -> None: ...
 
 

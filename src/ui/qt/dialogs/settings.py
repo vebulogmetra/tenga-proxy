@@ -722,6 +722,7 @@ class SettingsDialog(QDialog):
         """Данные приложения изменились: список подписок и общая маршрутизация."""
         from src.ui.logic.routing_form import form_values
 
+        self.about.refresh_app_update()
         self.subscriptions.refresh()
         self.routing_extra.setRowVisible(
             self.restore_routing_row, self._config.routing_backup is not None
