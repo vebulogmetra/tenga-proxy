@@ -56,6 +56,20 @@ def test_routing_import_lists_rows_and_confirms_only_on_import(qapp):
     assert confirmed == [1]
 
 
+def test_routing_import_reports_dismissal(qapp):
+    from src.ui.logic.routing_import import ImportRow
+    from src.ui.qt.dialogs.routing_import import RoutingImportDialog
+
+    calls = []
+    dialog = RoutingImportDialog(
+        [ImportRow("Подписка", "Мой VPN")],
+        lambda: calls.append("confirm"),
+        on_dismiss=lambda: calls.append("dismiss"),
+    )
+    dialog.reject()
+    assert calls == ["dismiss"]
+
+
 def test_shortcuts_cover_every_action_once(qapp):
     from src.ui.qt.dialogs.shortcuts import SECTIONS, SHORTCUTS, ShortcutsDialog, native_text
 

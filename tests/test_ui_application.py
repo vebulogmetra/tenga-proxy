@@ -217,9 +217,9 @@ def test_the_default_updater_goes_through_the_running_proxy(adw_app):
     response.raise_for_status = Mock()
 
     with patch("src.sub.updater.pinned_get", return_value=response) as mock_get:
-        count = adw_app._default_subscription_updater(group.id, "https://sub.example/list")
+        outcome = adw_app._default_subscription_updater(group.id, "https://sub.example/list")
 
-    assert count == 1
+    assert outcome.count == 1
     assert mock_get.call_args.kwargs["proxies"] == {
         "http": "http://127.0.0.1:2081",
         "https": "http://127.0.0.1:2081",
@@ -1082,6 +1082,21 @@ def test_routing_import_cancel_changes_nothing(adw_app):
     adw_app.current_dialog.emit("response", "cancel")
     assert adw_app.context.config.routing.direct_list == []
     assert adw_app.context.config.routing_backup is None
+
+
+def test_routing_import_dialog_reports_dismissal(gtk_ready):
+    from src.ui.dialogs.routing_import import RoutingImportDialog
+    from src.ui.logic.routing_import import ImportRow
+
+    calls = []
+    dialog = RoutingImportDialog(
+        [ImportRow("Подписка", "Мой VPN")],
+        lambda: calls.append("confirm"),
+        lambda: calls.append("dismiss"),
+    )
+    dialog.emit("response", "cancel")
+    dialog.emit("response", "import")
+    assert calls == ["dismiss", "confirm"]
 
 
 def test_pending_settings_banner_tracks_change_and_revert(adw_app):

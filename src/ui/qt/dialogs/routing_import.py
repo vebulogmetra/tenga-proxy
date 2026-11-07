@@ -31,6 +31,7 @@ class RoutingImportDialog(QDialog):
         rows: list[ImportRow],
         on_confirm: Callable[[], None],
         parent: QWidget | None = None,
+        on_dismiss: Callable[[], None] | None = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Импорт маршрутизации")
@@ -68,6 +69,8 @@ class RoutingImportDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         self.accepted.connect(on_confirm)
+        if on_dismiss is not None:
+            self.rejected.connect(on_dismiss)
 
         layout = QVBoxLayout(self)
         layout.addWidget(body)

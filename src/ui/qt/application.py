@@ -150,11 +150,12 @@ class _QtShell:
     def open_subscription_form(self, name: str, url: str) -> None:
         self._app.open_add_subscription(name=name, url=url)
 
-    def open_routing_import(self, rows, on_confirm) -> None:
+    def open_routing_import(self, rows, on_confirm, on_dismiss=None) -> None:
         from src.ui.qt.dialogs.routing_import import RoutingImportDialog
 
         parent = self._app.dialog_parent()
-        self._app.show_dialog(RoutingImportDialog(rows, on_confirm, parent), parent)
+        dialog = RoutingImportDialog(rows, on_confirm, parent, on_dismiss=on_dismiss)
+        self._app.show_dialog(dialog, parent)
 
     def show_network_diagnostics(self, session) -> None:
         self._app.show_network_diagnostics(session)

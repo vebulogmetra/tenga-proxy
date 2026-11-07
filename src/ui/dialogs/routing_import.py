@@ -22,7 +22,12 @@ class RoutingImportDialog(Adw.AlertDialog):
 
     __gtype_name__ = "TengaRoutingImportDialog"
 
-    def __init__(self, rows: list[ImportRow], on_confirm: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        rows: list[ImportRow],
+        on_confirm: Callable[[], None],
+        on_dismiss: Callable[[], None] | None = None,
+    ) -> None:
         super().__init__(
             heading="Импорт маршрутизации",
             body="Текущие списки будут заменены. Вернуть их можно в настройках: "
@@ -42,7 +47,15 @@ class RoutingImportDialog(Adw.AlertDialog):
         self.set_response_appearance(IMPORT, Adw.ResponseAppearance.SUGGESTED)
         self.set_default_response(CANCEL)
         self.set_close_response(CANCEL)
-        self.connect("response", lambda _d, response: on_confirm() if response == IMPORT else None)
+        self._on_confirm = on_confirm
+        self._on_dismiss = on_dismiss
+        self.connect("response", self._on_response)
+
+    def _on_response(self, _dialog, response: str) -> None:
+        if response == IMPORT:
+            self._on_confirm()
+        elif self._on_dismiss is not None:
+            self._on_dismiss()
 
     def _build_row(self, row: ImportRow) -> Adw.PreferencesRow:
         # Значения приходят из ссылки: только текст, без разметки.

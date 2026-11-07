@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from src import __app_name__
@@ -51,6 +52,16 @@ BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился с�
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
 CORE_RESTART_COOLDOWN = 60.0
 VPN_WATCH_INTERVAL_MS = 5000
+
+
+@dataclass(frozen=True)
+class UpdateOutcome:
+    """Итог обновления одной подписки: число серверов и предложения провайдера."""
+
+    count: int
+    new_url: str = ""
+    fallback_used: str = ""
+    routing_link: str = ""
 
 
 class Shell(Protocol):
@@ -99,7 +110,13 @@ class Shell(Protocol):
 
     def open_subscription_form(self, name: str, url: str) -> None: ...
 
-    def open_routing_import(self, rows: list, on_confirm: Callable[[], None]) -> None: ...
+    def open_routing_import(
+        self,
+        rows: list,
+        on_confirm: Callable[[], None],
+        on_dismiss: Callable[[], None] | None = None,
+    ) -> None:
+        """Окно подтверждения импорта; `on_dismiss` — закрыли без применения."""
 
     def show_network_diagnostics(self, session: DiagnosticsSession) -> None:
         """Открыть окно диагностики или поднять уже открытое."""
@@ -154,6 +171,8 @@ class AppController:
         # Предложения сменить адрес подписки: копятся в фоновом потоке,
         # показываются в главном, по одному и только с подтверждением.
         self._url_proposals: list = []
+        # Наборы маршрутов из заголовка `routing`: (группа, AppLink).
+        self._routing_proposals: list = []
         self._profile_activation_handler: Callable[[int], None] | None = None
         self._connection_service = None
         self.connection_thread = None
@@ -623,7 +642,7 @@ class AppController:
 
     # --- подписки ---
 
-    def set_subscription_updater(self, updater: Callable[[int, str], int]) -> None:
+    def set_subscription_updater(self, updater: Callable[[int, str], UpdateOutcome | int]) -> None:
         """Install the function refreshing one subscription group."""
         self._subscription_updater = updater
 
@@ -665,7 +684,7 @@ class AppController:
 
         def work() -> int:
             try:
-                return updater(group_id, url)
+                return self._collect_outcome(group_id, url, updater(group_id, url))
             except Exception as error:
                 self._propose_fallback_url(group_id, url, error)
                 raise
@@ -680,10 +699,9 @@ class AppController:
             name="tenga-subscription",
         )
 
-    def default_subscription_updater(self, group_id: int, url: str) -> int:
+    def default_subscription_updater(self, group_id: int, url: str) -> UpdateOutcome:
         from src.sub.route import local_proxy_url
         from src.sub.updater import SubscriptionUpdater
-        from src.sub.url_change import REASON_FALLBACK_USED, REASON_NEW_URL, propose_url_change
 
         context = self.context
         updater = SubscriptionUpdater(
@@ -692,16 +710,47 @@ class AppController:
             proxy_url=lambda: local_proxy_url(context.config, context.proxy_state),
         )
         beans = updater.update(url, group_id)
+        return UpdateOutcome(
+            len(beans),
+            new_url=updater.new_url,
+            fallback_used=updater.used_fallback_url,
+            routing_link=updater.routing_link,
+        )
 
+    def _collect_outcome(self, group_id: int, url: str, outcome: UpdateOutcome | int) -> int:
+        """Поставить в очередь предложения провайдера; вернуть число серверов.
+
+        Зовётся из фонового потока: окна показывает `_offer_proposals`.
+        """
+        from src.sub.url_change import REASON_FALLBACK_USED, REASON_NEW_URL, propose_url_change
+
+        if isinstance(outcome, int):
+            return outcome
         # Очередь показывает одно предложение: прямое указание провайдера важнее.
         for candidate, reason in (
-            (updater.new_url, REASON_NEW_URL),
-            (updater.used_fallback_url, REASON_FALLBACK_USED),
+            (outcome.new_url, REASON_NEW_URL),
+            (outcome.fallback_used, REASON_FALLBACK_USED),
         ):
             proposal = propose_url_change(group_id, url, candidate, reason)
             if proposal is not None:
                 self._url_proposals.append(proposal)
-        return len(beans)
+        if outcome.routing_link:
+            self._propose_routing(group_id, outcome.routing_link)
+        return outcome.count
+
+    def _propose_routing(self, group_id: int, raw: str) -> None:
+        """Запомнить набор маршрутов из заголовка; показ — в главном потоке."""
+        from src.fmt.app_links import parse_subscription_routing
+
+        try:
+            link = parse_subscription_routing(raw)
+        except ValueError as error:
+            logger.warning("Subscription %s routing header rejected: %s", group_id, error)
+            return
+        group = self.context.profiles.get_group(group_id)
+        if group is None or group.sub_routing_handled == link.payload_hash:
+            return
+        self._routing_proposals.append((group_id, link))
 
     def _propose_fallback_url(self, group_id: int, url: str, error: BaseException) -> None:
         """Queue the provider's fallback address after a failed update."""
@@ -716,6 +765,66 @@ class AppController:
         proposal = propose_url_change(group_id, url, group.sub_fallback_url, REASON_FALLBACK_URL)
         if proposal is not None:
             self._url_proposals.append(proposal)
+
+    def _offer_proposals(self) -> None:
+        """Одно окно за обновление: смена адреса раньше маршрутизации."""
+        if self._url_proposals:
+            self._offer_url_change()
+            # Набор не помечен обработанным: вернётся со следующим обновлением.
+            self._routing_proposals.clear()
+            return
+        self._offer_routing()
+
+    def _offer_routing(self) -> None:
+        if not self._routing_proposals:
+            return
+        group_id, link = self._routing_proposals[0]
+        self._routing_proposals.clear()
+        group = self.context.profiles.get_group(group_id)
+        if group is None or not self._shell.has_window():
+            return
+        from src.ui.logic.routing_import import (
+            effective_routing,
+            import_rows,
+            reset_routing,
+            reset_rows,
+            routing_differs,
+        )
+
+        current = effective_routing(self.context.config.routing, self.context.config_dir)
+        if link.operation == "routing_off":
+            target = reset_routing(current)
+            if not routing_differs(current, target):
+                # Провайдер шлёт off при каждом обновлении; возвращать нечего — не спрашиваем.
+                self._mark_routing_handled(group_id, link.payload_hash)
+                return
+            rows = reset_rows(current, subscription=group.name)
+        else:
+            target = link.routing
+            rows = import_rows(
+                current,
+                target,
+                name=link.name,
+                direct_default=link.direct_default,
+                subscription=group.name,
+            )
+
+        def confirm() -> None:
+            self.apply_routing_import(target)
+            self._mark_routing_handled(group_id, link.payload_hash)
+
+        self._shell.open_routing_import(
+            rows,
+            confirm,
+            on_dismiss=lambda: self._mark_routing_handled(group_id, link.payload_hash),
+        )
+
+    def _mark_routing_handled(self, group_id: int, payload_hash: str) -> None:
+        group = self.context.profiles.get_group(group_id)
+        if group is None:
+            return
+        group.sub_routing_handled = payload_hash
+        self._save_profiles()
 
     def _offer_url_change(self) -> None:
         """Ask about one queued address change; the rest come back with the next update."""
@@ -773,7 +882,7 @@ class AppController:
             total = 0
             for group_id, url in targets:
                 try:
-                    total += updater(group_id, url)
+                    total += self._collect_outcome(group_id, url, updater(group_id, url))
                 except Exception as e:
                     logger.warning("Subscription %s failed: %s", group_id, describe_update_error(e))
                     self._propose_fallback_url(group_id, url, e)
@@ -798,14 +907,14 @@ class AppController:
 
         self._shell.refresh_pages()
         self.toast(f"Обновлено серверов: {total}")
-        self._offer_url_change()
+        self._offer_proposals()
 
     def _on_subscriptions_failed(self, error: BaseException) -> None:
         self._subscription_busy = False
         sent = self.context.config.sub_send_device_info
         reason = describe_update_error(error, device_info_sent=sent)
         self.toast(f"Не удалось обновить подписки: {reason}")
-        self._offer_url_change()
+        self._offer_proposals()
 
     # --- замер задержки ---
 

@@ -160,10 +160,10 @@ class _GtkShell:
         dialog.connect("subscription-ready", lambda _d, n, u: self._app.add_subscription(n, u))
         self._app.present_dialog(dialog)
 
-    def open_routing_import(self, rows, on_confirm) -> None:
+    def open_routing_import(self, rows, on_confirm, on_dismiss=None) -> None:
         from src.ui.dialogs.routing_import import RoutingImportDialog
 
-        self._app.present_dialog(RoutingImportDialog(rows, on_confirm))
+        self._app.present_dialog(RoutingImportDialog(rows, on_confirm, on_dismiss))
 
     def show_network_diagnostics(self, session) -> None:
         self._app.show_network_diagnostics(session)
@@ -414,7 +414,7 @@ class TengaApplication(Adw.Application):
 
     # Имена с подчёркиванием читают существующие тесты.
 
-    def _default_subscription_updater(self, group_id: int, url: str) -> int:
+    def _default_subscription_updater(self, group_id: int, url: str):
         return self.controller.default_subscription_updater(group_id, url)
 
     @property

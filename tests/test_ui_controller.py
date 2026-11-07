@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock, patch
 
@@ -95,8 +97,8 @@ class FakeShell:
     def open_subscription_form(self, name, url):
         self.forms.append(("subscription", name, url))
 
-    def open_routing_import(self, rows, on_confirm):
-        self.forms.append(("routing-import", rows, on_confirm))
+    def open_routing_import(self, rows, on_confirm, on_dismiss=None):
+        self.forms.append(("routing-import", rows, on_confirm, on_dismiss))
 
     def show_network_diagnostics(self, session):
         self.calls.append(("show_network_diagnostics", session))
@@ -1081,7 +1083,7 @@ def test_routing_link_asks_for_confirmation_then_applies(made):
 
     controller.import_app_link("happ://routing/add/" + payload)
 
-    kind, rows, on_confirm = shell.forms[-1]
+    kind, rows, on_confirm, _on_dismiss = shell.forms[-1]
     assert kind == "routing-import" and rows
     on_confirm()
     assert "example.org" in controller.context.config.routing.direct_list
@@ -1274,3 +1276,120 @@ def test_recommendation_repeat_restarts_session(made, code):
     session.accept = False
     controller.run_recommendation(code)
     assert shell.last_toast == "Проверка уже идёт"
+
+
+# --- набор маршрутов из подписки ---
+
+ROUTING_PAYLOAD = base64.urlsafe_b64encode(json.dumps({"ProxySites": ["x.com"]}).encode()).decode()
+
+
+def _subscription(controller, link: str, *, new_url: str = ""):
+    """Подписка, чьё обновление приносит заголовок routing (и, возможно, new-url)."""
+    from src.ui.controller import UpdateOutcome
+
+    outcome = {"link": link, "new_url": new_url}
+    controller.set_subscription_updater(
+        lambda _gid, _url: UpdateOutcome(
+            1, new_url=outcome["new_url"], routing_link=outcome["link"]
+        )
+    )
+    group = controller.add_subscription("Мой VPN", "https://sub.example/a")
+    _wait_subscriptions(controller)
+    return group.id, outcome
+
+
+def _routing_forms(shell):
+    return [form for form in shell.forms if form[0] == "routing-import"]
+
+
+def test_subscription_routing_header_opens_the_import_window(made):
+    controller, shell, _loop = made
+    group_id, _outcome = _subscription(controller, ROUTING_PAYLOAD)
+
+    _kind, rows, on_confirm, _on_dismiss = _routing_forms(shell)[-1]
+    assert rows[0].label == "Подписка"
+    assert rows[0].value == "Мой VPN"
+    on_confirm()
+    assert controller.context.config.routing.proxy_list == ["x.com"]
+    assert controller.context.config.routing_backup is not None
+    assert controller.context.profiles.get_group(group_id).sub_routing_handled
+
+
+def test_the_same_header_is_not_offered_twice(made):
+    controller, shell, _loop = made
+    group_id, _outcome = _subscription(controller, ROUTING_PAYLOAD)
+    _routing_forms(shell)[-1][3]()  # закрыть без применения
+    shown = len(_routing_forms(shell))
+
+    controller.update_subscription(group_id)
+    _wait_subscriptions(controller)
+
+    assert len(_routing_forms(shell)) == shown
+    assert controller.context.config.routing.proxy_list == []
+
+
+def test_a_new_payload_is_offered_again(made):
+    controller, shell, _loop = made
+    group_id, outcome = _subscription(controller, ROUTING_PAYLOAD)
+    _routing_forms(shell)[-1][2]()
+    outcome["link"] = base64.urlsafe_b64encode(
+        json.dumps({"ProxySites": ["y.com"]}).encode()
+    ).decode()
+
+    controller.update_subscription(group_id)
+    _wait_subscriptions(controller)
+
+    assert len(_routing_forms(shell)) == 2
+
+
+def test_broken_header_is_ignored(made):
+    controller, shell, _loop = made
+    group_id, _outcome = _subscription(controller, "not base64 !!")
+
+    assert not _routing_forms(shell)
+    assert not controller.context.profiles.get_group(group_id).sub_routing_handled
+
+
+def test_routing_off_is_offered_only_when_something_would_change(made):
+    controller, shell, _loop = made
+    group_id, _outcome = _subscription(controller, "happ://routing/off")
+    assert not _routing_forms(shell)
+    # Нечего возвращать — заголовок считается обработанным.
+    assert controller.context.profiles.get_group(group_id).sub_routing_handled
+
+    controller.context.config.routing.proxy_list = ["p.com"]
+    controller.context.config.routing.use_saved_lists = True
+    controller.context.profiles.get_group(group_id).sub_routing_handled = ""
+    controller.update_subscription(group_id)
+    _wait_subscriptions(controller)
+
+    _kind, _rows, on_confirm, _dismiss = _routing_forms(shell)[-1]
+    on_confirm()
+    assert controller.context.config.routing.proxy_list == []
+    assert controller.context.config.routing_backup.proxy_list == ["p.com"]
+
+
+def test_without_a_window_the_offer_waits_for_the_next_update(made):
+    controller, shell, _loop = made
+    shell.window = False
+    group_id, _outcome = _subscription(controller, ROUTING_PAYLOAD)
+    assert not _routing_forms(shell)
+    assert not controller.context.profiles.get_group(group_id).sub_routing_handled
+
+    shell.window = True
+    controller.update_subscription(group_id)
+    _wait_subscriptions(controller)
+    assert _routing_forms(shell)
+
+
+def test_address_change_is_offered_before_routing(made):
+    controller, shell, _loop = made
+    group_id, outcome = _subscription(controller, ROUTING_PAYLOAD, new_url="https://new.example/b")
+
+    assert shell.confirms[-1].kind == CONFIRM_URL_CHANGE
+    assert not _routing_forms(shell)
+
+    outcome["new_url"] = ""
+    controller.update_subscription(group_id)
+    _wait_subscriptions(controller)
+    assert _routing_forms(shell)
