@@ -175,3 +175,18 @@ def test_no_results_text_is_shared():
     assert selected_text("🇩🇪 Берлин") == "Выбран: Берлин"
     assert selected_text("Берлин") == "Выбран: Берлин"
     assert selected_text("") == SELECTED_NONE
+
+
+def test_group_summary_counts_progress_and_details():
+    from src.ui.logic.latency import PingProgress
+    from src.ui.logic.profiles_view import GroupRow, ProfileRow, group_details, group_summary
+
+    child = ProfileRow(1, "A", "vless", "a:1", -1, False)
+    row = GroupRow(10, "Default", "folder-symbolic", False, (child, child))
+    assert group_details(row) == "Серверов: 2"
+    assert group_summary(row) == "Default  ·  Серверов: 2"
+
+    progress = PingProgress({10: [1, 2]})
+    progress.record(1)
+    assert group_details(row, progress) == "Серверов: 2  ·  Проверено: 1 / 2"
+    assert group_details(row, None, "1 ГБ") == "Серверов: 2  ·  1 ГБ"

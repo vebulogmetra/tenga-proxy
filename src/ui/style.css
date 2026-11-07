@@ -76,28 +76,67 @@
   color: @error_color;
 }
 
-/* Активный профиль в дереве: цветом и насыщенностью, без символа-префикса —
-   значок пометки съедал бы ширину колонки на узком окне. */
-.profile-active {
-  color: @accent_color;
+/* Список серверов: двухстрочные строки, как в Qt. */
+.library-card {
+  padding: 12px 12px 8px;
+}
+
+.profiles-list {
+  background: transparent;
+}
+
+.profiles-list > row {
+  min-height: 64px;
+  padding: 0 4px;
+  border-radius: 6px;
+}
+
+.profile-row {
+  padding: 8px 4px 8px 0;
+}
+
+.profile-row .profile-title {
   font-weight: bold;
 }
 
-/* Строки дерева профилей — крупные, как карточки: в них удобно попадать
-   мышью и пальцем, а группа вмещает полосу прогресса пинга под названием. */
-.profiles-tree > listview > row {
-  min-height: 52px;
+.profile-row.profile-active .profile-title {
+  color: #36c9b5;
 }
 
-.profiles-tree > listview > row > cell {
-  padding: 10px 12px;
+.profile-row .active-marker {
+  background: #36c9b5;
+  border-radius: 2px;
+  min-width: 3px;
+  margin: 4px 4px 4px 0;
 }
 
-/* Строка группы: крупнее и плотнее — иначе на длинном списке заголовок
-   теряется среди профилей. */
+.profile-row .accent-text {
+  color: #36c9b5;
+}
+
+.profile-row .details {
+  font-size: 0.9em;
+}
+
+.profile-row .latency {
+  font-feature-settings: "tnum";
+}
+
+.group-row {
+  padding: 10px 4px;
+}
+
 .profile-group {
   font-weight: bold;
-  font-size: 1.1em;
+  font-size: 1.05em;
+}
+
+.subscription-expired {
+  color: #d13438;
+}
+
+.selection-row {
+  padding: 4px 4px 0;
 }
 
 .group-ping-progress trough,

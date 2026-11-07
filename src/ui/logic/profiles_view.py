@@ -24,6 +24,7 @@ SEARCH_PLACEHOLDER = "Имя, тип, адрес или группа"
 NO_RESULTS_TEXT = "Ничего не найдено. Измените запрос."
 SELECTED_NONE = "Сервер не выбран"
 SELECTED_PREFIX = "Выбран: "
+GROUP_SEPARATOR = "  ·  "
 
 
 class SortKey(StrEnum):
@@ -173,3 +174,30 @@ def selected_text(name: str) -> str:
     if not name:
         return SELECTED_NONE
     return SELECTED_PREFIX + split_flag_prefix(name)[1]
+
+
+def group_count_text(row: GroupRow, progress: Any = None) -> str:
+    """Число серверов, а во время замера группы — «готово / всего»."""
+    state = progress.state(row.group_id) if progress is not None else None
+    if state is None:
+        return str(row.count)
+    done, total = state
+    return f"{done} / {total}"
+
+
+def group_details(row: GroupRow, progress: Any = None, details: str = "") -> str:
+    """Group line after its title: count, progress of a latency run, subscription info.
+
+    `progress` — `PingProgress` или None; `details` — трафик и срок подписки.
+    """
+    parts = [f"Серверов: {row.count}"]
+    if progress is not None and progress.state(row.group_id) is not None:
+        parts.append(f"Проверено: {group_count_text(row, progress)}")
+    if details:
+        parts.append(details)
+    return GROUP_SEPARATOR.join(parts)
+
+
+def group_summary(row: GroupRow, progress: Any = None, details: str = "") -> str:
+    """Whole group line as Qt draws it in one cell."""
+    return f"{row.title}{GROUP_SEPARATOR}{group_details(row, progress, details)}"

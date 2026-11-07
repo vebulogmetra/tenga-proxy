@@ -13,7 +13,14 @@ from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QStandardItem, QStandardItemModel
 
 from src.ui.logic.latency import PingProgress
-from src.ui.logic.profiles_view import GroupRow, ProfileRow, SortKey, ping_text
+from src.ui.logic.profiles_view import (
+    GroupRow,
+    ProfileRow,
+    SortKey,
+    group_count_text,
+    group_summary,
+    ping_text,
+)
 from src.ui.qt.icons import flagged
 
 COLUMNS = ("Имя", "Тип", "Адрес", "Задержка")
@@ -37,22 +44,6 @@ def _cell(text: str) -> QStandardItem:
     item = QStandardItem(text)
     item.setEditable(False)
     return item
-
-
-def group_count_text(row: GroupRow, progress: PingProgress | None) -> str:
-    """Число профилей, а во время замера группы — «готово / всего»."""
-    state = progress.state(row.group_id) if progress is not None else None
-    if state is None:
-        return str(row.count)
-    done, total = state
-    return f"{done} / {total}"
-
-
-def group_summary(row: GroupRow, progress: PingProgress | None, details: str) -> str:
-    summary = f"{row.title}  ·  Серверов: {row.count}"
-    if progress is not None and progress.state(row.group_id) is not None:
-        summary += f"  ·  Проверено: {group_count_text(row, progress)}"
-    return f"{summary}  ·  {details}" if details else summary
 
 
 class ProfileTreeModel(QStandardItemModel):
