@@ -1,4 +1,4 @@
-"""Subscriptions page: a list of subscription groups with update buttons."""
+"""Subscription list of the settings section «Подписки»: rows, menus and buttons."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, GObject, Gtk, Pango
+from gi.repository import Adw, Gio, GLib, Gtk
 
 from src.ui.logic.subscriptions_view import (
     EMPTY_RESPONSE_HINT,
@@ -20,24 +20,28 @@ from src.ui.logic.subscriptions_view import (
     build_subscription_rows,
 )
 
+EMPTY_TEXT = "Подписок нет. Добавьте ссылку от провайдера."
+SELECTED_CLASS = "subscription-selected"
+BUTTONS = (
+    ("Добавить…", "app.add-subscription", False),
+    ("Обновить", "win.update-subscription", True),
+    ("Изменить…", "win.edit-subscription", True),
+    ("Удалить", "win.delete-subscription", True),
+)
 
-class SubscriptionsPage(Gtk.Box):
-    """Search bar, subscription rows and the empty state."""
 
-    __gtype_name__ = "TengaSubscriptionsPage"
+class SubscriptionsList(Adw.PreferencesGroup):
+    """Subscription rows with their menus; buttons below act on the selected row."""
 
-    __gsignals__ = {
-        "subscription-activated": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
-        "subscription-update": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
-    }
+    __gtype_name__ = "TengaSubscriptionsList"
 
     def __init__(self) -> None:
-        super().__init__(orientation=Gtk.Orientation.VERTICAL)
+        super().__init__(title="Подписки")
 
         self._groups: Mapping[int, Any] = {}
         self._counts: Mapping[int, int] = {}
-        self._query = ""
         self._rows: list[SubscriptionRow] = []
+        self._selected = -1
         self._row_widgets: dict[int, Adw.ActionRow] = {}
         self._update_buttons: dict[int, Gtk.Button] = {}
         self._menu_buttons: dict[int, Gtk.MenuButton] = {}
@@ -46,47 +50,27 @@ class SubscriptionsPage(Gtk.Box):
         self._empty_labels: dict[int, Gtk.Label] = {}
         self._via_fallback_labels: dict[int, Gtk.Label] = {}
 
-        self._build_search_bar()
-        self._build_stack()
+        self._empty_row = Adw.ActionRow(title=EMPTY_TEXT)
+        self._empty_row.add_css_class("dim-label")
+        self.add(self._empty_row)
+
+        # Кнопки под списком, как в Qt; цель — выделенная строка.
+        buttons = Gtk.Box(spacing=8, margin_top=12, halign=Gtk.Align.START)
+        self.buttons: list[Gtk.Button] = []
+        for label, action, _needs_target in BUTTONS:
+            button = Gtk.Button(label=label)
+            if action.startswith("app."):
+                button.set_action_name(action)
+            buttons.append(button)
+            self.buttons.append(button)
+        self.add(buttons)
         self.refresh()
-
-    def _build_search_bar(self) -> None:
-        self.search_entry = Gtk.SearchEntry(hexpand=True)
-        self.search_entry.set_placeholder_text("Название, адрес или дата обновления")
-        self.search_entry.connect("search-changed", self._on_search_changed)
-
-        self.search_bar = Gtk.SearchBar()
-        self.search_bar.set_child(self.search_entry)
-        self.search_bar.connect_entry(self.search_entry)
-        self.append(self.search_bar)
-
-    def _build_stack(self) -> None:
-        self._stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
-        self._stack.set_vexpand(True)
-        self.append(self._stack)
-
-        self._empty_page = Adw.StatusPage(
-            icon_name="folder-download-symbolic",
-            title="Подписок пока нет",
-            description="Добавьте подписку, чтобы серверы обновлялись автоматически.",
-        )
-        self._stack.add_named(self._empty_page, "empty")
-
-        scrolled = Gtk.ScrolledWindow(
-            hscrollbar_policy=Gtk.PolicyType.NEVER,
-            vscrollbar_policy=Gtk.PolicyType.AUTOMATIC,
-        )
-        self._list_page = Adw.PreferencesPage()
-        self._group = Adw.PreferencesGroup()
-        self._list_page.add(self._group)
-        scrolled.set_child(self._list_page)
-        self._stack.add_named(scrolled, "list")
 
     # --- модель ---
 
     def _rebuild(self) -> None:
         for widget in self._row_widgets.values():
-            self._group.remove(widget)
+            self.remove(widget)
         self._row_widgets.clear()
         self._update_buttons.clear()
         self._menu_buttons.clear()
@@ -95,12 +79,16 @@ class SubscriptionsPage(Gtk.Box):
         self._empty_labels.clear()
         self._via_fallback_labels.clear()
 
-        self._rows = build_subscription_rows(self._groups, self._counts, query=self._query)
+        self._rows = build_subscription_rows(self._groups, self._counts)
 
+        # Строки идут перед кнопками: `add` кладёт строки в общий список
+        # группы, а остальные виджеты — под ним.
         for row in self._rows:
-            self._group.add(self._build_row(row))
+            self.add(self._build_row(row))
+        self._empty_row.set_visible(not self._rows)
 
-        self._stack.set_visible_child_name("list" if self._rows else "empty")
+        ids = [row.group_id for row in self._rows]
+        self._select(self._selected if self._selected in ids else (ids[0] if ids else -1))
 
     def _build_row(self, row: SubscriptionRow) -> Adw.ActionRow:
         # Имя и адрес приходят извне: амперсанд в query не является разметкой.
@@ -110,9 +98,7 @@ class SubscriptionsPage(Gtk.Box):
         action_row.set_subtitle(row.url)
         action_row.set_subtitle_lines(1)
         action_row.set_activatable(True)
-        action_row.connect(
-            "activated", lambda _row, gid=row.group_id: self.emit("subscription-activated", gid)
-        )
+        action_row.connect("activated", lambda _row, gid=row.group_id: self._select(gid))
 
         if row.announce:
             action_row.add_suffix(self._build_announce_button(row))
@@ -149,9 +135,9 @@ class SubscriptionsPage(Gtk.Box):
         button.set_valign(Gtk.Align.CENTER)
         button.set_tooltip_text("Обновить подписку")
         button.add_css_class("flat")
-        button.connect(
-            "clicked", lambda _b, gid=row.group_id: self.emit("subscription-update", gid)
-        )
+        # Действие окна, как у пунктов меню: диалог настроек живёт внутри окна.
+        button.set_action_name("win.update-subscription")
+        button.set_action_target_value(GLib.Variant.new_int32(row.group_id))
         action_row.add_suffix(button)
 
         menu_button = Gtk.MenuButton(icon_name="view-more-symbolic")
@@ -206,6 +192,23 @@ class SubscriptionsPage(Gtk.Box):
         menu.append("Удалить", f"win.delete-subscription({group_id})")
         return menu
 
+    def _select(self, group_id: int) -> None:
+        self._selected = group_id
+        for gid, widget in self._row_widgets.items():
+            if gid == group_id:
+                widget.add_css_class(SELECTED_CLASS)
+            else:
+                widget.remove_css_class(SELECTED_CLASS)
+        for button, (_label, action, needs_target) in zip(self.buttons, BUTTONS, strict=True):
+            if not needs_target:
+                continue
+            if group_id >= 0:
+                button.set_action_target_value(GLib.Variant.new_int32(group_id))
+                button.set_action_name(action)
+            else:
+                button.set_action_name(None)
+            button.set_sensitive(group_id >= 0)
+
     # --- публичное api ---
 
     def set_data(self, groups: Mapping[int, Any], profile_counts: Mapping[int, int]) -> None:
@@ -214,26 +217,23 @@ class SubscriptionsPage(Gtk.Box):
         self._counts = profile_counts
         self.refresh()
 
-    def set_query(self, query: str) -> None:
-        self._query = query
-        self.refresh()
-
-    def set_search_enabled(self, enabled: bool) -> None:
-        self.search_bar.set_search_mode(enabled)
-        if enabled:
-            self.search_entry.grab_focus()
-
     def refresh(self) -> None:
-        """Rebuild the list from the current data and filter."""
+        """Rebuild the list from the current data."""
         self._rebuild()
 
-    def _on_search_changed(self, entry: Gtk.SearchEntry) -> None:
-        self.set_query(entry.get_text())
+    def get_selected(self) -> int:
+        return self._selected
 
     # --- аксессоры для тестов ---
 
     def get_visible_state(self) -> str:
-        return self._stack.get_visible_child_name()
+        return "list" if self._rows else "empty"
+
+    def get_empty_text(self) -> str:
+        return self._empty_row.get_title()
+
+    def select_for_test(self, *, group_id: int) -> None:
+        self._select(group_id)
 
     def get_row_count(self) -> int:
         return len(self._rows)
@@ -259,11 +259,14 @@ class SubscriptionsPage(Gtk.Box):
         label = self._announce_labels.get(group_id)
         return label.get_text() if label is not None else ""
 
-    def click_update_for_test(self, *, group_id: int) -> None:
-        self._update_buttons[group_id].emit("clicked")
+    def get_update_button_for_test(self, *, group_id: int) -> Gtk.Button:
+        return self._update_buttons[group_id]
 
     def activate_row_for_test(self, *, group_id: int) -> None:
         self._row_widgets[group_id].emit("activated")
+
+    def is_selected_for_test(self, *, group_id: int) -> bool:
+        return self._row_widgets[group_id].has_css_class(SELECTED_CLASS)
 
     def get_menu_button_for_test(self, *, group_id: int) -> Gtk.MenuButton | None:
         return self._menu_buttons.get(group_id)

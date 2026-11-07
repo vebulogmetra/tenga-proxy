@@ -84,17 +84,15 @@ def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app, monkeypa
 def test_pages_are_real_widgets(window):
     from src.ui.pages.monitoring import MonitoringPage
     from src.ui.pages.profiles import ProfilesPage
-    from src.ui.pages.subscriptions import SubscriptionsPage
 
     assert isinstance(window.profiles_page, ProfilesPage)
-    assert isinstance(window.subscriptions_page, SubscriptionsPage)
+    assert not hasattr(window, "subscriptions_page")
     assert isinstance(window.monitoring_page, MonitoringPage)
 
 
 def test_refresh_pages_survives_an_empty_store(window):
     window.refresh_pages()
     assert window.profiles_page.get_visible_state() == "empty"
-    assert window.subscriptions_page.get_visible_state() == "empty"
 
 
 def test_refresh_pages_marks_the_active_profile(window, adw_app):
@@ -146,7 +144,9 @@ def test_subscription_update_reaches_the_application(window, adw_app):
     updated: list[int] = []
     adw_app.set_subscription_updater(lambda gid, _url: updated.append(gid) or 1)
 
-    window.subscriptions_page.click_update_for_test(group_id=group.id)
+    from gi.repository import GLib
+
+    window.lookup_action("update-subscription").activate(GLib.Variant("i", group.id))
     adw_app.wait_for_subscriptions_for_test()
 
     assert updated == [group.id]
@@ -371,13 +371,15 @@ def test_traffic_tick_keeps_the_open_subscription_menu(window, adw_app):
     state = adw_app.context.proxy_state
     state.set_running(-1, "proxy")
     _drain_main_loop()
-    menu_button = window.subscriptions_page.get_menu_button_for_test(group_id=group.id)
+    adw_app.activate_action("settings", None)
+    subscriptions = adw_app.settings_dialog.subscriptions_list
+    menu_button = subscriptions.get_menu_button_for_test(group_id=group.id)
 
     state.upload_bytes += 1024
     state.notify_listeners()
     _drain_main_loop()
 
-    assert window.subscriptions_page.get_menu_button_for_test(group_id=group.id) is menu_button
+    assert subscriptions.get_menu_button_for_test(group_id=group.id) is menu_button
 
 
 def test_traffic_tick_still_redraws_the_status_and_monitoring(window, adw_app, monkeypatch):
@@ -603,3 +605,32 @@ def test_hide_window_action_closes_like_the_close_button(window, adw_app, monkey
     adw_app.activate_action("hide-window", None)
     assert window.get_visible() is False
     assert quits == []
+
+
+def test_open_settings_follow_store_changes(window, adw_app):
+    adw_app.activate_action("settings", None)
+    dialog = adw_app.settings_dialog
+    assert dialog.subscriptions_list.get_visible_state() == "empty"
+
+    group = _subscription_in(adw_app, window)
+    assert dialog.subscriptions_list.get_selected() == group.id
+
+
+def test_forms_open_over_the_settings(window, adw_app):
+    adw_app.activate_action("settings", None)
+    settings = adw_app.settings_dialog
+    adw_app.activate_action("add-subscription", None)
+    form = adw_app.current_dialog
+    assert form is not settings
+    assert adw_app.settings_dialog is settings
+
+    # Над формой ещё одна не открывается.
+    adw_app.activate_action("add-profile", None)
+    assert adw_app.current_dialog is form
+
+    # Анимация закрытия в тестах не проигрывается (см. `_simulate_close` в
+    # тестах приложения): слот освобождается так, как это сделал бы `closed`.
+    adw_app._on_dialog_closed(form)
+    assert adw_app.current_dialog is settings
+    adw_app._on_dialog_closed(settings)
+    assert adw_app.current_dialog is None

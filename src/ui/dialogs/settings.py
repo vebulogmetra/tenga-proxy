@@ -372,6 +372,15 @@ class SettingsDialog(Adw.Dialog):
         self.failover_threshold_row.set_subtitle("Неудачных проверок подряд")
         failover.add(self.failover_threshold_row)
 
+    def refresh_subscriptions(self) -> None:
+        """Reload the subscription list from the store; the window calls it on changes."""
+        store = getattr(self._context, "profiles", None)
+        if store is None:
+            return
+        groups = store.groups
+        counts = {gid: len(store.get_profiles_in_group(gid)) for gid in groups}
+        self.subscriptions_list.set_data(groups, counts)
+
     def show_dns_page(self) -> None:
         self.select_section("dns")
 
@@ -512,6 +521,13 @@ class SettingsDialog(Adw.Dialog):
             icon_name="folder-download-symbolic",
         )
         self._add_page("subscriptions", page)
+
+        from src.ui.widgets.subscriptions_list import SubscriptionsList
+
+        self.subscriptions_list = SubscriptionsList()
+        page.add(self.subscriptions_list)
+        self.subscription_buttons = self.subscriptions_list.buttons
+        self.refresh_subscriptions()
 
         request = Adw.PreferencesGroup(
             title="Запрос к провайдеру",

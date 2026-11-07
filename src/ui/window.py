@@ -41,7 +41,6 @@ from src.ui.logic.status import (
 )
 from src.ui.pages.monitoring import MonitoringPage
 from src.ui.pages.profiles import ProfilesPage
-from src.ui.pages.subscriptions import SubscriptionsPage
 from src.ui.widgets.status_card import StatusCard
 
 if TYPE_CHECKING:
@@ -231,7 +230,6 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _add_pages(self) -> None:
         self.profiles_page = ProfilesPage()
-        self.subscriptions_page = SubscriptionsPage()
         self.monitoring_page = MonitoringPage()
         self.monitoring_page.connect("refresh-requested", self._on_monitoring_refresh)
         self.monitoring_page.connect(
@@ -244,8 +242,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.profiles_page.connect(
             "profile-ping", lambda _page, profile_id: self._row_test_profile(profile_id)
         )
-        self.subscriptions_page.connect("subscription-activated", self._on_subscription_edit)
-        self.subscriptions_page.connect("subscription-update", self._on_subscription_update)
 
     def _install_breakpoint(self) -> None:
         """Shrink the status panel on a low window; the logo stays visible."""
@@ -501,9 +497,6 @@ class MainWindow(Adw.ApplicationWindow):
     def _launch_uri(self, uri: str) -> None:
         Gtk.UriLauncher.new(uri).launch(self, None, None)
 
-    def _on_subscription_edit(self, _page, group_id: int) -> None:
-        self._row_edit_subscription(group_id)
-
     def _save_profiles(self) -> None:
         app = self.get_application()
         if app is not None:
@@ -524,8 +517,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.profiles_page.set_active_profile(active_id)
         self.profiles_page.set_data(groups, profiles_by_group)
 
-        counts = {group_id: len(items) for group_id, items in profiles_by_group.items()}
-        self.subscriptions_page.set_data(groups, counts)
+        # Список подписок живёт в настройках: открытый диалог видит изменения сразу.
+        app = self.get_application()
+        dialog = getattr(app, "settings_dialog", None)
+        if dialog is not None:
+            dialog.refresh_subscriptions()
 
         self.refresh_monitoring()
 

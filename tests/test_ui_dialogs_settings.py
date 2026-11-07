@@ -696,3 +696,36 @@ def test_close_to_tray_switch_round_trips(gtk_ready):
     row.set_active(False)
     assert dialog.save()
     assert config.close_to_tray is False
+
+
+def test_subscriptions_section_has_the_list_and_the_request_group(gtk_ready):
+    dialog = make_dialog()
+    assert dialog.group_titles_for_test(dialog._pages["subscriptions"]) == [
+        "Подписки",
+        "Запрос к провайдеру",
+    ]
+    assert [b.get_label() for b in dialog.subscription_buttons] == [
+        "Добавить…",
+        "Обновить",
+        "Изменить…",
+        "Удалить",
+    ]
+    assert dialog.subscriptions_list.get_empty_text() == (
+        "Подписок нет. Добавьте ссылку от провайдера."
+    )
+
+
+def test_subscriptions_come_from_the_store(gtk_ready, tmp_path):
+    from src.core.context import AppContext
+    from src.ui.dialogs.settings import SettingsDialog
+
+    context = AppContext(config_dir=tmp_path)
+    group = context.profiles.add_group("Провайдер", is_subscription=True)
+    group.subscription_url = "https://sub.example/list"
+    dialog = SettingsDialog(context.config, context)
+    assert dialog.subscriptions_list.get_selected() == group.id
+    assert dialog.subscription_buttons[1].get_action_target_value().get_int32() == group.id
+
+    context.profiles.remove_group(group.id)
+    dialog.refresh_subscriptions()
+    assert dialog.subscriptions_list.get_visible_state() == "empty"

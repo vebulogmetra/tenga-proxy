@@ -56,6 +56,12 @@ _ACCELS: dict[str, list[str]] = {
 }
 
 
+def _settings_dialog_type():
+    from src.ui.dialogs.settings import SettingsDialog
+
+    return SettingsDialog
+
+
 class _GtkShell:
     """`Shell` контроллера поверх `TengaApplication`: окно, трей, диалоги, действия.
 
@@ -196,6 +202,7 @@ class TengaApplication(Adw.Application):
         self._window: MainWindow | None = None
         self.diagnostics_window = None
         self._dialog = None
+        self._nested_dialog = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
         self.controller = self._make_controller()
@@ -437,20 +444,38 @@ class TengaApplication(Adw.Application):
         Esc, и щелчком мимо, и отследить это иначе нельзя.
         """
         if self._dialog is not None:
-            return False
+            # Формы из окна настроек (подписки) кладутся поверх него, как в Qt;
+            # глубже одного уровня стопка не растёт.
+            if self._nested_dialog is not None or not isinstance(
+                self._dialog, _settings_dialog_type()
+            ):
+                return False
+            self._nested_dialog = dialog
+            dialog.connect("closed", self._on_dialog_closed)
+            dialog.present(self._window)
+            return True
         self._dialog = dialog
         dialog.connect("closed", self._on_dialog_closed)
         dialog.present(self._window)
         return True
 
     def _on_dialog_closed(self, dialog) -> None:
-        if self._dialog is dialog:
+        if self._nested_dialog is dialog:
+            self._nested_dialog = None
+        elif self._dialog is dialog:
             self._dialog = None
+            # Вложенная форма закрывается вместе с настройками.
+            self._nested_dialog = None
 
     @property
     def current_dialog(self):
-        """The dialog on screen, if any."""
-        return self._dialog
+        """The dialog on screen, if any: a form over the settings comes first."""
+        return self._nested_dialog or self._dialog
+
+    @property
+    def settings_dialog(self):
+        """The open settings dialog, if any."""
+        return self._dialog if isinstance(self._dialog, _settings_dialog_type()) else None
 
     def _open_add_profile(self, link: str = "") -> None:
         from src.ui.dialogs.add_profile import AddProfileDialog
@@ -632,6 +657,7 @@ class TengaApplication(Adw.Application):
             self.context = context
         self.controller = self._make_controller()
         self._dialog = None
+        self._nested_dialog = None
         self.last_toast_for_test = ""
         self.last_notification_for_test = ""
         # Действие пережило бы смену контекста с состоянием прежнего.

@@ -1,4 +1,4 @@
-"""Widget tests for the subscriptions page (GTK4)."""
+"""Widget tests for the subscription list of the settings dialog (GTK4)."""
 
 from __future__ import annotations
 
@@ -26,9 +26,9 @@ class FakeGroup:
 
 @pytest.fixture
 def page(gtk_ready):
-    from src.ui.pages.subscriptions import SubscriptionsPage
+    from src.ui.widgets.subscriptions_list import SubscriptionsList
 
-    return SubscriptionsPage()
+    return SubscriptionsList()
 
 
 @pytest.fixture
@@ -53,27 +53,16 @@ def test_page_builds(page):
     assert isinstance(page, Gtk.Widget)
 
 
-def test_empty_store_shows_the_status_page(page):
+def test_empty_store_shows_the_empty_row(page):
     page.set_data({}, {})
     assert page.get_visible_state() == "empty"
+    assert page.get_empty_text() == "Подписок нет. Добавьте ссылку от провайдера."
 
 
 def test_rows_match_the_subscription_count(page, data):
     page.set_data(*data)
     assert page.get_visible_state() == "list"
     assert page.get_row_count() == 2
-
-
-def test_filter_narrows_the_list(page, data):
-    page.set_data(*data)
-    page.set_query("запас")
-    assert page.get_row_count() == 1
-
-
-def test_filter_without_matches_shows_the_status_page(page, data):
-    page.set_data(*data)
-    page.set_query("такой подписки нет")
-    assert page.get_visible_state() == "empty"
 
 
 def test_subtitle_carries_the_full_url(page, data):
@@ -91,33 +80,6 @@ def test_an_address_with_an_ampersand_is_still_shown(page, data):
     groups[1].subscription_url = url
     page.set_data(groups, counts)
     assert url in page.get_subtitles()
-
-
-def test_update_button_emits_the_group_id(page, data):
-    received: list[int] = []
-    page.connect("subscription-update", lambda _p, group_id: received.append(group_id))
-
-    page.set_data(*data)
-    page.click_update_for_test(group_id=2)
-
-    assert received == [2]
-
-
-def test_row_activation_emits_the_group_id(page, data):
-    received: list[int] = []
-    page.connect("subscription-activated", lambda _p, group_id: received.append(group_id))
-
-    page.set_data(*data)
-    page.activate_row_for_test(group_id=1)
-
-    assert received == [1]
-
-
-def test_search_bar_can_be_toggled(page):
-    page.set_search_enabled(True)
-    assert page.search_bar.get_search_mode() is True
-    page.set_search_enabled(False)
-    assert page.search_bar.get_search_mode() is False
 
 
 def test_every_row_carries_a_menu_button(page, data):
@@ -219,3 +181,37 @@ def test_an_update_through_the_fallback_is_marked_in_its_row(page, data):
 
     assert page.is_via_fallback_shown_for_test(group_id=1)
     assert not page.is_via_fallback_shown_for_test(group_id=2)
+
+
+def test_update_button_targets_its_row(page, data):
+    page.set_data(*data)
+    button = page.get_update_button_for_test(group_id=2)
+    assert button.get_action_name() == "win.update-subscription"
+    assert button.get_action_target_value().get_int32() == 2
+
+
+def test_activation_selects_the_row_and_retargets_the_buttons(page, data):
+    page.set_data(*data)
+    labels = [b.get_label() for b in page.buttons]
+    assert labels == ["Добавить…", "Обновить", "Изменить…", "Удалить"]
+    assert page.buttons[0].get_action_name() == "app.add-subscription"
+
+    page.activate_row_for_test(group_id=2)
+    assert page.get_selected() == 2
+    assert page.is_selected_for_test(group_id=2)
+    assert not page.is_selected_for_test(group_id=1)
+    for button, action in zip(
+        page.buttons[1:],
+        ("win.update-subscription", "win.edit-subscription", "win.delete-subscription"),
+        strict=True,
+    ):
+        assert button.get_action_name() == action
+        assert button.get_action_target_value().get_int32() == 2
+
+
+def test_buttons_without_subscriptions_are_insensitive(page):
+    page.set_data({}, {})
+    # «Добавить…» не зависит от выделения: вне приложения её действие
+    # просто не находится, поэтому проверяется имя, а не доступность.
+    assert page.buttons[0].get_action_name() == "app.add-subscription"
+    assert all(not button.get_sensitive() for button in page.buttons[1:])
