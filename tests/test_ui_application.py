@@ -704,7 +704,7 @@ def test_default_latency_run_measures_the_whole_set_with_one_batch_call(adw_app,
     second = add_profile(adw_app)
     calls: list[list[int]] = []
 
-    def fake_probe_profiles(profiles, *, settings, binary_path, on_result):
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result, route):
         calls.append([profile.id for profile in profiles])
         for profile in profiles:
             on_result(profile.id, 42)
