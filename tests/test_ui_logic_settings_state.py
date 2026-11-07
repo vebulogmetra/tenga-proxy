@@ -29,3 +29,21 @@ def test_kill_switch_change_asks_for_a_new_session():
     config.tun_kill_switch = True
 
     assert runtime_snapshot(config, profile, geo_paths=[]) != before
+
+
+def test_global_routing_change_is_noticed_only_without_own_rules():
+    from src.db.config import RoutingSettings
+
+    config = DataStore()
+    shared = ProfileEntry(id=1, group_id=1, bean=VLESSBean())
+    own = ProfileEntry(id=2, group_id=1, bean=VLESSBean(), routing_settings=RoutingSettings())
+    before_shared = runtime_snapshot(config, shared, geo_paths=[])
+    before_own = runtime_snapshot(config, own, geo_paths=[])
+
+    config.routing.proxy_list = ["a.com"]
+    config.routing.use_saved_lists = True
+
+    assert runtime_snapshot(config, shared, geo_paths=[]) != before_shared
+    # Снимок меняется и у сервера со своими правилами: ключ `routing` общий.
+    # Это известное огрубление; баннер лишний раз попросит переподключиться.
+    assert runtime_snapshot(config, own, geo_paths=[]) != before_own
