@@ -127,3 +127,81 @@ def test_linux_deb_matches_arm64(monkeypatch):
     ]
 
     assert app_update.select_release(payload, "0.17.0", architecture="aarch64").has_asset is True
+
+
+WINDOWS_ASSET = {
+    "name": "veblock-0.19.0-windows-x64-setup.exe",
+    "browser_download_url": (
+        "https://github.com/vebulogmetra/tenga-proxy/releases/download/v0.19.0/"
+        "veblock-0.19.0-windows-x64-setup.exe"
+    ),
+    "size": 70_000_000,
+    "digest": "sha256:" + "ab" * 32,
+}
+WINDOWS_RELEASE = {
+    "tag_name": "v0.19.0",
+    "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.19.0",
+    "assets": [WINDOWS_ASSET],
+}
+
+
+def test_windows_release_carries_the_installer_asset(monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+
+    release = select_release([WINDOWS_RELEASE], "0.18.0", architecture="AMD64")
+
+    assert release.installable is True
+    assert release.asset_url == WINDOWS_ASSET["browser_download_url"]
+    assert release.asset_size == 70_000_000
+    assert release.asset_digest == WINDOWS_ASSET["digest"]
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"browser_download_url": "https://evil.example/veblock-0.19.0-windows-x64-setup.exe"},
+        {
+            "browser_download_url": "https://github.com/vebulogmetra/tenga-proxy/releases/"
+            "download/v0.18.0/veblock-0.19.0-windows-x64-setup.exe"
+        },
+        {
+            "browser_download_url": "https://github.com/vebulogmetra/tenga-proxy/releases/"
+            "download/v0.19.0/other.exe"
+        },
+        {"browser_download_url": WINDOWS_ASSET["browser_download_url"] + "?token=1"},
+        {"digest": ""},
+        {"digest": "md5:" + "ab" * 16},
+        {"size": 0},
+        {"size": "70000000"},
+    ],
+)
+def test_asset_without_trusted_link_or_digest_is_not_installable(monkeypatch, patch):
+    """Имя подходит, значит `has_asset`, но ставить такой файл нельзя."""
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    payload = [dict(WINDOWS_RELEASE, assets=[dict(WINDOWS_ASSET, **patch)])]
+
+    release = select_release(payload, "0.18.0", architecture="AMD64")
+
+    assert release.has_asset is True
+    assert release.installable is False
+    assert (release.asset_url, release.asset_size, release.asset_digest) == ("", 0, "")
+
+
+def test_check_stores_and_clears_asset_fields(monkeypatch):
+    from src.core import platform_info
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    config = DataStore()
+
+    check_app_update(config, "0.18.0", fetch=lambda: [WINDOWS_RELEASE], now=100)
+    assert config.app_update_asset_url == WINDOWS_ASSET["browser_download_url"]
+    assert config.app_update_asset_size == 70_000_000
+    assert config.app_update_asset_digest == WINDOWS_ASSET["digest"]
+
+    check_app_update(config, "0.19.0", fetch=lambda: [WINDOWS_RELEASE], now=200, force=True)
+    assert (config.app_update_asset_url, config.app_update_asset_size) == ("", 0)
+    assert config.app_update_asset_digest == ""

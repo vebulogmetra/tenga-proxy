@@ -131,6 +131,10 @@ class DataStore(ConfigBase):
     app_update_target: str = ""
     app_update_url: str = ""
     app_update_has_asset: bool = False
+    # Установщик текущего релиза для самообновления: ссылка, размер, «sha256:…».
+    app_update_asset_url: str = ""
+    app_update_asset_size: int = 0
+    app_update_asset_digest: str = ""
     app_update_notified: str = ""
     system_proxy_format: str = ""
     # Runtime state (not saved)

@@ -1,4 +1,5 @@
-"""Daily desktop release notifications. Executables are never installed here."""
+"""Daily desktop release notifications. Executables are never installed here:
+download and verification live in src/core/app_installer.py."""
 
 from __future__ import annotations
 
@@ -14,6 +15,9 @@ from src.core import platform_info
 
 RELEASES_URL = "https://api.github.com/repos/vebulogmetra/tenga-proxy/releases?per_page=30"
 RELEASE_PREFIX = "/vebulogmetra/tenga-proxy/releases/tag/"
+ASSET_PREFIX = "/vebulogmetra/tenga-proxy/releases/download/"
+_ASSET_NAME = re.compile(r"[A-Za-z0-9._-]+")
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 CHECK_INTERVAL_SECONDS = 86400
 _lock = threading.Lock()
 
@@ -23,6 +27,14 @@ class AppRelease:
     version: str
     url: str
     has_asset: bool
+    # Пусто, если ссылка, размер или digest ассета не прошли проверку.
+    asset_url: str = ""
+    asset_size: int = 0
+    asset_digest: str = ""
+
+    @property
+    def installable(self) -> bool:
+        return bool(self.asset_url and self.asset_size > 0 and self.asset_digest)
 
 
 def safe_release_url(url: str) -> bool:
@@ -39,6 +51,42 @@ def safe_release_url(url: str) -> bool:
         )
     except ValueError:
         return False
+
+
+def safe_asset_url(url: str, tag: str, name: str) -> bool:
+    """Файл релиза: только с github.com, только этого тега и этого имени."""
+    if not _ASSET_NAME.fullmatch(name) or _version(tag) is None:
+        return False
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return False
+    return (
+        parts.scheme == "https"
+        and parts.netloc == "github.com"
+        and not parts.query
+        and not parts.fragment
+        and parts.path == f"{ASSET_PREFIX}{tag}/{name}"
+    )
+
+
+def _asset_fields(tag: str, asset: dict | None) -> dict:
+    """Ссылка, размер и digest ассета; всё пусто, если хоть что-то не проходит."""
+    if asset is None:
+        return {}
+    name = str(asset.get("name", ""))
+    url = str(asset.get("browser_download_url", ""))
+    size = asset.get("size")
+    digest = str(asset.get("digest", ""))
+    if (
+        not safe_asset_url(url, tag, name)
+        or not isinstance(size, int)
+        or isinstance(size, bool)
+        or size <= 0
+        or not _DIGEST.fullmatch(digest)
+    ):
+        return {}
+    return {"asset_url": url, "asset_size": size, "asset_digest": digest}
 
 
 def _version(value):
@@ -96,11 +144,17 @@ def select_release(payload, current, *, include_prerelease=False, architecture=N
         assets = release.get("assets", [])
         if not isinstance(assets, list):
             assets = []
-        has_asset = any(
-            isinstance(asset, dict) and _asset_matches(str(asset.get("name", "")), aliases)
-            for asset in assets
+        asset = next(
+            (
+                asset
+                for asset in assets
+                if isinstance(asset, dict) and _asset_matches(str(asset.get("name", "")), aliases)
+            ),
+            None,
         )
-        candidates.append((parsed, AppRelease(version, url, has_asset)))
+        candidates.append(
+            (parsed, AppRelease(version, url, asset is not None, **_asset_fields(version, asset)))
+        )
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
@@ -131,4 +185,7 @@ def check_app_update(config, current, *, fetch=fetch_app_releases, now=None, for
         config.app_update_target = selected.version if selected else ""
         config.app_update_url = selected.url if selected else ""
         config.app_update_has_asset = bool(selected and selected.has_asset)
+        config.app_update_asset_url = selected.asset_url if selected else ""
+        config.app_update_asset_size = selected.asset_size if selected else 0
+        config.app_update_asset_digest = selected.asset_digest if selected else ""
         return selected
