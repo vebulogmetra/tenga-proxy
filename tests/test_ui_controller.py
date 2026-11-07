@@ -1393,3 +1393,14 @@ def test_address_change_is_offered_before_routing(made):
     controller.update_subscription(group_id)
     _wait_subscriptions(controller)
     assert _routing_forms(shell)
+
+
+def test_a_payload_that_changes_nothing_is_not_offered(made):
+    controller, shell, _loop = made
+    empty = base64.urlsafe_b64encode(
+        json.dumps({"Name": "Безрекламный", "GlobalProxy": "true", "BlockSites": []}).encode()
+    ).decode()
+    group_id, _outcome = _subscription(controller, "happ://routing/onadd/" + empty)
+
+    assert not _routing_forms(shell)
+    assert controller.context.profiles.get_group(group_id).sub_routing_handled

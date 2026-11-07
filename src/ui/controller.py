@@ -792,15 +792,15 @@ class AppController:
         )
 
         current = effective_routing(self.context.config.routing, self.context.config_dir)
+        target = reset_routing(current) if link.operation == "routing_off" else link.routing
+        if not routing_differs(current, target):
+            # Набор ничего не меняет (например, пустые списки или off при каждом
+            # обновлении) — не спрашиваем, но и повторно не предлагаем.
+            self._mark_routing_handled(group_id, link.payload_hash)
+            return
         if link.operation == "routing_off":
-            target = reset_routing(current)
-            if not routing_differs(current, target):
-                # Провайдер шлёт off при каждом обновлении; возвращать нечего — не спрашиваем.
-                self._mark_routing_handled(group_id, link.payload_hash)
-                return
             rows = reset_rows(current, subscription=group.name)
         else:
-            target = link.routing
             rows = import_rows(
                 current,
                 target,
