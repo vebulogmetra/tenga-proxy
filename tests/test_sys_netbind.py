@@ -60,6 +60,12 @@ def test_linux_physical_interface_excludes_tunnels_by_kernel_flag(sys_net, monke
         ("default via 10.0.0.1 dev eth0\n", None),
         ("default via 10.0.0.1 dev eth0 metric 600\ndefault dev xray0 metric 50\n", "xray0"),
         ("", None),
+        (
+            "0.0.0.0/1 dev xray0 scope link\n128.0.0.0/1 dev xray0 scope link\n"
+            "default via 10.0.0.1 dev eth0 metric 600\n",
+            "xray0",
+        ),
+        ("10.0.0.0/24 dev xray0 scope link\ndefault via 10.0.0.1 dev eth0\n", None),
     ],
 )
 def test_linux_active_tunnel_comes_from_the_route(sys_net, monkeypatch, routes, expected):
@@ -150,7 +156,9 @@ def test_real_unicast_if_keeps_the_socket_on_the_adapter():
         ("", False),
     ],
 )
-def test_linux_binding_needs_a_default_route_on_the_interface(monkeypatch, output, confirmed):
+def test_linux_binding_needs_a_default_route_on_the_interface(
+    monkeypatch, rp_filter, output, confirmed
+):
     calls = []
 
     def run(command, **_kwargs):
@@ -162,9 +170,48 @@ def test_linux_binding_needs_a_default_route_on_the_interface(monkeypatch, outpu
     assert calls == [["ip", "route", "show", "default", "dev", "eth0"]]
 
 
-def test_linux_binding_is_not_confirmed_when_ip_fails(monkeypatch):
+def test_linux_binding_is_not_confirmed_when_ip_fails(monkeypatch, rp_filter):
     def run(*_args, **_kwargs):
         raise OSError("no ip")
 
     monkeypatch.setattr("src.sys.linux.netbind.subprocess.run", run)
     assert linux.binding_confirmed("eth0") is False
+
+
+@pytest.fixture
+def rp_filter(tmp_path, monkeypatch):
+    """Файлы /proc/sys/net/ipv4/conf/<if>/rp_filter в tmp_path; по умолчанию свободный режим."""
+    monkeypatch.setattr(linux, "PROC_NET_CONF", tmp_path)
+
+    def write(all_value: int, interface_value: int, interface: str = "eth0") -> None:
+        for name, value in (("all", all_value), (interface, interface_value)):
+            (tmp_path / name).mkdir(exist_ok=True)
+            (tmp_path / name / "rp_filter").write_text(f"{value}\n")
+
+    write(2, 2)
+    return write
+
+
+@pytest.mark.parametrize(
+    ("all_value", "interface_value", "confirmed"),
+    [(2, 2, True), (0, 0, True), (1, 0, False), (0, 1, False), (1, 2, True)],
+)
+def test_linux_strict_rp_filter_blocks_the_binding(
+    monkeypatch, rp_filter, all_value, interface_value, confirmed
+):
+    # Действует наибольшее из all и интерфейса: 2 (свободный) перекрывает 1 (строгий).
+    rp_filter(all_value, interface_value)
+    route = "default via 192.0.2.1 dev eth0 metric 600\n"
+    done = subprocess.CompletedProcess([], 0, stdout=route, stderr="")
+    monkeypatch.setattr(linux.subprocess, "run", lambda *_a, **_k: done)
+
+    assert linux.binding_confirmed("eth0") is confirmed
+
+
+def test_linux_missing_rp_filter_counts_as_off(monkeypatch, tmp_path):
+    monkeypatch.setattr(linux, "PROC_NET_CONF", tmp_path)
+    route = "default via 192.0.2.1 dev eth0 metric 600\n"
+    done = subprocess.CompletedProcess([], 0, stdout=route, stderr="")
+    monkeypatch.setattr(linux.subprocess, "run", lambda *_a, **_k: done)
+
+    assert linux.binding_confirmed("eth0") is True

@@ -1,7 +1,8 @@
 """SO_BINDTODEVICE: выводит сокет пробы мимо TUN, не трогая маршруты.
 
 С ядра 5.7 опция доступна без прав, пока сокет не привязан. Обойти TUN можно, только пока у
-интерфейса есть свой маршрут по умолчанию: это проверяет `binding_confirmed`.
+интерфейса есть свой маршрут по умолчанию и rp_filter не строгий: это проверяет
+`binding_confirmed`.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from src.sys.linux.vpn import get_default_interface
 
 SO_BINDTODEVICE = getattr(socket, "SO_BINDTODEVICE", 25)
 SYS_CLASS_NET = Path("/sys/class/net")
+PROC_NET_CONF = Path("/proc/sys/net/ipv4/conf")
 
 
 def socket_binder(interface: str) -> Callable[[socket.socket], None]:
@@ -26,11 +28,28 @@ def socket_binder(interface: str) -> Callable[[socket.socket], None]:
     return bind
 
 
-def binding_confirmed(interface: str) -> bool:
-    """Помощник TUN заменяет маршрут без метрики: тогда сокету на интерфейсе некуда идти.
+def _strict_rp_filter(interface: str) -> bool:
+    """Действует наибольшее из `all` и интерфейса: 0 выключен, 1 строгий, 2 свободный."""
+    values = []
+    for name in ("all", interface):
+        try:
+            values.append(int((PROC_NET_CONF / name / "rp_filter").read_text().strip()))
+        except (OSError, ValueError):
+            values.append(0)
+    return max(values) == 1
 
-    Только IPv4: IPv6 мимо туннеля в сеансе TUN закрыт таблицей `ipv6_only`.
+
+def binding_confirmed(interface: str) -> bool:
+    """Сокету на интерфейсе есть куда идти и ответы до него дойдут.
+
+    Маршрут: старый помощник заменял маршрут по умолчанию без метрики, и тогда у интерфейса
+    своего нет. rp_filter: ответ сервера приходит на интерфейс, а лучший маршрут к серверу
+    ведёт в TUN через `0.0.0.0/1`; строгий режим такой пакет отбрасывает, свободный (Ubuntu
+    и systemd по умолчанию) пропускает. Только IPv4: IPv6 мимо туннеля в сеансе TUN закрыт
+    таблицей `ipv6_only`.
     """
+    if _strict_rp_filter(interface):
+        return False
     try:
         result = subprocess.run(
             ["ip", "route", "show", "default", "dev", interface],
@@ -60,7 +79,7 @@ def active_tunnel_interface() -> str | None:
     """TUN, через который сейчас идёт маршрут по умолчанию; нужно CLI рядом с живым GUI."""
     try:
         result = subprocess.run(
-            ["ip", "route", "show", "default"],
+            ["ip", "-4", "route", "show"],
             capture_output=True,
             text=True,
             timeout=5,
@@ -71,6 +90,9 @@ def active_tunnel_interface() -> str | None:
     tunnels = set(_tun_devices())
     for line in result.stdout.splitlines():
         parts = line.split()
+        # Помощник кладёт на TUN половины 0.0.0.0/1 и 128.0.0.0/1, чужой туннель — default.
+        if parts[:1] not in (["default"], ["0.0.0.0/1"]):
+            continue
         if "dev" in parts and parts.index("dev") + 1 < len(parts):
             device = parts[parts.index("dev") + 1]
             if device in tunnels:
