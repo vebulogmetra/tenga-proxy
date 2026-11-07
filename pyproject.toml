@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tenga-proxy"
-version = "0.28.1"
+version = "0.29.0"
 description = "Клиент прокси с бекэндом xray-core"
 readme = "README.md"
 authors = [
