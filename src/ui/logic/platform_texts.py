@@ -37,6 +37,7 @@ def missing_release_asset() -> str:
 
 
 _SETTINGS_PAGE_TITLES = {
+    "routing": "Маршрутизация",
     "bypass": "Обход блокировок",
     "subscriptions": "Подписки",
     "about": "О программе",

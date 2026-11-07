@@ -130,6 +130,12 @@ class _GtkShell:
         action = self._app.lookup_action(name)
         if action is not None:
             action.set_enabled(enabled)
+        if name == "restore-routing":
+            # Импорт или откат при открытых настройках: строка «Вернуть» и
+            # списки на странице «Маршрутизация» должны показать новое.
+            sync = getattr(self._app.current_dialog, "sync_restore_routing", None)
+            if sync is not None:
+                sync(enabled)
 
     def confirm(self, kind, heading, body, on_confirm, *, confirm_label=None) -> None:
         from src.ui.dialogs.confirm import (

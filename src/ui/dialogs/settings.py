@@ -90,10 +90,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_general_page()
         self._build_monitoring_page()
         self._build_dns_page()
+        self._build_routing_page()
         self._build_bypass_page()
         self._build_subscriptions_page()
         self._build_about_page()
 
+        self._loading = False
         self._load()
         self._autosave_source = 0
         seen = set()
@@ -111,9 +113,12 @@ class SettingsDialog(Adw.PreferencesDialog):
                 value.connect("notify::value", self._queue_save)
             elif isinstance(value, Adw.ComboRow):
                 value.connect("notify::selected", self._queue_save)
+        self.routing.connect_changed(self._queue_save)
         self.connect("closed", self._flush_save)
 
     def _queue_save(self, *_args) -> None:
+        if self._loading:
+            return
         if self._autosave_source:
             GLib.source_remove(self._autosave_source)
         self._autosave_source = GLib.timeout_add(500, self._autosave)
@@ -275,6 +280,60 @@ class SettingsDialog(Adw.PreferencesDialog):
         )
         options.add(self.dns_intercept_row)
 
+    def _build_routing_page(self) -> None:
+        from src.ui.logic.routing_form import GLOBAL_PAGE_HINT, VPN_LIST_HINT
+        from src.ui.widgets.routing_form import RoutingForm
+
+        page = Adw.PreferencesPage(
+            title=platform_texts.settings_page_title("routing"),
+            icon_name="network-workgroup-symbolic",
+            description=GLOBAL_PAGE_HINT,
+        )
+        self.routing_page = page
+        self.add(page)
+
+        self.routing = RoutingForm(page, vpn_hint=VPN_LIST_HINT)
+
+        extra = Adw.PreferencesGroup(title="Дополнительно")
+        page.add(extra)
+        # Без подтверждения, как в Android: откат меняет только списки,
+        # которые пользователь сам только что заменил импортом.
+        self.restore_routing_row = Adw.ActionRow(
+            title="Маршрутизация до импорта",
+            subtitle="Вернёт режим и списки, которые были до последнего импорта",
+        )
+        self.restore_routing_button = Gtk.Button(
+            label="Вернуть", valign=Gtk.Align.CENTER, action_name="app.restore-routing"
+        )
+        self.restore_routing_row.add_suffix(self.restore_routing_button)
+        self.restore_routing_row.set_visible(
+            getattr(self._config, "routing_backup", None) is not None
+        )
+        extra.add(self.restore_routing_row)
+
+    def _shared_routing(self):
+        from pathlib import Path
+
+        from src.ui.logic.routing_import import effective_routing
+
+        config_dir = getattr(self._context, "config_dir", None) if self._context else None
+        return effective_routing(self._config.routing, Path(config_dir) if config_dir else None)
+
+    def _load_routing(self) -> None:
+        self._loading = True
+        try:
+            self.routing.load(self._shared_routing())
+        finally:
+            self._loading = False
+        # Что показано после загрузки: без правок форма общие правила не пишет,
+        # и старая установка продолжает читать списки из своих файлов.
+        self._routing_loaded = self.routing.values()
+
+    def sync_restore_routing(self, available: bool) -> None:
+        """Импорт или откат поменял общие правила, пока открыты настройки."""
+        self.restore_routing_row.set_visible(available)
+        self._load_routing()
+
     def _build_bypass_page(self) -> None:
         page = Adw.PreferencesPage(
             title=platform_texts.settings_page_title("bypass"),
@@ -395,21 +454,6 @@ class SettingsDialog(Adw.PreferencesDialog):
         actions = Adw.PreferencesGroup(title="Обслуживание")
         page.add(actions)
 
-        # Без подтверждения, как в Android: откат меняет только списки,
-        # которые пользователь сам только что заменил импортом.
-        self.restore_routing_row = Adw.ActionRow(
-            title="Маршрутизация до импорта",
-            subtitle="Вернёт режим и списки, которые были до последнего импорта ссылкой",
-        )
-        self.restore_routing_button = Gtk.Button(
-            label="Вернуть", valign=Gtk.Align.CENTER, action_name="app.restore-routing"
-        )
-        self.restore_routing_row.add_suffix(self.restore_routing_button)
-        self.restore_routing_row.set_visible(
-            getattr(self._config, "routing_backup", None) is not None
-        )
-        actions.add(self.restore_routing_row)
-
         self.clear_logs_row = Adw.ActionRow(
             title="Очистить журналы", subtitle="Удаляет накопленные файлы логов"
         )
@@ -523,6 +567,8 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.sub_exceptions_row.set_text(" ".join(config.sub_source_exceptions))
         self.sub_insecure_row.set_active(config.sub_insecure)
 
+        self._load_routing()
+
     def save(self) -> bool:
         """Write the form back into the configuration object."""
         config = copy.deepcopy(self._config)
@@ -570,6 +616,17 @@ class SettingsDialog(Adw.PreferencesDialog):
             # Идентификатор сохранится вместе с настройками при закрытии диалога.
             ensure_hwid(config)
 
+        if self.routing.values() != self._routing_loaded:
+            from src.ui.logic.routing_import import store_shared_routing
+
+            routing = copy.deepcopy(config.routing)
+            try:
+                self.routing.read(routing)
+            except ValueError as error:
+                self.set_title(f"Исправьте настройки: {error}")
+                return False
+            store_shared_routing(config, routing)
+
         errors = validate_settings(config)
         self.validation_errors = errors
         for name in (
@@ -594,6 +651,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             return False
         self.set_title("Настройки")
         self._config.__dict__.update(config.__dict__)
+        self._routing_loaded = self.routing.values()
         self.emit("settings-saved")
         return True
 

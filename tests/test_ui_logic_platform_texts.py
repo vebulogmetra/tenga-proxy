@@ -38,15 +38,16 @@ def test_missing_release_asset_on_linux_names_the_deb(monkeypatch):
     [
         # «О программе» на Linux — пункт главного меню (Adw.AboutDialog), страница
         # настроек с ним не совпадает по имени.
-        (False, ["Обход блокировок", "Подписки", "О программе"]),
-        (True, ["Обход блокировок", "Подписки", "О программе"]),
+        (False, ["Маршрутизация", "Обход блокировок", "Подписки", "О программе"]),
+        (True, ["Маршрутизация", "Обход блокировок", "Подписки", "О программе"]),
     ],
 )
 def test_settings_page_titles(monkeypatch, windows, expected):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
 
     titles = [
-        platform_texts.settings_page_title(page) for page in ("bypass", "subscriptions", "about")
+        platform_texts.settings_page_title(page)
+        for page in ("routing", "bypass", "subscriptions", "about")
     ]
 
     assert titles == expected

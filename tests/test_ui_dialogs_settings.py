@@ -516,7 +516,59 @@ def test_settings_autosave_after_debounce_without_loading_writes(gtk_ready):
     assert config.user_agent == "new agent"
 
 
-def test_restore_routing_row_follows_backup(gtk_ready):
+def test_the_routing_page_loads_the_shared_rules(gtk_ready):
+    config = make_config()
+    config.routing.mode = "custom"
+    config.routing.proxy_list = ["s.com"]
+    config.routing.use_saved_lists = True
+    dialog, _context = make_about_dialog(config)
+    assert dialog.routing.text("proxy") == "s.com"
+    assert dialog.routing_page.get_title() == "Маршрутизация"
+
+
+def test_the_routing_page_reads_legacy_list_files(gtk_ready, tmp_path):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from src.ui.dialogs.settings import SettingsDialog
+
+    (tmp_path / "direct_list.txt").write_text("old.example\n", encoding="utf-8")
+    config = make_config()
+    context = SimpleNamespace(
+        xray_manager=SimpleNamespace(get_version=lambda: {"version": "1"}),
+        config_dir=tmp_path,
+        save_config=Mock(return_value=True),
+    )
+    dialog = SettingsDialog(config, context)
+    assert dialog.routing.text("direct") == "old.example"
+    # Без правок формы старая установка продолжает читать свои файлы.
+    assert dialog.save()
+    assert config.routing.use_saved_lists is False
+
+
+def test_saving_writes_the_shared_rules_and_switches_to_saved_lists(gtk_ready):
+    config = make_config()
+    dialog, _context = make_about_dialog(config)
+    dialog.routing.select_mode("custom")
+    dialog.routing.set_text("proxy", "a.com\nb.com")
+    assert dialog.save()
+    assert config.routing.proxy_list == ["a.com", "b.com"]
+    assert config.routing.use_saved_lists is True
+
+
+def test_a_bad_routing_entry_blocks_saving(gtk_ready):
+    config = make_config()
+    dialog, _context = make_about_dialog(config)
+    dialog.routing.select_mode("custom")
+    dialog.routing.set_text("direct", "http://user:pw@x.com")
+    assert not dialog.save()
+    assert config.routing.direct_list == []
+    assert "credentials" in dialog.get_title()
+
+
+def test_restore_routing_row_lives_on_the_routing_page(gtk_ready):
+    from gi.repository import Adw
+
     from src.db.config import RoutingSettings
 
     dialog, _context = make_about_dialog()
@@ -526,4 +578,12 @@ def test_restore_routing_row_follows_backup(gtk_ready):
     config.routing_backup = RoutingSettings()
     dialog, _context = make_about_dialog(config)
     assert dialog.restore_routing_row.get_visible()
+    page = dialog.restore_routing_row.get_ancestor(Adw.PreferencesPage)
+    assert page is dialog.routing_page
     assert dialog.restore_routing_button.get_action_name() == "app.restore-routing"
+
+    config.routing.proxy_list = ["restored.example"]
+    config.routing.use_saved_lists = True
+    dialog.sync_restore_routing(False)
+    assert not dialog.restore_routing_row.get_visible()
+    assert dialog.routing.text("proxy") == "restored.example"

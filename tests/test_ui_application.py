@@ -1210,6 +1210,22 @@ def test_restore_routing_is_persisted(adw_app):
     assert saved.routing.direct_list == []
 
 
+def test_restore_routing_refreshes_open_settings(adw_app):
+    adw_app.activate()
+    adw_app.import_app_link(_routing_link({"DirectSites": ["new.example"]}))
+    adw_app.current_dialog.emit("response", "import")
+    _simulate_close(adw_app, adw_app.current_dialog)
+    adw_app.activate_action("settings", None)
+    dialog = adw_app.current_dialog
+    assert dialog.restore_routing_row.get_visible()
+    assert dialog.routing.text("direct") == "new.example"
+
+    adw_app.activate_action("restore-routing", None)
+
+    assert not dialog.restore_routing_row.get_visible()
+    assert dialog.routing.text("direct") == ""
+
+
 def test_network_diagnostics_action_opens_one_window(adw_app):
     from src.ui.dialogs.network_diagnostics import NetworkDiagnosticsWindow
 
