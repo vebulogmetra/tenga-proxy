@@ -15,6 +15,7 @@ import requests
 from src.core import batch_probe
 from src.core.batch_probe import (
     BatchCore,
+    ProbeRoute,
     ProbeTarget,
     build_batch_probe_config,
     build_probe_outbound,
@@ -50,7 +51,10 @@ VLESS_BAD_REALITY = (
 VLESS_BAD_FINGERPRINT = (
     f"vless://{UUID}@127.0.0.1:443?type=tcp&security=tls&sni=a.example.com&fp=nosuchfp#BF"
 )
+VLESS_REMOTE = f"vless://{UUID}@203.0.113.5:443?type=tcp&security=tls&sni=a.example.com#R"
+VLESS_NAMED = f"vless://{UUID}@srv.example.com:443?type=tcp&security=tls&sni=a.example.com#N"
 CREDENTIALS = ProbeCredentials("probe", "secret")
+ROUTE = ProbeRoute(interface="eth0", mark=0x7E6A, dns_servers=("192.168.0.1",))
 
 
 def entry(profile_id: int, link: str) -> ProfileEntry:
@@ -60,9 +64,10 @@ def entry(profile_id: int, link: str) -> ProfileEntry:
 
 
 def target(profile_id: int, link: str) -> ProbeTarget:
-    outbound = build_probe_outbound(entry(profile_id, link), DataStore())
+    profile = entry(profile_id, link)
+    outbound = build_probe_outbound(profile, DataStore())
     assert outbound is not None, link
-    return ProbeTarget(profile_id, outbound)
+    return ProbeTarget(profile_id, outbound, server=profile.bean.server_address)
 
 
 # --- outbound одного профиля ---
@@ -157,6 +162,114 @@ def test_core_rejects_a_batch_with_an_unknown_protocol():
     config = build_batch_probe_config([broken], [41001], CREDENTIALS)
 
     assert core_accepts(str(XRAY), config) is False
+
+
+# --- путь мимо туннеля ---
+
+
+def sockopt(outbound: dict) -> dict:
+    return outbound.get("streamSettings", {}).get("sockopt", {})
+
+
+def test_route_binds_and_marks_every_remote_proxy():
+    targets = [target(1, VLESS_REMOTE), target(2, VLESS_NAMED), target(3, TROJAN)]
+
+    config = build_batch_probe_config(targets, [41001, 41002, 41003], CREDENTIALS, route=ROUTE)
+
+    remote, named, local = config["outbounds"][:3]
+    assert sockopt(remote)["interface"] == "eth0"
+    assert sockopt(remote)["mark"] == 0x7E6A
+    assert "domainStrategy" not in sockopt(remote)
+    assert sockopt(named)["domainStrategy"] == "UseIPv4"
+    # Сервер на этой машине через сетевой интерфейс не достать, а метка ему не мешает.
+    assert "interface" not in sockopt(local)
+    assert sockopt(local)["mark"] == 0x7E6A
+
+
+def test_route_adds_a_bound_direct_outbound_and_the_network_dns():
+    config = build_batch_probe_config([target(1, VLESS_NAMED)], [41001], CREDENTIALS, route=ROUTE)
+
+    direct = config["outbounds"][-1]
+    assert (direct["protocol"], direct["tag"]) == ("freedom", "direct")
+    assert sockopt(direct) == {"interface": "eth0", "mark": 0x7E6A}
+    assert config["dns"] == {
+        "servers": ["192.168.0.1"],
+        "queryStrategy": "UseIPv4",
+        "tag": "probe-dns",
+    }
+    # Без правила запросы DNS-модуля ушли бы в первый outbound, то есть в proxy-1.
+    assert config["routing"]["rules"][0] == {
+        "type": "field",
+        "inboundTag": ["probe-dns"],
+        "outboundTag": "direct",
+    }
+
+
+def test_route_without_mark_or_dns_leaves_them_out():
+    config = build_batch_probe_config(
+        [target(1, VLESS_REMOTE)], [41001], CREDENTIALS, route=ProbeRoute("Ethernet")
+    )
+
+    assert "mark" not in sockopt(config["outbounds"][0])
+    assert "dns" not in config
+    assert [rule["inboundTag"] for rule in config["routing"]["rules"]] == [["probe-in-1"]]
+
+
+def test_without_route_the_config_is_untouched():
+    config = build_batch_probe_config([target(1, VLESS_REMOTE)], [41001], CREDENTIALS)
+
+    assert "dns" not in config
+    assert [outbound["tag"] for outbound in config["outbounds"]] == ["proxy-1"]
+    assert "interface" not in sockopt(config["outbounds"][0])
+
+
+@needs_xray
+def test_core_accepts_a_routed_batch():
+    targets = [target(1, VLESS_NAMED), target(2, TROJAN), target(3, HYSTERIA2)]
+    config = build_batch_probe_config(targets, [41001, 41002, 41003], CREDENTIALS, route=ROUTE)
+
+    assert core_accepts(str(XRAY), config) is True
+
+
+def test_batch_builds_every_config_with_the_route(monkeypatch):
+    routes = []
+    real = batch_probe.build_batch_probe_config
+
+    def building(targets, ports, credentials, **kwargs):
+        routes.append(kwargs.get("route"))
+        return real(targets, ports, credentials, **kwargs)
+
+    monkeypatch.setattr(batch_probe, "build_batch_probe_config", building)
+    monkeypatch.setattr(batch_probe, "core_accepts", lambda *_a, **_k: False)
+    results: dict = {}
+
+    probe_targets(
+        [target(1, VLESS_REMOTE)], binary_path="/x", on_result=results.__setitem__, route=ROUTE
+    )
+
+    assert results == {1: -1}
+    assert routes and all(route is ROUTE for route in routes)
+
+
+def test_probe_profiles_passes_the_route_and_the_server_address(monkeypatch):
+    seen: dict = {}
+
+    def fake_probe_targets(targets, **options):
+        seen.update(options)
+        seen["servers"] = [t.server for t in targets]
+
+    monkeypatch.setattr(batch_probe, "probe_targets", fake_probe_targets)
+
+    probe_profiles(
+        [entry(1, VLESS_NAMED)],
+        settings=DataStore(),
+        binary_path="/x",
+        on_result=lambda *_: None,
+        route=ROUTE,
+    )
+
+    assert seen["route"] is ROUTE
+    assert seen["servers"] == ["srv.example.com"]
 
 
 # --- отсев: один плохой профиль не должен ронять весь пакет ---

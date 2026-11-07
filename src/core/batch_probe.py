@@ -3,6 +3,7 @@
 У каждого профиля свой HTTP-inbound `probe-in-N` на 127.0.0.1 и свой outbound
 `proxy-N`; правило по `inboundTag` связывает пару. Рабочий билдер конфигурации
 здесь не участвует: замеру не нужны ни пользовательские правила, ни DNS, ни TUN.
+При активном TUN пробы получают `ProbeRoute` и выходят мимо туннеля.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from src.core.http_probe import (
     measure_latency,
 )
 from src.core.platform_info import no_window
+from src.core.sockopt import bind_to_interface, is_ip, is_loopback, mark_socket, resolve_in_core
 from src.core.transport_tweaks import apply_transport_tweaks
 
 if TYPE_CHECKING:
@@ -48,7 +50,23 @@ MAX_BATCH_SIZE = 500
 START_ATTEMPTS = 3
 START_TIMEOUT_SECONDS = 5.0
 
+DIRECT_TAG = "direct"
+PROBE_DNS_TAG = "probe-dns"
+
 ResultFn = Callable[[int, int], None]
+
+
+@dataclass(frozen=True)
+class ProbeRoute:
+    """Путь пробы мимо туннеля: физический интерфейс, метка и DNS сети.
+
+    Без него пробы ушли бы в TUN, то есть через текущий сервер. Метка нужна только на
+    Linux: таблица `inet veblock` пропускает лишь помеченные сокеты.
+    """
+
+    interface: str
+    mark: int | None = None
+    dns_servers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -57,6 +75,18 @@ class ProbeTarget:
 
     profile_id: int
     outbound: dict[str, Any]
+    # Адрес сервера из профиля: в outbound он лежит по-разному у каждого протокола.
+    server: str = ""
+
+
+def _route_past_tunnel(outbound: dict[str, Any], server: str, route: ProbeRoute) -> None:
+    loopback = is_loopback(server)
+    if not loopback:
+        bind_to_interface(outbound, route.interface)
+    if route.mark is not None:
+        mark_socket(outbound, route.mark)
+    if server and not loopback and not is_ip(server):
+        resolve_in_core(outbound)
 
 
 def build_probe_outbound(profile: ProfileEntry, settings: DataStore) -> dict[str, Any] | None:
@@ -85,6 +115,7 @@ def build_batch_probe_config(
     credentials: ProbeCredentials,
     *,
     log_level: str = "warning",
+    route: ProbeRoute | None = None,
 ) -> dict[str, Any]:
     """Конфиг ядра для замера: N inbound'ов, N outbound'ов, N правил."""
     if len(ports) != len(targets):
@@ -102,16 +133,34 @@ def build_batch_probe_config(
 
         outbound = copy.deepcopy(target.outbound)
         outbound["tag"] = outbound_tag
+        if route is not None:
+            _route_past_tunnel(outbound, target.server, route)
         outbounds.append(outbound)
 
         rules.append({"type": "field", "inboundTag": [inbound_tag], "outboundTag": outbound_tag})
 
-    return {
+    config: dict[str, Any] = {
         "log": {"loglevel": log_level},
         "inbounds": inbounds,
         "outbounds": outbounds,
         "routing": {"rules": rules},
     }
+    if route is not None:
+        # Запросы DNS-модуля ядра: имена серверов спрашиваются у DNS сети мимо туннеля.
+        direct: dict[str, Any] = {"protocol": "freedom", "tag": DIRECT_TAG}
+        _route_past_tunnel(direct, "", route)
+        outbounds.append(direct)
+        if route.dns_servers:
+            config["dns"] = {
+                "servers": list(route.dns_servers),
+                "queryStrategy": "UseIPv4",
+                "tag": PROBE_DNS_TAG,
+            }
+            # Без правила запросы ушли бы в первый outbound, то есть в proxy-1.
+            rules.insert(
+                0, {"type": "field", "inboundTag": [PROBE_DNS_TAG], "outboundTag": DIRECT_TAG}
+            )
+    return config
 
 
 def _write_config(config: dict[str, Any]) -> Path:
@@ -299,13 +348,16 @@ def _probe_batch(
     max_workers: int,
     timeout: float,
     probes: int,
+    route: ProbeRoute | None,
 ) -> None:
     credentials = ProbeCredentials.generate()
 
     def accepts(chunk: Sequence[ProbeTarget]) -> bool:
         # `-test` портов не открывает, поэтому настоящие здесь не нужны.
         ports = range(1024, 1024 + len(chunk))
-        return core_accepts(binary_path, build_batch_probe_config(chunk, ports, credentials))
+        return core_accepts(
+            binary_path, build_batch_probe_config(chunk, ports, credentials, route=route)
+        )
 
     accepted, rejected = split_accepted(targets, accepts)
     for target in rejected:
@@ -316,7 +368,7 @@ def _probe_batch(
 
     for attempt in range(1, START_ATTEMPTS + 1):
         ports = reserve_ports(len(accepted))
-        config = build_batch_probe_config(accepted, ports, credentials)
+        config = build_batch_probe_config(accepted, ports, credentials, route=route)
         with BatchCore(binary_path, config) as core:
             if not core.wait_ready(ports):
                 logger.warning("Probe core did not start (attempt %d/%d)", attempt, START_ATTEMPTS)
@@ -346,6 +398,7 @@ def probe_targets(
     max_workers: int = DEFAULT_MAX_WORKERS,
     timeout: float = 3.0,
     probes: int = 3,
+    route: ProbeRoute | None = None,
 ) -> None:
     """Замерить готовые outbound'ы. Каждый профиль получает ровно один результат."""
     for start in range(0, len(targets), MAX_BATCH_SIZE):
@@ -357,6 +410,7 @@ def probe_targets(
             max_workers=max_workers,
             timeout=timeout,
             probes=probes,
+            route=route,
         )
 
 
@@ -366,6 +420,7 @@ def probe_profiles(
     settings: DataStore,
     binary_path: str,
     on_result: ResultFn,
+    route: ProbeRoute | None = None,
     **options: Any,
 ) -> None:
     """Замерить задержку профилей одним процессом ядра.
@@ -379,7 +434,7 @@ def probe_profiles(
         if outbound is None:
             on_result(profile.id, -1)
             continue
-        targets.append(ProbeTarget(profile.id, outbound))
+        targets.append(ProbeTarget(profile.id, outbound, server=profile.bean.server_address))
 
     if targets:
-        probe_targets(targets, binary_path=binary_path, on_result=on_result, **options)
+        probe_targets(targets, binary_path=binary_path, on_result=on_result, route=route, **options)
