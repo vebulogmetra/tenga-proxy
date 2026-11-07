@@ -21,6 +21,10 @@ CLASS_OK = "status-connected"
 CLASS_ERROR = "status-error"
 CLASS_DIM = "dim-label"
 
+# Чьи правила действуют: общие из настроек или свои у сервера.
+RULES_GLOBAL = "Общие"
+RULES_OWN = "Сервера"
+
 
 @dataclass(frozen=True)
 class MonitoringRow:
@@ -50,20 +54,23 @@ def format_last_check(timestamp: float) -> str:
 def _blank_routing() -> tuple[MonitoringRow, ...]:
     return tuple(
         MonitoringRow(title=title, value=UNKNOWN, css_class=CLASS_DIM)
-        for title in ("Режим", "DIRECT", "PROXY", "VPN")
+        for title in ("Правила", "Режим", "DIRECT", "PROXY", "VPN")
     )
 
 
 def routing_rows(
     routing: Any,
     *,
+    own_rules: bool = False,
     vpn_enabled: bool = False,
     vpn_is_up: bool = False,
 ) -> tuple[MonitoringRow, ...]:
     """Describe the routing rules of the active profile."""
+    rules = MonitoringRow("Правила", RULES_OWN if own_rules else RULES_GLOBAL)
     if routing.mode == _PROXY_ALL:
         direct = "активен (bypass local)" if routing.bypass_local_networks else NOT_SET
         return (
+            rules,
             MonitoringRow("Режим", "PROXY_ALL"),
             MonitoringRow("DIRECT", direct),
             MonitoringRow("PROXY", "активен (весь трафик)"),
@@ -91,6 +98,7 @@ def routing_rows(
         vpn = f"правила есть ({vpn_count}), VPN выключен"
 
     return (
+        rules,
         MonitoringRow("Режим", "CUSTOM"),
         MonitoringRow("DIRECT", direct),
         MonitoringRow("PROXY", proxy),
@@ -130,6 +138,7 @@ def monitoring_view(
     *,
     is_running: bool,
     profile_found: bool = True,
+    own_rules: bool = False,
     vpn_enabled: bool = False,
     vpn_is_up: bool = False,
 ) -> MonitoringView:
@@ -138,13 +147,16 @@ def monitoring_view(
         routing_part = _blank_routing()
     elif not profile_found:
         routing_part = (
+            MonitoringRow("Правила", UNKNOWN, CLASS_DIM),
             MonitoringRow("Режим", "Сервер не найден", CLASS_ERROR),
             MonitoringRow("DIRECT", UNKNOWN, CLASS_DIM),
             MonitoringRow("PROXY", UNKNOWN, CLASS_DIM),
             MonitoringRow("VPN", UNKNOWN, CLASS_DIM),
         )
     else:
-        routing_part = routing_rows(routing, vpn_enabled=vpn_enabled, vpn_is_up=vpn_is_up)
+        routing_part = routing_rows(
+            routing, own_rules=own_rules, vpn_enabled=vpn_enabled, vpn_is_up=vpn_is_up
+        )
 
     return MonitoringView(
         connection=_connection_rows(status, is_running=is_running, vpn_enabled=vpn_enabled),

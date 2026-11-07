@@ -520,6 +520,7 @@ class MainWindow(Adw.ApplicationWindow):
         )
 
         routing = getattr(profile, "routing_settings", None) or self._context.config.routing
+        own_rules = getattr(profile, "routing_settings", None) is not None
         vpn_settings = getattr(profile, "vpn_settings", None)
         vpn_enabled = bool(
             vpn_settings
@@ -533,6 +534,7 @@ class MainWindow(Adw.ApplicationWindow):
                 routing,
                 is_running=state.is_running,
                 profile_found=profile is not None,
+                own_rules=own_rules,
                 vpn_enabled=vpn_enabled,
                 # Активность VPN берётся из последней проверки монитора, а не
                 # запрашивается у NetworkManager: перерисовка не должна ходить

@@ -134,8 +134,8 @@ def test_proxy_ok_carries_the_connected_class():
 
 
 @pytest.mark.parametrize("mode", ["proxy_all", "custom"])
-def test_routing_always_returns_four_rows(mode):
-    assert len(routing_rows(FakeRouting(mode=mode))) == 4
+def test_routing_always_returns_five_rows(mode):
+    assert len(routing_rows(FakeRouting(mode=mode))) == 5
 
 
 def test_vpn_connection_row_says_not_configured_when_vpn_is_off():
@@ -167,3 +167,20 @@ def test_custom_counts_ready_made_rules():
     routing.ru_direct = True
 
     assert values(routing_rows(routing))["DIRECT"] == "активен (3 правил)"
+
+
+def test_routing_rows_name_whose_rules_apply():
+    assert values(routing_rows(FakeRouting(), own_rules=False))["Правила"] == "Общие"
+    assert values(routing_rows(FakeRouting(), own_rules=True))["Правила"] == "Сервера"
+    assert values(routing_rows(FakeRouting(mode="proxy_all"), own_rules=True))["Правила"] == (
+        "Сервера"
+    )
+
+
+def test_monitoring_view_passes_own_rules_through():
+    view = monitoring_view(
+        FakeStatus(proxy_ok=True), FakeRouting(), is_running=True, own_rules=True
+    )
+    assert values(view.routing)["Правила"] == "Сервера"
+    blank = monitoring_view(FakeStatus(), FakeRouting(), is_running=False, own_rules=True)
+    assert values(blank.routing)["Правила"] == UNKNOWN
