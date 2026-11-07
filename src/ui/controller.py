@@ -972,21 +972,19 @@ class AppController:
                     self._latency_probe, dispatch=self._loop.dispatch
                 )
             else:
-                # Весь набор меряет один временный процесс ядра.
+                # Весь набор меряет один временный процесс ядра. Отказ пути мимо
+                # туннеля приходит из потока замера: тост — через главный цикл.
                 self.latency_runner = LatencyRunner(
-                    batch_probe=make_batch_probe(self.context), dispatch=self._loop.dispatch
+                    batch_probe=make_batch_probe(
+                        self.context,
+                        on_unavailable=lambda text: self._loop.dispatch(self.toast, text),
+                    ),
+                    dispatch=self._loop.dispatch,
                 )
         return self.latency_runner
 
     def _can_probe(self) -> bool:
-        from src.db.config import ProxyMode
-
-        state = self.context.proxy_state
-        if state.is_running and state.started_mode == ProxyMode.TUN:
-            self.toast(
-                "Замер при активном TUN недоступен: независимый маршрут не обеспечен. Отключите TUN для проверки."
-            )
-            return False
+        # Режим сеанса здесь не проверяется: путь мимо туннеля ищет поток замера.
         if self._subscription_busy:
             self.toast("Дождитесь обновления подписок")
             return False

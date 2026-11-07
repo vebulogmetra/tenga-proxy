@@ -968,15 +968,46 @@ def test_test_latency_without_profiles_toasts(made):
     assert shell.last_toast == "Нет серверов для проверки"
 
 
-def test_probe_is_refused_while_tun_is_active(made):
+def _no_route(_context):
+    from src.ui.logic.latency import ProbeUnavailable
+
+    raise ProbeUnavailable("нет маршрута")
+
+
+def test_probe_under_tun_without_a_route_toasts_and_marks_everything_dead(made, monkeypatch):
     controller, shell, _ = made
     entry = add_profile(controller)
-    controller.set_latency_probe(lambda _pid: 1)
     controller.context.proxy_state.set_running(entry.id, mode="tun")
+    monkeypatch.setattr("src.ui.logic.latency.probe_route", _no_route)
 
     controller.test_latency_for(entry.id)
+    controller.latency_runner.wait(5)
 
-    assert shell.last_toast.startswith("Замер при активном TUN недоступен")
+    assert ("нет маршрута", None, None) in shell.toasts
+    assert controller.context.profiles.get_profile(entry.id).latency_ms == -1
+    assert controller.latency_runner.last_run_complete is False
+
+
+def test_probe_under_tun_with_a_route_measures(made, monkeypatch):
+    from src.core.batch_probe import ProbeRoute
+
+    controller, shell, _ = made
+    entry = add_profile(controller)
+    controller.context.proxy_state.set_running(entry.id, mode="tun")
+    monkeypatch.setattr("src.ui.logic.latency.probe_route", lambda _c: ProbeRoute("eth0"))
+
+    def fake_probe_profiles(profiles, *, settings, binary_path, on_result, route):
+        assert route == ProbeRoute("eth0")
+        for profile in profiles:
+            on_result(profile.id, 42)
+
+    monkeypatch.setattr("src.core.batch_probe.probe_profiles", fake_probe_profiles)
+
+    controller.test_latency_for(entry.id)
+    controller.latency_runner.wait(5)
+
+    assert controller.context.profiles.get_profile(entry.id).latency_ms == 42
+    assert all(not text.startswith("Замер при активном TUN") for text, *_ in shell.toasts)
 
 
 def test_group_run_sorts_by_ping_and_coalesces_redraws(made):
