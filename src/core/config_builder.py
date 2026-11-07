@@ -7,7 +7,6 @@ AppContext explicitly instead of reading it from `self`.
 
 from __future__ import annotations
 
-import ipaddress
 import logging
 
 from src.core import platform_info
@@ -27,6 +26,7 @@ from src.core.proxy_mode import (
     build_inbounds_for_mode,
     normalize_proxy_mode,
 )
+from src.core.sockopt import bind_to_interface, is_ip, is_loopback, mark_socket, resolve_in_core
 from src.core.transport_tweaks import apply_transport_tweaks
 from src.db.config import (
     DEFAULT_ROUTING_ORDER,
@@ -96,43 +96,13 @@ def _physical_interface(
     return None
 
 
-def _is_loopback(host: str) -> bool:
-    """Сервер на этой же машине (локальный обфускатор): через сетевой интерфейс не достать."""
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
-
-
-def _is_ip(host: str) -> bool:
-    try:
-        ipaddress.ip_address(host.strip("[]"))
-    except ValueError:
-        return False
-    return True
-
-
-def _bind_to_interface(outbound: dict, interface: str) -> None:
-    sockopt = outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})
-    sockopt["interface"] = interface
-
-
 def _prepare_tun_sockets(outbounds: list[dict], proxy_outbound: dict, server: str) -> None:
-    """Сокеты ядра в TUN: метка и разрешение имени сервера внутри ядра.
-
-    Метка пропускает трафик ядра мимо блокировки (см. tun_route_helper.sh). Имя
-    сервера без `domainStrategy` уходит системному резолверу, а resolved шлёт
-    запрос наружу уже без метки. На SNI это не влияет: `serverName` не меняется.
-    """
+    """Сокеты ядра в TUN: метка на всех outbound'ах и разрешение имени сервера внутри ядра."""
     for outbound in outbounds:
         if outbound.get("protocol") != "blackhole":
-            outbound.setdefault("streamSettings", {}).setdefault("sockopt", {})["mark"] = (
-                SOCKET_MARK
-            )
-    if not _is_ip(server) and not _is_loopback(server):
-        proxy_outbound["streamSettings"]["sockopt"]["domainStrategy"] = "UseIPv4"
+            mark_socket(outbound, SOCKET_MARK)
+    if not is_ip(server) and not is_loopback(server):
+        resolve_in_core(proxy_outbound)
 
 
 class UnsafeConfigError(Exception):
@@ -364,9 +334,9 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
             # И прямой выход, и соединение с сервером профиля должны уходить через
             # физический интерфейс: маршрут по умолчанию ведёт в туннель (TUN
             # приложения или VPN), и без привязки они вернулись бы в него же.
-            _bind_to_interface(direct_outbound, physical_interface)
-            if not _is_loopback(profile.bean.server_address):
-                _bind_to_interface(outbound, physical_interface)
+            bind_to_interface(direct_outbound, physical_interface)
+            if not is_loopback(profile.bean.server_address):
+                bind_to_interface(outbound, physical_interface)
             logger.info("Direct and proxy outbounds bound to interface: %s", physical_interface)
 
         outbounds = [
@@ -409,7 +379,7 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
                     "rules": [{"action": "hijack", "qType": "1,28"}, {"action": "direct"}],
                 },
             }
-            _bind_to_interface(dns_outbound, physical_interface)
+            bind_to_interface(dns_outbound, physical_interface)
             outbounds.append(dns_outbound)
 
         if vpn_tag and vpn_interface:
