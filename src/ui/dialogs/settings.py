@@ -12,6 +12,7 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
+from src.core.config import get_asset_path
 from src.core.core_update import evaluate, fetch_releases, known_releases, refresh_known_releases
 from src.core.geo import USER_GEO_DIR
 from src.core.geo_update import update_geo_bases
@@ -32,10 +33,19 @@ from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TUN_NAME,
     LOG_LEVELS,
+    SAVE_IDLE,
+    SAVE_PENDING,
+    SETTINGS_SECTIONS,
+    invalid_text,
+    save_status_text,
     validate_settings,
 )
 from src.ui.logic.version import UNKNOWN, app_version, core_update_text, core_version
 from src.ui.window import apply_theme
+
+SETTINGS_WIDTH = 960
+SETTINGS_HEIGHT = 700
+SECTION_ICON_SIZE = 20
 
 
 class KeyedCombo:
@@ -68,8 +78,8 @@ class KeyedCombo:
         return self.keys[0]
 
 
-class SettingsDialog(Adw.PreferencesDialog):
-    """Inbound, runtime mode, monitoring, DNS and logs."""
+class SettingsDialog(Adw.Dialog):
+    """Settings window as in Qt: a list of sections, the section page, a status line."""
 
     __gtype_name__ = "TengaSettingsDialog"
 
@@ -80,6 +90,11 @@ class SettingsDialog(Adw.PreferencesDialog):
     def __init__(self, config, context=None) -> None:
         super().__init__()
         self.set_title("Настройки")
+        self.set_content_width(SETTINGS_WIDTH)
+        self.set_content_height(SETTINGS_HEIGHT)
+        self._pages: dict[str, Adw.PreferencesPage] = {}
+        # Итог последней записи от приложения: None — никто не ответил (тесты).
+        self._persisted: bool | None = None
         self._config = config
         self._context = context
         self._fetch_releases = fetch_releases
@@ -94,6 +109,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         self._build_bypass_page()
         self._build_subscriptions_page()
         self._build_about_page()
+        self._build_layout()
 
         self._loading = False
         self._load()
@@ -116,9 +132,122 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.routing.connect_changed(self._queue_save)
         self.connect("closed", self._flush_save)
 
+    def _add_page(self, key: str, page: Adw.PreferencesPage) -> None:
+        self._pages[key] = page
+
+    def _build_layout(self) -> None:
+        """Section list on the left, the page with its title on the right, status below."""
+        self._sections = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
+        self._sections.add_css_class("navigation-sidebar")
+        self._sections.add_css_class("settings-sidebar")
+        self._section_keys: list[str] = []
+        self._section_icons: list[str] = []
+        for key, title, icon in SETTINGS_SECTIONS:
+            path = str(get_asset_path(f"icons/ui/{icon}.svg"))
+            line = Gtk.Box(spacing=12, margin_top=6, margin_bottom=6, margin_start=6)
+            image = Gtk.Image.new_from_file(path)
+            image.set_pixel_size(SECTION_ICON_SIZE)
+            image.add_css_class("settings-icon")
+            line.append(image)
+            line.append(Gtk.Label(label=title, xalign=0.0))
+            self._sections.append(line)
+            self._section_keys.append(key)
+            self._section_icons.append(path)
+        self._sections.connect("row-selected", self._on_section_selected)
+
+        sidebar_view = Adw.ToolbarView()
+        sidebar_header = Adw.HeaderBar(show_end_title_buttons=False)
+        sidebar_header.set_title_widget(Adw.WindowTitle(title="Настройки"))
+        sidebar_view.add_top_bar(sidebar_header)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(self._sections)
+        sidebar_view.set_content(scroll)
+        sidebar = Adw.NavigationPage(title="Настройки", child=sidebar_view)
+
+        self._stack = Gtk.Stack(vexpand=True)
+        for key, page in self._pages.items():
+            self._stack.add_named(page, key)
+        self._section_title = Adw.WindowTitle(title=SETTINGS_SECTIONS[0][1])
+        content_view = Adw.ToolbarView()
+        content_header = Adw.HeaderBar()
+        content_header.set_title_widget(self._section_title)
+        content_view.add_top_bar(content_header)
+        content_view.set_content(self._stack)
+
+        footer = Gtk.Box(spacing=12, margin_top=8, margin_bottom=8, margin_start=16, margin_end=16)
+        self._status = Gtk.Label(label=SAVE_IDLE, xalign=0.0, hexpand=True, wrap=True)
+        self._status.add_css_class("dim-label")
+        footer.append(self._status)
+        self.close_button = Gtk.Button(label="Закрыть")
+        self.close_button.connect("clicked", lambda _b: self.close())
+        footer.append(self.close_button)
+        content_view.add_bottom_bar(footer)
+        self._content_page = Adw.NavigationPage(title=SETTINGS_SECTIONS[0][1], child=content_view)
+
+        self._split = Adw.NavigationSplitView(
+            sidebar=sidebar,
+            content=self._content_page,
+            min_sidebar_width=200,
+            max_sidebar_width=240,
+            sidebar_width_fraction=0.24,
+        )
+        self.set_child(self._split)
+
+        # Узкий диалог (окно меньше 640 по ширине): список разделов и страница
+        # по очереди, как в любом диалоге libadwaita.
+        narrow = Adw.Breakpoint.new(
+            Adw.BreakpointCondition.new_length(
+                Adw.BreakpointConditionLengthType.MAX_WIDTH, 600, Adw.LengthUnit.SP
+            )
+        )
+        narrow.add_setter(self._split, "collapsed", True)
+        self.add_breakpoint(narrow)
+
+        self._sections.select_row(self._sections.get_row_at_index(0))
+
+    def _on_section_selected(self, _list, row) -> None:
+        if row is None:
+            return
+        index = row.get_index()
+        key = self._section_keys[index]
+        title = SETTINGS_SECTIONS[index][1]
+        self._stack.set_visible_child_name(key)
+        self._section_title.set_title(title)
+        self._content_page.set_title(title)
+        self._split.set_show_content(True)
+
+    def select_section(self, key: str) -> None:
+        """Open the section with the given key (`SETTINGS_SECTIONS`)."""
+        row = self._sections.get_row_at_index(self._section_keys.index(key))
+        self._sections.select_row(row)
+
+    def _set_status(self, text: str, *, error: bool = False) -> None:
+        self._status.set_text(text)
+        if error:
+            self._status.remove_css_class("dim-label")
+            self._status.add_css_class("error")
+        else:
+            self._status.remove_css_class("error")
+            self._status.add_css_class("dim-label")
+
+    def set_save_result(self, saved: bool, *, reconnect: bool | None = None) -> None:
+        """The application reports whether the settings reached the disk."""
+        self._persisted = saved
+        if reconnect is None:
+            reconnect = self._needs_reconnect()
+        self._set_status(save_status_text(saved=saved, reconnect=reconnect), error=not saved)
+
+    def _needs_reconnect(self) -> bool:
+        if getattr(self._context, "proxy_state", None) is None:
+            return False
+        from src.ui.logic.settings_state import pending_settings
+
+        return bool(pending_settings(self._context))
+
     def _queue_save(self, *_args) -> None:
         if self._loading:
             return
+        self._set_status(SAVE_PENDING)
         if self._autosave_source:
             GLib.source_remove(self._autosave_source)
         self._autosave_source = GLib.timeout_add(500, self._autosave)
@@ -139,21 +268,7 @@ class SettingsDialog(Adw.PreferencesDialog):
     def _build_general_page(self) -> None:
         page = Adw.PreferencesPage(title="Общие", icon_name="preferences-system-symbolic")
         self._general_page = page
-        self.add(page)
-
-        inbound = Adw.PreferencesGroup(
-            title="Входящее соединение",
-            description="Локальные порты SOCKS и HTTP",
-        )
-        page.add(inbound)
-
-        self.address_row = Adw.EntryRow(title="Адрес")
-        inbound.add(self.address_row)
-
-        self.port_row = Adw.SpinRow.new_with_range(1024, 65535, 1)
-        self.port_row.set_title("Порт SOCKS")
-        self.port_row.set_subtitle("HTTP занимает следующий порт")
-        inbound.add(self.port_row)
+        self._add_page("general", page)
 
         runtime = Adw.PreferencesGroup(title="Режим работы")
         page.add(runtime)
@@ -182,7 +297,21 @@ class SettingsDialog(Adw.PreferencesDialog):
         self.tun_access_row.set_visible(False)
         runtime.add(self.tun_access_row)
 
-        appearance = Adw.PreferencesGroup(title="Оформление")
+        inbound = Adw.PreferencesGroup(
+            title="Входящее соединение",
+            description="Локальные порты SOCKS и HTTP",
+        )
+        page.add(inbound)
+
+        self.address_row = Adw.EntryRow(title="Адрес")
+        inbound.add(self.address_row)
+
+        self.port_row = Adw.SpinRow.new_with_range(1024, 65535, 1)
+        self.port_row.set_title("Порт SOCKS")
+        self.port_row.set_subtitle("HTTP занимает следующий порт")
+        inbound.add(self.port_row)
+
+        appearance = Adw.PreferencesGroup(title="Окно")
         page.add(appearance)
 
         self._theme = KeyedCombo("Тема", THEMES, THEME_LABELS)
@@ -191,6 +320,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         # попадает при закрытии диалога, как и остальные поля.
         self.theme_row.connect("notify::selected", lambda *_: apply_theme(self._theme.selected()))
         appearance.add(self.theme_row)
+
+        self.close_to_tray_row = Adw.SwitchRow(
+            title="Сворачивать в трей при закрытии окна",
+            subtitle="Без трея закрытие окна всегда завершает приложение",
+        )
+        appearance.add(self.close_to_tray_row)
 
         logs = Adw.PreferencesGroup(title="Журнал")
         page.add(logs)
@@ -205,7 +340,7 @@ class SettingsDialog(Adw.PreferencesDialog):
         page = Adw.PreferencesPage(
             title="Мониторинг", icon_name="utilities-system-monitor-symbolic"
         )
-        self.add(page)
+        self._add_page("monitoring", page)
 
         group = Adw.PreferencesGroup(
             title="Проверка соединения",
@@ -238,12 +373,12 @@ class SettingsDialog(Adw.PreferencesDialog):
         failover.add(self.failover_threshold_row)
 
     def show_dns_page(self) -> None:
-        self.set_visible_page(self._dns_page)
+        self.select_section("dns")
 
     def _build_dns_page(self) -> None:
         page = Adw.PreferencesPage(title="DNS", icon_name="network-server-symbolic")
         self._dns_page = page
-        self.add(page)
+        self._add_page("dns", page)
 
         group = Adw.PreferencesGroup(title="Провайдер")
         page.add(group)
@@ -290,7 +425,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             description=GLOBAL_PAGE_HINT,
         )
         self.routing_page = page
-        self.add(page)
+        self._add_page("routing", page)
 
         self.routing = RoutingForm(page, vpn_hint=VPN_LIST_HINT)
 
@@ -339,7 +474,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             title=platform_texts.settings_page_title("bypass"),
             icon_name="security-high-symbolic",
         )
-        self.add(page)
+        self._add_page("bypass", page)
 
         fragment = Adw.PreferencesGroup(
             title="Фрагментация TLS",
@@ -376,7 +511,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             title=platform_texts.settings_page_title("subscriptions"),
             icon_name="folder-download-symbolic",
         )
-        self.add(page)
+        self._add_page("subscriptions", page)
 
         request = Adw.PreferencesGroup(
             title="Запрос к провайдеру",
@@ -407,7 +542,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             title=platform_texts.settings_page_title("about"),
             icon_name="help-about-symbolic",
         )
-        self.add(page)
+        self._add_page("about", page)
 
         group = Adw.PreferencesGroup(title="Veblock")
         page.add(group)
@@ -483,10 +618,11 @@ class SettingsDialog(Adw.PreferencesDialog):
     # --- состояние ---
 
     def _sync_mode(self) -> None:
+        # Поля TUN прячутся, а не гаснут, как в Qt; значения в них остаются.
         tun = self._mode.selected() == ProxyMode.TUN
-        self.tun_name_row.set_sensitive(tun)
-        self.tun_mtu_row.set_sensitive(tun)
-        self.kill_switch_row.set_sensitive(tun)
+        self.tun_name_row.set_visible(tun)
+        self.tun_mtu_row.set_visible(tun)
+        self.kill_switch_row.set_visible(tun and kill_switch_available())
         if tun and self._tun_problems is None:
             self._check_tun_access()
         self._sync_tun_access()
@@ -538,6 +674,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         self._log_level.select(getattr(config, "log_level", DEFAULT_LOG_LEVEL))
         self._theme.select(normalize_theme(getattr(config, "theme", None)))
+        self.close_to_tray_row.set_active(bool(getattr(config, "close_to_tray", True)))
 
         monitoring = config.monitoring
         self.monitoring_row.set_active(monitoring.enabled)
@@ -584,6 +721,7 @@ class SettingsDialog(Adw.PreferencesDialog):
 
         config.log_level = self._log_level.selected()
         config.theme = self._theme.selected()
+        config.close_to_tray = self.close_to_tray_row.get_active()
 
         config.monitoring.enabled = self.monitoring_row.get_active()
         config.monitoring.check_interval_seconds = int(self.interval_row.get_value())
@@ -623,7 +761,7 @@ class SettingsDialog(Adw.PreferencesDialog):
             try:
                 self.routing.read(routing)
             except ValueError as error:
-                self.set_title(f"Исправьте настройки: {error}")
+                self._set_status(invalid_text(str(error)), error=True)
                 return False
             store_shared_routing(config, routing)
 
@@ -647,13 +785,17 @@ class SettingsDialog(Adw.PreferencesDialog):
                 row.remove_css_class("error")
                 row.set_tooltip_text(None)
         if errors:
-            self.set_title("Исправьте настройки: " + next(iter(errors.values())))
+            self._set_status(invalid_text(next(iter(errors.values()))), error=True)
             return False
-        self.set_title("Настройки")
         self._config.__dict__.update(config.__dict__)
         self._routing_loaded = self.routing.values()
+        # Приложение пишет настройки на диск и отвечает `set_save_result`;
+        # без ответа (диалог без приложения) запись считается успешной.
+        self._persisted = None
         self.emit("settings-saved")
-        return True
+        if self._persisted is None:
+            self.set_save_result(True)
+        return self._persisted is not False
 
     # --- вспомогательное для тестов и внешнего кода ---
 
@@ -802,3 +944,37 @@ class SettingsDialog(Adw.PreferencesDialog):
             confirm_label="Очистить",
         )
         dialog.present(self)
+
+    # --- окно разделов: аксессоры для тестов ---
+
+    def section_titles_for_test(self) -> list[str]:
+        return [title for _key, title, _icon in SETTINGS_SECTIONS]
+
+    def section_icon_for_test(self, index: int) -> str:
+        return self._section_icons[index]
+
+    def get_section_title(self) -> str:
+        return self._section_title.get_title()
+
+    def get_visible_page(self) -> Adw.PreferencesPage:
+        return self._stack.get_visible_child()
+
+    def get_status_text(self) -> str:
+        return self._status.get_text()
+
+    @staticmethod
+    def group_titles_for_test(page: Adw.PreferencesPage) -> list[str]:
+        titles = []
+        stack = [page]
+        while stack:
+            widget = stack.pop(0)
+            if isinstance(widget, Adw.PreferencesGroup):
+                titles.append(widget.get_title())
+                continue
+            child = widget.get_first_child()
+            children = []
+            while child is not None:
+                children.append(child)
+                child = child.get_next_sibling()
+            stack[0:0] = children
+        return titles

@@ -703,9 +703,16 @@ class MainWindow(Adw.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def _on_close_request(self, _window: Adw.ApplicationWindow) -> bool:
-        """Persist geometry once, on close (B12)."""
+        """With a tray the window hides; without one closing quits, as in Qt."""
         self.save_geometry()
+        app = self.get_application()
+        tray_visible = app is not None and getattr(app, "tray_visible", lambda: False)()
+        if tray_visible and getattr(self._context.config, "close_to_tray", True):
+            self.set_visible(False)
+            return True
         self.detach()
+        if app is not None:
+            app.quit()
         return False
 
     def detach(self) -> None:

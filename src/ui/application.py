@@ -321,6 +321,10 @@ class TengaApplication(Adw.Application):
             logger.info("Tray is unavailable: %s", e)
             self.tray = None
 
+    def tray_visible(self) -> bool:
+        """Is there a tray icon to bring the hidden window back from?"""
+        return self.tray is not None and self.tray.visible
+
     def stop_tray(self) -> None:
         """Remove the tray icon."""
         if self.tray is None:
@@ -481,9 +485,9 @@ class TengaApplication(Adw.Application):
         from src.ui.dialogs.settings import SettingsDialog
 
         dialog = SettingsDialog(self.context.config, context=self.context)
-        # `Adw.PreferencesDialog` не имеет кнопки подтверждения: по конвенции
-        # GNOME настройки применяются при закрытии.
-        dialog.connect("settings-saved", lambda _d: self.apply_settings())
+        # Кнопки «Сохранить» нет: правки уходят по мере ввода, итог записи
+        # видно в строке статуса диалога, как в Qt.
+        dialog.connect("settings-saved", lambda d: d.set_save_result(self.apply_settings()))
         if section == SETTINGS_DNS:
             dialog.show_dns_page()
         self.present_dialog(dialog)
@@ -581,7 +585,8 @@ class TengaApplication(Adw.Application):
         if diagnostics is not None and diagnostics.is_active():
             diagnostics.close()
         elif self._window is not None:
-            self._window.set_visible(False)
+            # Как закрытие: без трея спрятанное окно было бы не вернуть.
+            self._window.close()
 
     def _activate_window(self) -> None:
         """Show the window, creating it if the application ran headless."""

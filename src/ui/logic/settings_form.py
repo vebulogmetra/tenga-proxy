@@ -13,6 +13,17 @@ LOG_LEVELS = ["debug", "info", "warning", "error", "none"]
 DEFAULT_LOG_LEVEL = "info"
 DEFAULT_TUN_NAME = "xray0"
 
+# Разделы окна настроек: (ключ, заголовок, значок из assets/icons/ui). Общие для GTK и Qt.
+SETTINGS_SECTIONS = (
+    ("general", "Общие", "general"),
+    ("monitoring", "Мониторинг", "monitor"),
+    ("dns", "DNS", "dns"),
+    ("routing", "Маршрутизация", "routing"),
+    ("bypass", "Обход блокировок", "bypass"),
+    ("subscriptions", "Подписки", "subscriptions"),
+    ("about", "О программе", "about"),
+)
+
 # Строка статуса окна настроек.
 SAVE_IDLE = "Изменения сохраняются автоматически"
 SAVE_PENDING = "Ожидание сохранения…"

@@ -29,9 +29,10 @@ def test_default_size_comes_from_saved_geometry(adw_app):
     assert window.get_default_size() == (1000, 800)
 
 
-def test_close_request_saves_geometry(window, adw_app):
+def test_close_request_saves_geometry(window, adw_app, monkeypatch):
     from src.ui.logic.geometry import parse_geometry
 
+    monkeypatch.setattr(adw_app, "quit", lambda: None)
     window.set_default_size(980, 660)
     window.emit("close-request")
 
@@ -68,8 +69,9 @@ def test_geometry_is_saved_without_close_request(window, adw_app):
     assert (saved.width, saved.height) == (1010, 640)
 
 
-def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app):
+def test_window_unsubscribes_from_proxy_state_on_close(window, adw_app, monkeypatch):
     """Слушатель мёртвого окна обратился бы к уничтоженным виджетам."""
+    monkeypatch.setattr(adw_app, "quit", lambda: None)
     state = adw_app.context.proxy_state
     before = len(state._state_listeners)
 
@@ -560,3 +562,44 @@ def test_hiding_the_window_stops_the_log_timer(window, monkeypatch):
     assert window.monitoring_page.log_timer_running_for_test() is True
     window.set_visible(False)
     assert window.monitoring_page.log_timer_running_for_test() is False
+
+
+def test_close_quits_when_close_to_tray_is_off(window, adw_app, monkeypatch):
+    quits = []
+    monkeypatch.setattr(adw_app, "quit", lambda: quits.append(True))
+    monkeypatch.setattr(adw_app, "tray_visible", lambda: True)
+    adw_app.context.config.close_to_tray = False
+    window.emit("close-request")
+    assert quits == [True]
+
+
+def test_close_quits_without_a_tray(window, adw_app, monkeypatch):
+    quits = []
+    monkeypatch.setattr(adw_app, "quit", lambda: quits.append(True))
+    monkeypatch.setattr(adw_app, "tray_visible", lambda: False)
+    adw_app.context.config.close_to_tray = True
+    window.emit("close-request")
+    assert quits == [True]
+
+
+def test_close_hides_into_the_tray(window, adw_app, monkeypatch):
+    quits = []
+    monkeypatch.setattr(adw_app, "quit", lambda: quits.append(True))
+    monkeypatch.setattr(adw_app, "tray_visible", lambda: True)
+    adw_app.context.config.close_to_tray = True
+    window.present()
+    handled = window.emit("close-request")
+    assert handled is True
+    assert quits == []
+    assert window.get_visible() is False
+
+
+def test_hide_window_action_closes_like_the_close_button(window, adw_app, monkeypatch):
+    quits = []
+    monkeypatch.setattr(adw_app, "quit", lambda: quits.append(True))
+    monkeypatch.setattr(adw_app, "tray_visible", lambda: True)
+    adw_app.context.config.close_to_tray = True
+    window.present()
+    adw_app.activate_action("hide-window", None)
+    assert window.get_visible() is False
+    assert quits == []

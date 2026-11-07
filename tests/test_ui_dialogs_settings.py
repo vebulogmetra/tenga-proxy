@@ -43,15 +43,17 @@ def test_an_unknown_mode_falls_back_to_the_first(gtk_ready):
     assert make_dialog(config).mode_row.get_selected() == 0
 
 
-def test_tun_rows_are_insensitive_in_system_mode(gtk_ready):
-    assert not make_dialog().tun_name_row.get_sensitive()
+def test_tun_rows_are_hidden_in_system_mode(gtk_ready):
+    dialog = make_dialog()
+    assert not dialog.tun_name_row.get_visible()
+    assert not dialog.tun_mtu_row.get_visible()
 
 
 def test_switching_to_tun_enables_its_rows(gtk_ready):
     dialog = make_dialog()
     dialog.select_mode("tun")
-    assert dialog.tun_name_row.get_sensitive()
-    assert dialog.tun_mtu_row.get_sensitive()
+    assert dialog.tun_name_row.get_visible()
+    assert dialog.tun_mtu_row.get_visible()
 
 
 def _capture_background(monkeypatch):
@@ -121,11 +123,13 @@ def test_saving_writes_the_config_back(gtk_ready):
 
 def test_kill_switch_row_follows_the_tun_mode(gtk_ready):
     dialog = make_dialog()
-    assert not dialog.kill_switch_row.get_sensitive()
+    assert not dialog.kill_switch_row.get_visible()
 
     dialog.select_mode("tun")
 
-    assert dialog.kill_switch_row.get_sensitive()
+    from src.ui.logic.platform_texts import kill_switch_available
+
+    assert dialog.kill_switch_row.get_visible() is kill_switch_available()
 
 
 def test_kill_switch_round_trips(gtk_ready):
@@ -563,7 +567,7 @@ def test_a_bad_routing_entry_blocks_saving(gtk_ready):
     dialog.routing.set_text("direct", "http://user:pw@x.com")
     assert not dialog.save()
     assert config.routing.direct_list == []
-    assert "credentials" in dialog.get_title()
+    assert "credentials" in dialog.get_status_text()
 
 
 def test_restore_routing_row_lives_on_the_routing_page(gtk_ready):
@@ -587,3 +591,108 @@ def test_restore_routing_row_lives_on_the_routing_page(gtk_ready):
     dialog.sync_restore_routing(False)
     assert not dialog.restore_routing_row.get_visible()
     assert dialog.routing.text("proxy") == "restored.example"
+
+
+# --- окно настроек как в Qt -------------------------------------------------
+
+
+def _run_main_loop(seconds: float) -> None:
+    from gi.repository import GLib
+
+    context = GLib.MainContext.default()
+    deadline = GLib.get_monotonic_time() + int(seconds * 1_000_000)
+    while GLib.get_monotonic_time() < deadline:
+        context.iteration(False)
+
+
+def test_dialog_has_a_section_list_with_icons(gtk_ready):
+    from gi.repository import Adw
+
+    dialog = make_dialog()
+    assert isinstance(dialog, Adw.Dialog)
+    assert dialog.get_title() == "Настройки"
+    assert dialog.section_titles_for_test() == [
+        "Общие",
+        "Мониторинг",
+        "DNS",
+        "Маршрутизация",
+        "Обход блокировок",
+        "Подписки",
+        "О программе",
+    ]
+    assert all(dialog.section_icon_for_test(i).endswith(".svg") for i in range(7))
+    assert dialog.close_button.get_label() == "Закрыть"
+    assert dialog.get_section_title() == "Общие"
+
+
+def test_selecting_a_section_shows_its_page(gtk_ready):
+    dialog = make_dialog()
+    dialog.select_section("dns")
+    assert dialog.get_section_title() == "DNS"
+    assert dialog.get_visible_page() is dialog._dns_page
+
+    dialog.show_dns_page()
+    assert dialog.get_visible_page() is dialog._dns_page
+
+
+def test_status_line_tracks_autosave(gtk_ready):
+    from src.ui.logic.settings_form import SAVE_DONE, SAVE_IDLE, SAVE_PENDING
+
+    dialog = make_dialog()
+    assert dialog.get_status_text() == SAVE_IDLE
+    dialog.address_row.set_text("127.0.0.2")
+    assert dialog.get_status_text() == SAVE_PENDING
+    _run_main_loop(0.8)
+    assert dialog.get_status_text().startswith(SAVE_DONE)
+
+
+def test_invalid_field_is_reported_in_the_status_line(gtk_ready):
+    dialog = make_dialog()
+    dialog.address_row.set_text("не адрес")
+    assert not dialog.save()
+    assert dialog.get_status_text().startswith("Исправьте настройки")
+    assert "error" in dialog.address_row.get_css_classes()
+
+
+def test_save_result_from_the_application(gtk_ready):
+    from src.ui.logic.settings_form import SAVE_FAILED
+
+    dialog = make_dialog()
+    dialog.connect("settings-saved", lambda d: d.set_save_result(False))
+    assert dialog.save() is False
+    assert dialog.get_status_text() == SAVE_FAILED
+
+    dialog.set_save_result(True, reconnect=True)
+    assert dialog.get_status_text().endswith("Требуется переподключение")
+
+
+def test_general_groups_follow_the_qt_order(gtk_ready):
+    dialog = make_dialog()
+    assert dialog.group_titles_for_test(dialog._general_page) == [
+        "Режим работы",
+        "Входящее соединение",
+        "Окно",
+        "Журнал",
+    ]
+
+
+def test_tun_rows_hide_without_losing_values(gtk_ready):
+    dialog = make_dialog()
+    dialog.select_mode("tun")
+    dialog.tun_name_row.set_text("tun7")
+    dialog.select_mode("system_proxy")
+    assert dialog.tun_name_row.get_visible() is False
+    dialog.select_mode("tun")
+    assert dialog.tun_name_row.get_text() == "tun7"
+
+
+def test_close_to_tray_switch_round_trips(gtk_ready):
+    config = make_config()
+    dialog = make_dialog(config)
+    row = dialog.close_to_tray_row
+    assert row.get_title() == "Сворачивать в трей при закрытии окна"
+    assert row.get_subtitle() == "Без трея закрытие окна всегда завершает приложение"
+    assert row.get_active() is True
+    row.set_active(False)
+    assert dialog.save()
+    assert config.close_to_tray is False

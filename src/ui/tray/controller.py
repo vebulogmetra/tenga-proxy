@@ -69,6 +69,11 @@ class TrayController:
         self._running = True
         self.refresh()
 
+    @property
+    def visible(self) -> bool:
+        """Did a panel pick the item up? Without one a hidden window is lost."""
+        return self._running and bool(getattr(self._item, "is_registered", True))
+
     def stop(self) -> None:
         """Remove the item and stop following the state."""
         if not self._running:

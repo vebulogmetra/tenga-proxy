@@ -52,6 +52,7 @@ from src.ui.logic.settings_form import (
     SAVE_FAILED,
     SAVE_IDLE,
     SAVE_PENDING,
+    SETTINGS_SECTIONS,
     invalid_text,
     save_status_text,
     validate_settings,
@@ -62,15 +63,7 @@ from src.ui.qt.theme import apply_theme
 if TYPE_CHECKING:
     from src.ui.qt.dialogs.settings_pages import AboutPage, SubscriptionsPage
 
-SECTIONS = (
-    "Общие",
-    "Мониторинг",
-    "DNS",
-    "Маршрутизация",
-    "Обход блокировок",
-    "Подписки",
-    "О программе",
-)
+SECTIONS = tuple(title for _key, title, _icon in SETTINGS_SECTIONS)
 
 SETTINGS_STYLE = """
 QDialog QWidget { font-size: 11pt; }
@@ -197,9 +190,7 @@ class SettingsDialog(QDialog):
         self.sections = QListWidget()
         self.sections.setObjectName("settingsSections")
         self.sections.addItems(list(SECTIONS))
-        for row, name in enumerate(
-            ("general", "monitor", "dns", "routing", "bypass", "subscriptions", "about")
-        ):
+        for row, (_key, _title, name) in enumerate(SETTINGS_SECTIONS):
             self.sections.item(row).setIcon(QIcon(str(get_asset_path(f"icons/ui/{name}.svg"))))
         self.sections.setFixedWidth(200)
         self.pages = QStackedWidget()

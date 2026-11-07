@@ -34,3 +34,20 @@ def test_save_status_texts():
     assert save_status_text(saved=True, reconnect=True) == f"{SAVE_DONE} · {SAVE_RECONNECT}"
     assert save_status_text(saved=False, reconnect=False) == SAVE_FAILED
     assert invalid_text("порт") == "Исправьте настройки: порт"
+
+
+def test_settings_sections_have_icons():
+    from src.core.config import get_asset_path
+    from src.ui.logic.settings_form import SETTINGS_SECTIONS
+
+    assert [title for _key, title, _icon in SETTINGS_SECTIONS] == [
+        "Общие",
+        "Мониторинг",
+        "DNS",
+        "Маршрутизация",
+        "Обход блокировок",
+        "Подписки",
+        "О программе",
+    ]
+    for _key, _title, icon in SETTINGS_SECTIONS:
+        assert get_asset_path(f"icons/ui/{icon}.svg").is_file()
