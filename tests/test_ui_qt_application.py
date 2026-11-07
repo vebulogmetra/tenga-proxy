@@ -366,3 +366,13 @@ def test_window_uses_the_bundled_style(made):
     app.activate()
 
     assert "#statusCard" in app.window.styleSheet()
+
+
+def test_install_action_reaches_the_controller(made, monkeypatch):
+    app, _service = made
+    seen = []
+    monkeypatch.setattr(app.controller, "install_app_update", lambda: seen.append(1))
+
+    app.activate_action("install-app-update")
+
+    assert seen == [1]

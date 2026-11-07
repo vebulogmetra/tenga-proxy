@@ -646,3 +646,7 @@ def test_the_right_column_fits_the_minimum_height(window):
 
     minimum, _natural, _b1, _b2 = window.right_stack.measure(Gtk.Orientation.VERTICAL, -1)
     assert minimum < MIN_HEIGHT - 100
+
+
+def test_install_action_is_registered(adw_app):
+    assert adw_app.lookup_action("install-app-update") is not None

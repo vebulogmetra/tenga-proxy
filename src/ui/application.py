@@ -298,6 +298,7 @@ class TengaApplication(Adw.Application):
             "activate-window": self._activate_window,
             "restore-routing": lambda: self.controller.restore_routing(),
             "release-block": lambda: self.controller.release_block(),
+            "install-app-update": lambda: self.controller.install_app_update(),
         }
 
         for name, handler in handlers.items():
