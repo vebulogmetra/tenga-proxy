@@ -23,10 +23,11 @@ def make_profile(vpn=None, routing=None):
     )
 
 
-def make_dialog(profile):
+def make_dialog(profile, shared=None):
+    from src.db.config import RoutingSettings
     from src.ui.dialogs.profile_routing import ProfileRoutingDialog
 
-    return ProfileRoutingDialog(profile)
+    return ProfileRoutingDialog(profile, shared if shared is not None else RoutingSettings())
 
 
 def vpn_settings(**kwargs):
@@ -210,3 +211,52 @@ def test_ready_made_rules_follow_the_mode(gtk_ready):
     assert dialog.bypass_row.get_sensitive()
     assert not dialog.ru_direct_row.get_sensitive()
     assert not dialog.block_view.get_sensitive()
+
+
+# --- свои правила и общие ---------------------------------------------------
+
+
+def test_a_server_without_own_rules_shows_the_shared_ones_dimmed(gtk_ready):
+    profile = make_profile()
+    profile.routing_settings = None
+    dialog = make_dialog(profile, shared=routing_settings(mode="custom", proxy_list=["s.com"]))
+    assert not dialog.own_rules_row.get_active()
+    assert dialog.proxy_text() == "s.com"
+    assert not dialog.proxy_view.get_sensitive()
+    assert not dialog.mode_row.get_sensitive()
+
+
+def test_saving_without_own_rules_keeps_them_off(gtk_ready):
+    profile = make_profile()
+    profile.routing_settings = None
+    dialog = make_dialog(profile, shared=routing_settings(proxy_list=["s.com"]))
+    dialog.vpn_row.set_active(True)
+    assert dialog.save()
+    assert profile.routing_settings is None
+    assert profile.vpn_settings.enabled
+
+
+def test_enabling_own_rules_starts_from_a_copy_of_the_shared_ones(gtk_ready):
+    profile = make_profile()
+    profile.routing_settings = None
+    shared = routing_settings(mode="custom", proxy_list=["s.com"])
+    dialog = make_dialog(profile, shared=shared)
+    dialog.own_rules_row.set_active(True)
+    dialog.save()
+    assert profile.routing_settings is not None
+    assert profile.routing_settings is not shared
+    assert profile.routing_settings.proxy_list == ["s.com"]
+    assert dialog.proxy_view.get_sensitive()
+
+
+def test_disabling_own_rules_drops_them_and_keeps_the_shared_untouched(gtk_ready):
+    shared = routing_settings(mode="custom", proxy_list=["s.com"])
+    profile = make_profile(routing=routing_settings(mode="custom", proxy_list=["own.com"]))
+    dialog = make_dialog(profile, shared=shared)
+    assert dialog.own_rules_row.get_active()
+    dialog.own_rules_row.set_active(False)
+    dialog.save()
+    assert profile.routing_settings is None
+    assert shared.proxy_list == ["s.com"]
+    # Поля сохраняют введённое: повторное включение ничего не теряет.
+    assert dialog.proxy_text() == "own.com"

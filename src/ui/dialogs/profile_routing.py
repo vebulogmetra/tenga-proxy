@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -9,44 +11,9 @@ gi.require_version("Adw", "1")
 
 from gi.repository import Adw, GLib, GObject, Gtk
 
-from src.db.config import RoutingMode, RoutingSettings, VpnSettings
+from src.db.config import RoutingSettings, VpnSettings
 from src.ui.dialogs.settings import KeyedCombo
 from src.ui.logic import platform_texts
-from src.ui.logic.forms import parse_host_list
-from src.ui.logic.routing_form import (
-    BLOCK_HINT,
-    LIST_HINT,
-    ORDER_LABELS,
-    ORDER_PRESETS,
-    current_catalog,
-    ru_direct_subtitle,
-)
-
-
-def _list_view(title: str, subtitle: str) -> tuple[Adw.PreferencesGroup, Gtk.TextView]:
-    """Build a titled text area for one routing list."""
-    group = Adw.PreferencesGroup(title=title, description=subtitle)
-
-    view = Gtk.TextView()
-    view.set_monospace(True)
-    view.set_top_margin(8)
-    view.set_bottom_margin(8)
-    view.set_left_margin(8)
-    view.set_right_margin(8)
-
-    scrolled = Gtk.ScrolledWindow(min_content_height=120)
-    scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
-    scrolled.set_child(view)
-    scrolled.add_css_class("card")
-
-    group.add(scrolled)
-    return group, view
-
-
-def _read(view: Gtk.TextView) -> str:
-    buffer = view.get_buffer()
-    start, end = buffer.get_bounds()
-    return buffer.get_text(start, end, True)
 
 
 class ProfileRoutingDialog(Adw.PreferencesDialog):
@@ -58,10 +25,12 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         "routing-saved": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
-    def __init__(self, profile) -> None:
+    def __init__(self, profile, shared_routing: RoutingSettings) -> None:
         super().__init__()
         self.set_title("VPN и маршруты")
         self._profile = profile
+        # Действующие общие правила: их показывает форма, пока своих нет.
+        self._shared = shared_routing
 
         self._build_vpn_page()
         self._build_routing_page()
@@ -79,10 +48,7 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
                 value.connect("changed", self._queue_save)
             elif isinstance(value, Adw.SwitchRow):
                 value.connect("notify::active", self._queue_save)
-            elif isinstance(value, Adw.ComboRow):
-                value.connect("notify::selected", self._queue_save)
-            elif isinstance(value, Gtk.TextView):
-                value.get_buffer().connect("changed", self._queue_save)
+        self.form.connect_changed(self._queue_save)
         self.connect("closed", self._flush_save)
 
     def _queue_save(self, *_args) -> None:
@@ -151,44 +117,27 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         interfaces.add(self.direct_interface_row)
 
     def _build_routing_page(self) -> None:
+        from src.ui.logic.routing_form import OWN_RULES_HINT, OWN_RULES_TITLE
+        from src.ui.widgets.routing_form import RoutingForm
+
         page = Adw.PreferencesPage(title="Маршрутизация", icon_name="network-workgroup-symbolic")
         self.add(page)
 
-        mode_group = Adw.PreferencesGroup(title="Режим")
-        page.add(mode_group)
+        own = Adw.PreferencesGroup()
+        page.add(own)
+        self.own_rules_row = Adw.SwitchRow(title=OWN_RULES_TITLE, subtitle=OWN_RULES_HINT)
+        self.own_rules_row.connect("notify::active", lambda *_: self._sync_own_rules())
+        own.add(self.own_rules_row)
 
-        self._mode = KeyedCombo("Правила", RoutingMode.ALL, RoutingMode.LABELS)
-        self.mode_row = self._mode.row
-        self.mode_row.connect("notify::selected", lambda *_: self._sync_mode())
-        mode_group.add(self.mode_row)
-
-        self._order = KeyedCombo("Приоритет групп", list(ORDER_PRESETS.keys()), ORDER_LABELS)
-        self.order_row = self._order.row
-        mode_group.add(self.order_row)
-
-        self.bypass_row = Adw.SwitchRow(
-            title="Локальные сети напрямую",
-            subtitle="127.0.0.0/8, 10.0.0.0/8, 192.168.0.0/16 и другие — после ваших списков",
-        )
-        mode_group.add(self.bypass_row)
-
-        self.ru_direct_row = Adw.SwitchRow(
-            title="Российские сайты и IP напрямую",
-            subtitle=ru_direct_subtitle(current_catalog()),
-        )
-        mode_group.add(self.ru_direct_row)
-
-        self.block_group, self.block_view = _list_view("Блокировать", BLOCK_HINT)
-        page.add(self.block_group)
-
-        self.proxy_group, self.proxy_view = _list_view("Через прокси", LIST_HINT)
-        page.add(self.proxy_group)
-
-        self.direct_group, self.direct_view = _list_view("Напрямую", LIST_HINT)
-        page.add(self.direct_group)
-
-        self.vpn_group, self.vpn_view = _list_view("Через VPN", LIST_HINT)
-        page.add(self.vpn_group)
+        self.form = RoutingForm(page)
+        self.mode_row = self.form.mode_row
+        self.order_row = self.form.order_row
+        self.bypass_row = self.form.bypass_row
+        self.ru_direct_row = self.form.ru_direct_row
+        self.block_view = self.form.views["block"]
+        self.proxy_view = self.form.views["proxy"]
+        self.direct_view = self.form.views["direct"]
+        self.vpn_view = self.form.views["vpn"]
 
     # --- состояние ---
 
@@ -202,20 +151,10 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         ):
             row.set_sensitive(enabled)
 
-    def _sync_mode(self) -> None:
-        # В режиме «весь трафик через прокси» списки не применяются вовсе:
-        # оставлять их активными — обещать пользователю несуществующий эффект.
-        # «Локальные сети напрямую» действует в обоих режимах и остаётся активным.
-        custom = self._mode.selected() == RoutingMode.CUSTOM
-        for widget in (
-            self.block_view,
-            self.proxy_view,
-            self.direct_view,
-            self.vpn_view,
-            self.order_row,
-            self.ru_direct_row,
-        ):
-            widget.set_sensitive(custom)
+    def _sync_own_rules(self) -> None:
+        # Выключено — форма показывает общие правила только для чтения; текст
+        # остаётся, пока открыт диалог, поэтому повторное включение ничего не теряет.
+        self.form.set_enabled(self.own_rules_row.get_active())
 
     def _load(self) -> None:
         profile = self._profile
@@ -232,29 +171,24 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         self.direct_interface_row.set_text(getattr(vpn, "direct_interface", "") or "")
         self._sync_vpn()
 
-        routing = getattr(profile, "routing_settings", None) or RoutingSettings()
-        self._mode.select(routing.mode)
-        self.bypass_row.set_active(routing.bypass_local_networks)
-        self.ru_direct_row.set_active(getattr(routing, "ru_direct", False))
-        self.select_order(_current_order(routing))
-
-        self.set_block_text("\n".join(getattr(routing, "block_list", None) or []))
-        self.set_proxy_text("\n".join(routing.proxy_list or []))
-        self.set_direct_text("\n".join(routing.direct_list or []))
-        self.set_vpn_text("\n".join(routing.vpn_list or []))
-        self._sync_mode()
+        routing = getattr(profile, "routing_settings", None)
+        self.own_rules_row.set_active(routing is not None)
+        # Без своих правил форма показывает общие: включение начнётся с их копии.
+        self.form.load(routing if routing is not None else self._shared)
+        self._sync_own_rules()
 
     def save(self) -> bool:
         """Write the form back into the profile."""
-        try:
-            lists = {
-                key: parse_host_list(getattr(self, key + "_text")())
-                for key in ("block", "proxy", "direct", "vpn")
-            }
-        except ValueError as error:
-            self.set_title(str(error))
-            return False
         profile = self._profile
+        routing = None
+        if self.own_rules_row.get_active():
+            routing = copy.deepcopy(getattr(profile, "routing_settings", None) or RoutingSettings())
+            try:
+                self.form.read(routing)
+            except ValueError as error:
+                self.set_title(str(error))
+                return False
+        self.set_title("VPN и маршруты")
 
         name = self.name_row.get_text().strip()
         if name:
@@ -272,17 +206,8 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
         vpn.interface_name = self.vpn_interface_row.get_text().strip()
         vpn.direct_interface = self.direct_interface_row.get_text().strip()
 
-        if getattr(profile, "routing_settings", None) is None:
-            profile.routing_settings = RoutingSettings()
-        routing = profile.routing_settings
-        routing.mode = self._mode.selected()
-        routing.bypass_local_networks = self.bypass_row.get_active()
-        routing.ru_direct = self.ru_direct_row.get_active()
-        routing.rule_order = list(self.selected_order())
-        routing.block_list = lists["block"]
-        routing.proxy_list = lists["proxy"]
-        routing.direct_list = lists["direct"]
-        routing.vpn_list = lists["vpn"]
+        # None — сервер использует общие правила из настроек приложения.
+        profile.routing_settings = routing
 
         self.emit("routing-saved")
         return True
@@ -290,50 +215,37 @@ class ProfileRoutingDialog(Adw.PreferencesDialog):
     # --- доступ к полям ---
 
     def selected_mode(self) -> str:
-        return self._mode.selected()
+        return self.form.selected_mode()
 
     def select_mode(self, key: str) -> None:
-        self._mode.select(key)
-        self._sync_mode()
+        self.form.select_mode(key)
 
     def selected_order(self) -> list[str]:
-        return ORDER_PRESETS[self._order.selected()]
+        return self.form.selected_order()
 
     def select_order(self, order: list[str]) -> None:
-        for key, preset in ORDER_PRESETS.items():
-            if preset == list(order):
-                self._order.select(key)
-                return
-        # Порядок из другой версии или испорченный файл: берём первый пресет.
-        self._order.select(next(iter(ORDER_PRESETS)))
+        self.form.select_order(order)
 
     def block_text(self) -> str:
-        return _read(self.block_view)
+        return self.form.text("block")
 
     def proxy_text(self) -> str:
-        return _read(self.proxy_view)
+        return self.form.text("proxy")
 
     def direct_text(self) -> str:
-        return _read(self.direct_view)
+        return self.form.text("direct")
 
     def vpn_text(self) -> str:
-        return _read(self.vpn_view)
+        return self.form.text("vpn")
 
     def set_block_text(self, text: str) -> None:
-        self.block_view.get_buffer().set_text(text)
+        self.form.set_text("block", text)
 
     def set_proxy_text(self, text: str) -> None:
-        self.proxy_view.get_buffer().set_text(text)
+        self.form.set_text("proxy", text)
 
     def set_direct_text(self, text: str) -> None:
-        self.direct_view.get_buffer().set_text(text)
+        self.form.set_text("direct", text)
 
     def set_vpn_text(self, text: str) -> None:
-        self.vpn_view.get_buffer().set_text(text)
-
-
-def _current_order(routing) -> list[str]:
-    try:
-        return routing.get_rule_order()
-    except AttributeError:
-        return list(next(iter(ORDER_PRESETS.values())))
+        self.form.set_text("vpn", text)

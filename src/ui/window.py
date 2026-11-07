@@ -359,7 +359,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.toast("Сервер не найден")
             return
 
-        dialog = ProfileRoutingDialog(profile)
+        from src.ui.logic.routing_import import effective_routing
+
+        shared = effective_routing(self._context.config.routing, self._context.config_dir)
+        dialog = ProfileRoutingDialog(profile, shared)
         # У `Adw.PreferencesDialog` нет кнопки подтверждения: как и настройки
         # приложения, эти правки применяются при закрытии.
         dialog.connect("routing-saved", lambda _d: self._save_profiles())
