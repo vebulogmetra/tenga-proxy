@@ -16,7 +16,7 @@ import struct
 import subprocess
 from collections.abc import Callable
 
-from src.sys.linux.tun_route import HELPER_PATH
+from src.sys.linux.tun_route import HELPER_PATH, _helper_features
 
 # У обычного пользователя /usr/sbin может не быть в PATH, а у sudo он есть всегда.
 NFT_PATH = "/usr/sbin/nft"
@@ -38,21 +38,6 @@ def _sudo_allows(cmd: list[str]) -> bool:
         return subprocess.run(cmd, capture_output=True, timeout=5, check=False).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
-
-
-def _helper_features() -> set[str]:
-    """Что умеет установленный помощник; у старого такого действия нет."""
-    try:
-        result = subprocess.run(
-            ["sudo", "-n", HELPER_PATH, "features"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return set()
-    return set(result.stdout.split()) if result.returncode == 0 else set()
 
 
 def has_net_admin(path: str, getxattr: Callable[[str, str], bytes] | None = None) -> bool:

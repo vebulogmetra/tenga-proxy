@@ -18,12 +18,17 @@ logger = logging.getLogger("tenga.sys.tun_route")
 HELPER_PATH = "/usr/libexec/tenga-proxy/tun-route-helper"
 HELPER_MISSING = "helper not installed"
 
-# Маршрут по умолчанию, который нужно вернуть. Переживает падение приложения:
-# ядро умирает вместе с TUN, маршрут через него исчезает. Если у исходного
-# маршрута была метрика, `ip route replace default dev xray0` его не заменял, а
-# добавлял второй с метрикой 0: система продолжит ходить по исходному, мимо
-# прокси. Если метрики не было, маршрут по умолчанию пропадает вовсе, пока его
-# не вернёт `recover_tun_routes()`.
+# Половины маршрута по умолчанию на TUN: длиннее любого /0 и выигрывают у него, а
+# физический маршрут остаётся для сокетов, привязанных к интерфейсу (замер задержки).
+SPLIT_DEFAULT = ("0.0.0.0/1", "128.0.0.0/1")
+
+# Журнал маршрутов, которые нужно убрать или вернуть. Переживает падение
+# приложения. Новый помощник кладёт на TUN половины SPLIT_DEFAULT, а маршрут по
+# умолчанию не трогает: ядро умирает вместе с TUN, половины исчезают с ним, и
+# остаётся снять /32 (запись `route.release`). Старый помощник заменял маршрут по
+# умолчанию, и его нужно вернуть (`route.restore`): такая запись бывает после
+# обновления пакета поверх упавшего сеанса и при старом помощнике у приложения из
+# исходников.
 JOURNAL_FILE: Path = CORE_DIR / "tun-route-journal.json"
 
 # Те же правила, что у tun_route_helper.sh: записи уходят в команды `ip`.
@@ -40,6 +45,8 @@ class TunRouteState:
     default_metric: str | None
     proxy_ip: str
     tun_name: str
+    # Разбитый маршрут: откат убирает половины и /32, маршрут по умолчанию не трогает.
+    split: bool = False
 
 
 def _is_ipv4(value: object) -> bool:
@@ -51,7 +58,13 @@ def _is_ipv4(value: object) -> bool:
 
 
 def _valid_entry(entry: object) -> bool:
-    if not isinstance(entry, dict) or entry.get("op") != "route.restore":
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("op") == "route.release":
+        return _IFNAME.fullmatch(str(entry.get("tun_name", ""))) is not None and _is_ipv4(
+            entry.get("proxy_ip")
+        )
+    if entry.get("op") != "route.restore":
         return False
     gateway, metric = entry.get("gateway"), entry.get("metric")
     return (
@@ -68,6 +81,8 @@ def _journal() -> Journal:
 
 
 def _journal_entry(state: TunRouteState) -> dict:
+    if state.split:
+        return {"op": "route.release", "tun_name": state.tun_name, "proxy_ip": state.proxy_ip}
     return {
         "op": "route.restore",
         "tun_name": state.tun_name,
@@ -79,6 +94,15 @@ def _journal_entry(state: TunRouteState) -> dict:
 
 
 def _state_from_entry(entry: dict) -> TunRouteState:
+    if entry["op"] == "route.release":
+        return TunRouteState(
+            default_gateway=None,
+            default_dev="",
+            default_metric=None,
+            proxy_ip=entry["proxy_ip"],
+            tun_name=entry["tun_name"],
+            split=True,
+        )
     return TunRouteState(
         default_gateway=entry["gateway"],
         default_dev=entry["dev"],
@@ -165,6 +189,26 @@ def _run_helper(action: str, args: list[str], timeout: int = 15) -> tuple[bool, 
     return False, err or "helper command failed"
 
 
+def _helper_features() -> set[str]:
+    """Что умеет установленный помощник; у старого такого действия нет."""
+    try:
+        result = subprocess.run(
+            ["sudo", "-n", HELPER_PATH, "features"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    return set(result.stdout.split()) if result.returncode == 0 else set()
+
+
+def _split_supported() -> bool:
+    """Разбитый маршрут ставит новый помощник; без помощника — сами команды `ip`."""
+    return not os.path.exists(HELPER_PATH) or "split" in _helper_features()
+
+
 def _parse_default_route(line: str) -> tuple[str | None, str | None, str | None]:
     """Parse `ip route show default` line into gateway/dev/metric."""
     parts = line.split()
@@ -219,9 +263,12 @@ def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteStat
 
     journal = _journal()
     pending = journal.entries()
-    if dev == tun_name and pending:
+    inherited = dev == tun_name and bool(pending) and pending[-1]["op"] == "route.restore"
+    if inherited:
         # Прошлый откат не удался, и маршрут всё ещё в TUN: исходный — в журнале.
         gateway, dev, metric = pending[-1]["gateway"], pending[-1]["dev"], pending[-1]["metric"]
+    # Маршрут по умолчанию, заменённый старой схемой, вернёт только её откат.
+    split = _split_supported() and not inherited
 
     proxy_ip = _resolve_ipv4(proxy_host)
     if not proxy_ip:
@@ -238,6 +285,7 @@ def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteStat
         default_metric=metric,
         proxy_ip=proxy_ip,
         tun_name=tun_name,
+        split=split,
     )
     journal.clear()
     journal.record(_journal_entry(state))
@@ -251,17 +299,22 @@ def apply_tun_routes(tun_name: str, proxy_host: str) -> tuple[bool, TunRouteStat
     ]
     ok, err = _run_helper("apply", helper_args)
     if not ok:
-        ok, err = _run_ip_batch_privileged(
-            [
-                route_proxy_args,
-                ["route", "replace", "default", "dev", tun_name],
-            ]
-        )
+        if split:
+            tun_routes = [["route", "replace", prefix, "dev", tun_name] for prefix in SPLIT_DEFAULT]
+        else:
+            tun_routes = [["route", "replace", "default", "dev", tun_name]]
+        ok, err = _run_ip_batch_privileged([route_proxy_args, *tun_routes])
     if not ok:
         journal.clear()
         return False, None, f"Cannot apply TUN routes: {err}"
 
-    logger.info("TUN routes applied: default->%s, proxy %s via %s", tun_name, proxy_ip, dev)
+    logger.info(
+        "TUN routes applied: %s->%s, proxy %s via %s",
+        "0/1+128/1" if split else "default",
+        tun_name,
+        proxy_ip,
+        dev,
+    )
     return True, state, ""
 
 
@@ -269,6 +322,8 @@ def restore_tun_routes(state: TunRouteState | None) -> tuple[bool, str]:
     """Restore system routes after TUN session."""
     if state is None:
         return True, ""
+    if state.split:
+        return _release_tun_routes(state)
 
     if state.default_gateway:
         args = [
@@ -309,19 +364,37 @@ def restore_tun_routes(state: TunRouteState | None) -> tuple[bool, str]:
     return True, ""
 
 
+def _release_tun_routes(state: TunRouteState) -> tuple[bool, str]:
+    ok, err = _run_helper("release", [state.tun_name, state.proxy_ip])
+    if not ok and err != HELPER_MISSING:
+        return False, f"Cannot release TUN routes: {err}"
+    if not ok:
+        # Без помощника: каждый маршрут отдельно, отсутствующий — не ошибка.
+        for prefix in SPLIT_DEFAULT:
+            _run_ip_privileged(["route", "del", prefix, "dev", state.tun_name])
+        _run_ip_privileged(["route", "del", f"{state.proxy_ip}/32"])
+    _journal().clear()
+    logger.info("TUN routes released: %s", state.tun_name)
+    return True, ""
+
+
 def recover_tun_routes() -> tuple[bool, str]:
     """Вернуть маршрут по умолчанию, оставшийся от упавшего сеанса TUN.
 
     Вызывается при старте приложения, до подключения. Маршрут возвращается,
     только если система всё ещё без своего: маршрут по умолчанию идёт в TUN
     или его нет вовсе. После перезагрузки или смены сети он уже другой —
-    тогда журнал просто забывается.
+    тогда журнал просто забывается. Для разбитого маршрута проверка не нужна:
+    половины исчезли вместе с TUN, снимается только `/32`.
     """
     journal = _journal()
     entries = journal.entries()
     if not entries:
         return True, ""
     state = _state_from_entry(entries[-1])
+    if state.split:
+        logger.warning("Removing routes left by a crashed TUN session")
+        return restore_tun_routes(state)
 
     ok, default_line, err = _default_route_line()
     if not ok:

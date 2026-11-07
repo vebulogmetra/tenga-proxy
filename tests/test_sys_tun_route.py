@@ -82,6 +82,7 @@ class FakeSystem:
         self.default = default
         self.fail_apply = fail_apply
         self.fail_restore = fail_restore
+        self.split = False  # помощник умеет разбитый маршрут
         self.calls: list[tuple] = []
         self.journal_on_apply: list[dict] | None = None
 
@@ -97,12 +98,14 @@ class FakeSystem:
             self.journal_on_apply = tun_route._journal().entries()
             if self.fail_apply:
                 return False, "denied"
-            self.default = f"default dev {args[0]} scope link"
-        if action == "restore":
+            if not self.split:
+                self.default = f"default dev {args[0]} scope link"
+        if action in ("restore", "release"):
             if self.fail_restore:
                 return False, "denied"
-            gateway, dev = args[1], args[2]
-            self.default = f"default via {gateway} dev {dev}"
+            if action == "restore":
+                gateway, dev = args[1], args[2]
+                self.default = f"default via {gateway} dev {dev}"
         return True, ""
 
     def run_batch(self, commands, timeout=20):
@@ -112,6 +115,9 @@ class FakeSystem:
     def restores(self):
         return [call for call in self.calls if call[:2] == ("helper", "restore")]
 
+    def releases(self):
+        return [call for call in self.calls if call[:2] == ("helper", "release")]
+
 
 @pytest.fixture
 def system(monkeypatch, tmp_path):
@@ -120,6 +126,7 @@ def system(monkeypatch, tmp_path):
     monkeypatch.setattr(tun_route, "_run_command", fake.run_command)
     monkeypatch.setattr(tun_route, "_run_helper", fake.run_helper)
     monkeypatch.setattr(tun_route, "_run_ip_batch_privileged", fake.run_batch)
+    monkeypatch.setattr(tun_route, "_split_supported", lambda: fake.split)
     return fake
 
 
@@ -240,6 +247,8 @@ def test_recover_keeps_journal_when_restore_fails(system):
             "dev": "eth0",
             "metric": "6 0",
         },
+        {"op": "route.release", "tun_name": "xray0"},
+        {"op": "route.release", "tun_name": "x y", "proxy_ip": "8.8.8.8"},
     ],
 )
 def test_journal_rejects_entries_outside_the_schema(system, entry):
@@ -260,3 +269,159 @@ def test_reconnect_after_failed_restore_keeps_the_original_route(system):
 
     assert (state.default_gateway, state.default_dev) == ("192.168.0.1", "wlp1s0")
     assert tun_route._journal().entries()[-1]["dev"] == "wlp1s0"
+
+
+def test_journal_accepts_a_release_entry(system):
+    entry = {"op": "route.release", "tun_name": "xray0", "proxy_ip": "8.8.8.8"}
+    tun_route.JOURNAL_FILE.write_text(json.dumps([entry]))
+
+    assert tun_route._journal().entries() == [entry]
+
+
+# --- разбитый маршрут ---
+
+
+@pytest.fixture
+def split(system):
+    system.split = True
+    return system
+
+
+def test_split_apply_records_a_release_entry_and_keeps_the_default_route(split):
+    ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert ok
+    assert state.split is True
+    assert split.journal_on_apply == [
+        {"op": "route.release", "tun_name": "xray0", "proxy_ip": "8.8.8.8"}
+    ]
+    # Аргументы помощника прежние: старый помощник их тоже принимает.
+    assert ("helper", "apply", ["xray0", "8.8.8.8", "192.168.0.1", "wlp1s0", "600"]) in split.calls
+    assert split.default == DEFAULT_WIFI
+
+
+def test_split_restore_releases_and_never_touches_the_default_route(split):
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert tun_route.restore_tun_routes(state) == (True, "")
+
+    assert split.releases() == [("helper", "release", ["xray0", "8.8.8.8"])]
+    assert split.restores() == []
+    assert tun_route._journal().entries() == []
+
+
+def test_split_recover_releases_even_when_the_network_changed(split):
+    # TUN упавшего сеанса исчез вместе со своими маршрутами; остаётся /32, а
+    # маршрут по умолчанию и так живой — возвращать его нельзя.
+    tun_route.apply_tun_routes("xray0", "8.8.8.8")
+    split.default = "default via 10.0.0.1 dev enp3s0"
+    split.calls.clear()
+
+    assert tun_route.recover_tun_routes() == (True, "")
+
+    assert split.releases() == [("helper", "release", ["xray0", "8.8.8.8"])]
+    assert split.restores() == []
+    assert tun_route._journal().entries() == []
+
+
+def test_split_failed_release_keeps_the_journal(split):
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+    split.fail_restore = True
+
+    ok, _ = tun_route.restore_tun_routes(state)
+
+    assert not ok
+    assert tun_route._journal().entries()[-1]["op"] == "route.release"
+
+
+def test_reconnect_after_a_failed_release_stays_split(split):
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+    split.fail_restore = True
+    tun_route.restore_tun_routes(state)
+    split.fail_restore = False
+
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert state.split is True
+    assert (state.default_gateway, state.default_dev) == ("192.168.0.1", "wlp1s0")
+
+
+OLD_ENTRY = {
+    "op": "route.restore",
+    "tun_name": "xray0",
+    "proxy_ip": "8.8.8.8",
+    "gateway": "192.168.0.1",
+    "dev": "wlp1s0",
+    "metric": "600",
+}
+
+
+def test_old_journal_entry_is_still_restored_by_the_new_code(split):
+    # Сеанс старой версии упал, пакет обновился: маршрут по умолчанию всё ещё в TUN.
+    tun_route.JOURNAL_FILE.write_text(json.dumps([OLD_ENTRY]))
+    split.default = "default dev xray0 scope link"
+
+    assert tun_route.recover_tun_routes() == (True, "")
+
+    assert split.restores() == [("helper", "restore", ["8.8.8.8", "192.168.0.1", "wlp1s0", "600"])]
+
+
+def test_default_route_left_in_the_tun_by_the_old_scheme_keeps_the_old_rollback(split):
+    # Откат старой схемы не удался: маршрут по умолчанию всё ещё в TUN. Новый сеанс
+    # обязан его вернуть, а разбитый маршрут этого не сделал бы.
+    tun_route.JOURNAL_FILE.write_text(json.dumps([OLD_ENTRY]))
+    split.default = "default dev xray0 scope link"
+
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert state.split is False
+    assert tun_route._journal().entries() == [OLD_ENTRY]
+
+
+def test_split_fallback_without_helper_uses_the_same_routes(split, monkeypatch):
+    commands = []
+
+    def batch(cmds, timeout=20):
+        commands.extend(cmds)
+        return True, ""
+
+    monkeypatch.setattr(tun_route, "_run_helper", lambda *_a, **_k: (False, "helper not installed"))
+    monkeypatch.setattr(tun_route, "_run_ip_batch_privileged", batch)
+
+    ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert ok and state.split
+    assert commands == [
+        ["route", "replace", "8.8.8.8/32", "via", "192.168.0.1", "dev", "wlp1s0"],
+        ["route", "replace", "0.0.0.0/1", "dev", "xray0"],
+        ["route", "replace", "128.0.0.0/1", "dev", "xray0"],
+    ]
+
+
+def test_split_release_without_helper_removes_each_route(split, monkeypatch):
+    removed = []
+    monkeypatch.setattr(tun_route, "_run_helper", lambda *_a, **_k: (False, "helper not installed"))
+    monkeypatch.setattr(tun_route, "_run_ip_batch_privileged", lambda *_a, **_k: (True, ""))
+    monkeypatch.setattr(
+        tun_route, "_run_ip_privileged", lambda args, **_k: removed.append(args) or (False, "gone")
+    )
+    _ok, state, _ = tun_route.apply_tun_routes("xray0", "8.8.8.8")
+
+    assert tun_route.restore_tun_routes(state) == (True, "")
+
+    assert removed == [
+        ["route", "del", "0.0.0.0/1", "dev", "xray0"],
+        ["route", "del", "128.0.0.0/1", "dev", "xray0"],
+        ["route", "del", "8.8.8.8/32"],
+    ]
+    assert tun_route._journal().entries() == []
+
+
+def test_split_is_supported_by_a_new_helper_or_without_any(monkeypatch):
+    monkeypatch.setattr(tun_route.os.path, "exists", lambda _p: True)
+    monkeypatch.setattr(tun_route, "_helper_features", lambda: {"apply", "split"})
+    assert tun_route._split_supported() is True
+    monkeypatch.setattr(tun_route, "_helper_features", lambda: {"apply"})
+    assert tun_route._split_supported() is False
+    monkeypatch.setattr(tun_route.os.path, "exists", lambda _p: False)
+    assert tun_route._split_supported() is True
