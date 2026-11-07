@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from src.core.config import find_xray_binary
 from src.core.geo import RU_DIRECT_GEOIP, RU_DIRECT_GEOSITES, GeoCatalog, asset_dirs, load_catalog
 
@@ -37,6 +39,61 @@ def order_key(order: list[str]) -> str:
         if preset == list(order):
             return key
     return next(iter(ORDER_PRESETS))
+
+
+# Ключ списка → заголовок и подсказка; порядок — порядок на экране.
+LISTS: tuple[tuple[str, str, str], ...] = (
+    ("block", "Блокировать", BLOCK_HINT),
+    ("proxy", "Через прокси", LIST_HINT),
+    ("direct", "Напрямую", LIST_HINT),
+    ("vpn", "Через VPN", LIST_HINT),
+)
+
+OWN_RULES_TITLE = "Свои правила маршрутизации"
+OWN_RULES_HINT = "Выключено: действуют общие правила из настроек приложения"
+GLOBAL_PAGE_HINT = "Действует для серверов без своих правил"
+VPN_LIST_HINT = LIST_HINT + ". Действует только для серверов с включённым VPN"
+
+
+@dataclass(frozen=True)
+class FormValues:
+    """Поля формы маршрутизации: то, что виджет показывает и читает."""
+
+    mode: str
+    order: str  # ключ ORDER_PRESETS
+    bypass_local_networks: bool
+    ru_direct: bool
+    lists: dict[str, str]  # ключ LISTS → текст, одна запись в строке
+
+
+def form_values(routing) -> FormValues:
+    """Значения формы для настроек; незнакомый порядок — первый пресет."""
+    try:
+        order = routing.get_rule_order()
+    except AttributeError:
+        order = []
+    return FormValues(
+        mode=routing.mode,
+        order=order_key(order),
+        bypass_local_networks=routing.bypass_local_networks,
+        ru_direct=getattr(routing, "ru_direct", False),
+        lists={
+            key: "\n".join(getattr(routing, f"{key}_list", None) or []) for key, _t, _h in LISTS
+        },
+    )
+
+
+def apply_form_values(routing, values: FormValues) -> None:
+    """Записать форму в настройки; негодная запись — ValueError, настройки не тронуты."""
+    from src.ui.logic.forms import parse_host_list
+
+    parsed = {key: parse_host_list(values.lists.get(key, "")) for key, _t, _h in LISTS}
+    routing.mode = values.mode
+    routing.rule_order = list(ORDER_PRESETS[values.order])
+    routing.bypass_local_networks = values.bypass_local_networks
+    routing.ru_direct = values.ru_direct
+    for key, entries in parsed.items():
+        setattr(routing, f"{key}_list", entries)
 
 
 _RU_DIRECT_RULES = (*RU_DIRECT_GEOSITES, RU_DIRECT_GEOIP)

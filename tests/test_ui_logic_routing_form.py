@@ -82,3 +82,76 @@ def test_unknown_order_falls_back_to_the_first_preset():
     from src.ui.logic.routing_form import order_key
 
     assert order_key(["proxy"]) == "direct_vpn_proxy"
+
+
+# --- значения формы -----------------------------------------------------------
+
+
+def test_form_values_round_trip_through_routing_settings():
+    from src.db.config import RoutingMode, RoutingSettings
+    from src.ui.logic.routing_form import FormValues, apply_form_values, form_values
+
+    routing = RoutingSettings(
+        mode=RoutingMode.CUSTOM,
+        rule_order=["vpn", "proxy", "direct"],
+        bypass_local_networks=False,
+        ru_direct=True,
+        block_list=["ads.example"],
+        proxy_list=["a.com", "b.com"],
+        direct_list=["d.com"],
+        vpn_list=["v.com"],
+    )
+
+    values = form_values(routing)
+
+    assert values == FormValues(
+        mode="custom",
+        order="vpn_proxy_direct",
+        bypass_local_networks=False,
+        ru_direct=True,
+        lists={
+            "block": "ads.example",
+            "proxy": "a.com\nb.com",
+            "direct": "d.com",
+            "vpn": "v.com",
+        },
+    )
+    target = RoutingSettings()
+    apply_form_values(target, values)
+    assert target.to_dict() == routing.to_dict()
+
+
+def test_apply_form_values_parses_lists_and_rejects_bad_entries():
+    from src.db.config import RoutingSettings
+    from src.ui.logic.routing_form import FormValues, apply_form_values
+
+    target = RoutingSettings(direct_list=["keep.example"])
+    values = FormValues(
+        mode="custom",
+        order="direct_vpn_proxy",
+        bypass_local_networks=True,
+        ru_direct=False,
+        lists={"block": "", "proxy": "a.com\n\n b.com , a.com \n", "direct": "", "vpn": ""},
+    )
+    apply_form_values(target, values)
+    assert target.proxy_list == ["a.com", "b.com"]
+    assert target.direct_list == []
+
+    bad = FormValues(
+        mode="custom",
+        order="direct_vpn_proxy",
+        bypass_local_networks=True,
+        ru_direct=False,
+        lists={"block": "", "proxy": "", "direct": "http://user:pw@x.com", "vpn": ""},
+    )
+    with pytest.raises(ValueError, match="credentials"):
+        apply_form_values(target, bad)
+    # Ошибка — ничего не изменилось.
+    assert target.proxy_list == ["a.com", "b.com"]
+
+
+def test_form_values_of_an_unknown_order_fall_back_to_the_first_preset():
+    from src.db.config import RoutingSettings
+    from src.ui.logic.routing_form import form_values
+
+    assert form_values(RoutingSettings(rule_order=["nonsense"])).order == "direct_vpn_proxy"
