@@ -18,6 +18,7 @@ FACADES = [
     "tun_access",
     "tun_firewall",
     "single_instance",
+    "app_install",
 ]
 
 
