@@ -556,7 +556,7 @@ def test_diagnostics_under_tun_probes_the_physical_network(app):
 
 
 def test_diagnostics_without_a_physical_route_does_not_blame_the_network(app):
-    """Исходный маршрут без метрики помощник заменяет, и выйти мимо туннеля некуда."""
+    """Без маршрута по умолчанию на физическом интерфейсе выйти мимо туннеля некуда."""
     app.connect("A", EXIT_A)
     lab.sh("ip", "route", "del", "default", "via", lab.GATEWAY, "dev", "uplink0")
     try:
@@ -577,6 +577,63 @@ def test_diagnostics_under_kill_switch_makes_no_direct_requests(guarded):
 
     assert_direct_path_not_checked(report)
     assert table() is not None
+
+
+# --- замер задержки ---
+
+PROBE_PATH = "/generate_204"
+
+
+def probe_sources() -> set[str]:
+    return {e["src"] for e in lab.read_log("echo.jsonl") if e["path"].startswith(PROBE_PATH)}
+
+
+def measure_all(app: Application) -> None:
+    """Замер всех серверов: ждём, пока пробы обоих серверов дойдут до сайта."""
+    lab.clear_logs()
+    app.action("test-latency")
+    wait_until(
+        lambda: probe_sources() >= {EXIT_A, EXIT_B}, "пробы A и B дошли до сайта", timeout=40
+    )
+
+
+def assert_b_was_probed_past_the_tunnel() -> None:
+    # Имя сервера B спрашивается у DNS сети с настоящего адреса, а не через сервер A.
+    sources = set(dns_sources("b.veblock.test"))
+    assert DIRECT in sources, f"Имя B разрешалось не напрямую: {sources}"
+    assert EXIT_A not in sources, "Имя B ушло в туннель через A"
+
+
+def test_latency_under_tun_is_measured_past_the_tunnel(app):
+    app.connect("A", EXIT_A)
+    assert tun_is_default()
+
+    measure_all(app)
+
+    assert_b_was_probed_past_the_tunnel()
+    # Сеанс не задет.
+    assert lab.try_get(SITE) == EXIT_A
+    assert tun_is_default()
+
+
+def test_latency_under_the_block_is_measured_past_the_tunnel(guarded):
+    guarded.connect("A", EXIT_A)
+
+    measure_all(guarded)
+
+    assert_b_was_probed_past_the_tunnel()
+    assert lab.try_get(SITE) == EXIT_A
+
+
+def test_latency_while_traffic_is_blocked_still_reaches_the_servers(guarded):
+    # Ядро упало, таблица закрыта: пробы помечены и проходят, сайт напрямую — нет.
+    guarded.connect("A", EXIT_A)
+    crash_until_blocked(guarded)
+
+    measure_all(guarded)
+
+    assert_b_was_probed_past_the_tunnel()
+    assert lab.try_get(SITE) is None
 
 
 def test_diagnostics_window_opens_in_the_installed_application(app):

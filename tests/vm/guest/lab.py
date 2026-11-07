@@ -210,12 +210,24 @@ def default_route() -> str:
     return sh("ip", "route", "show", "default").stdout
 
 
+def split_routes() -> str:
+    """Половины маршрута по умолчанию: их помощник кладёт на TUN."""
+    halves = (sh("ip", "route", "show", prefix).stdout for prefix in ("0.0.0.0/1", "128.0.0.0/1"))
+    return "".join(halves)
+
+
 def tun_is_default() -> bool:
-    return f"dev {TUN}" in default_route()
+    """Трафик идёт в TUN: обе половины маршрута по умолчанию лежат на нём."""
+    halves = split_routes().splitlines()
+    return len(halves) == 2 and all(f"dev {TUN}" in half for half in halves)
 
 
 def uplink_is_default() -> bool:
-    return f"via {GATEWAY} dev uplink0" in default_route() and not tun_is_default()
+    return (
+        f"via {GATEWAY} dev uplink0" in default_route()
+        and not tun_is_default()
+        and f"dev {TUN}" not in default_route()
+    )
 
 
 def core_pids() -> list[int]:

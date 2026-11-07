@@ -45,6 +45,14 @@ class Echo(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def do_HEAD(self) -> None:
+        # Замер задержки шлёт HEAD: отвечаем так же, но без тела.
+        source = client_address(self.client_address[0])
+        write_log("echo.jsonl", src=source, path=self.path)
+        self.send_response(200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def log_message(self, *_args) -> None:
         pass
 
