@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 import time
 
@@ -92,6 +93,27 @@ def test_tun_session_and_rollback(client):
 
     assert not {"0.0.0.0/1", "128.0.0.0/1"} & routes_on("xray0")
     assert nrpt_rules() == []
+
+
+def test_binding_is_confirmed_under_tun_and_probe_goes_past_it(client):
+    """Служба кладёт на TUN 0.0.0.0/1 и 128.0.0.0/1; физический маршрут остаётся."""
+    from src.sys.windows import netbind, netinfo
+
+    client.call("core.start", config=CONFIG)
+    client.call("routes.apply", tun_name="xray0", proxy_host="127.0.0.1")
+    try:
+        netinfo.invalidate()
+        interface = netbind.physical_interface(exclude=("xray0",))
+        assert interface is not None
+        assert netbind.binding_confirmed(interface) is True
+        assert netbind.active_tunnel_interface() == "xray0"
+        # UDP connect пакетов не шлёт: проверяется только выбор адреса источника.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            netbind.socket_binder(interface)(sock)
+            sock.connect(("192.0.2.1", 9))
+            assert sock.getsockname()[0] in netbind.interface_addresses(interface)
+    finally:
+        client.call("core.stop")
 
 
 def test_core_crash_rolls_back(client):

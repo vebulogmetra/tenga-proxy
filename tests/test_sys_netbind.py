@@ -181,6 +181,15 @@ def test_windows_no_tunnel_without_split_routes(monkeypatch):
 
 @pytest.mark.windows
 @pytest.mark.skipif(sys.platform != "win32", reason="нужна настоящая Windows")
+def test_real_binding_is_confirmed_on_the_physical_adapter():
+    interface = windows.physical_interface()
+    if interface is None:
+        pytest.skip("нет сети")
+    assert windows.binding_confirmed(interface) is True
+
+
+@pytest.mark.windows
+@pytest.mark.skipif(sys.platform != "win32", reason="нужна настоящая Windows")
 def test_real_unicast_if_keeps_the_socket_on_the_adapter():
     """Опция принята, адрес источника — с этого адаптера. UDP connect пакетов не шлёт.
 
