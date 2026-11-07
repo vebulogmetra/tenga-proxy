@@ -140,7 +140,7 @@ def test_title_is_a_single_short_line():
 
 def test_security_related_keys_are_not_recognised():
     """Провайдер не должен управлять настройками клиента через подписку."""
-    metadata = metadata_from_headers({"hide-settings": "1", "routing": "happ://routing/add/x"})
+    metadata = metadata_from_headers({"hide-settings": "1"})
 
     assert metadata == SubscriptionMetadata()
 
@@ -377,3 +377,35 @@ def test_support_link_must_be_http_or_telegram(url):
     apply_metadata(group, SubscriptionMetadata(support_url=url))
 
     assert group.sub_support_url == ""
+
+
+# --- routing ------------------------------------------------------------------
+
+
+def test_routing_is_read_from_headers_and_the_body_wins():
+    headers = metadata_from_headers({"Routing": "happ://routing/add/AAA"})
+    assert headers.routing_link == "happ://routing/add/AAA"
+
+    merged = read_metadata(
+        {"routing": "happ://routing/add/AAA"}, "#routing: happ://routing/off\nvless://x"
+    )
+    assert merged.routing_link == "happ://routing/off"
+
+
+def test_routing_value_is_not_decoded_as_base64_text():
+    """Значение — ссылка или base64 набора: префикс `base64:` тут не ожидается."""
+    payload = b64('{"ProxySites":["x.com"]}')
+    assert metadata_from_headers({"routing": payload}).routing_link == payload
+
+
+def test_too_long_routing_value_is_dropped():
+    assert metadata_from_headers({"routing": "x" * 350_001}).routing_link == ""
+
+
+def test_routing_is_not_stored_on_the_group():
+    from src.db.profiles import ProfileGroup
+    from src.sub.metadata import apply_metadata
+
+    group = ProfileGroup(id=1, is_subscription=True, subscription_url="https://a.example/b")
+    apply_metadata(group, SubscriptionMetadata(routing_link="happ://routing/off"))
+    assert "happ://routing/off" not in str(group.to_dict())

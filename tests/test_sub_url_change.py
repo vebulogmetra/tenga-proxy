@@ -129,6 +129,13 @@ def test_updater_reports_the_new_address_of_the_last_update(tmp_path):
         mock_get.return_value = response({})
         updater.update(CURRENT, group_id=group.id)
         assert updater.new_url == ""
+        assert updater.routing_link == ""
+
+        mock_get.return_value = response({"routing": "happ://routing/off"})
+        updater.update(CURRENT, group_id=group.id)
+        assert updater.routing_link == "happ://routing/off"
+        # Предложение, а не настройка группы: в файле профилей его нет.
+        assert "happ://routing/off" not in str(group.to_dict())
 
 
 @pytest.mark.parametrize(

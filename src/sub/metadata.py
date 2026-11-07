@@ -1,8 +1,9 @@
 """Метаданные подписки: заголовки ответа и строки ``#key: value`` в теле.
 
-Берём только косметику и ссылки. Ключи, которыми провайдер управлял бы
-настройками клиента (``hide-settings``, ``routing``, mux, per-app), сознательно
-не распознаются.
+Берём только косметику и ссылки. Ключ ``routing`` читается только как
+предложение набора маршрутов: применяется после подтверждения пользователя
+(`AppController`). Прочие ключи, которыми провайдер управлял бы настройками
+клиента (``hide-settings``, mux, per-app), сознательно не распознаются.
 """
 
 from __future__ import annotations
@@ -29,6 +30,7 @@ KEY_PROFILE_TITLE = "profile-title"
 KEY_WEB_PAGE_URL = "profile-web-page-url"
 KEY_NEW_URL = "new-url"
 KEY_FALLBACK_URL = "fallback-url"
+KEY_ROUTING = "routing"
 
 KNOWN_KEYS = frozenset(
     {
@@ -40,10 +42,13 @@ KNOWN_KEYS = frozenset(
         KEY_WEB_PAGE_URL,
         KEY_NEW_URL,
         KEY_FALLBACK_URL,
+        KEY_ROUTING,
     }
 )
 
 MAX_TITLE_LENGTH = 64
+# Как у ссылки приложения (`src/fmt/app_links.py`): длиннее — отбрасывается.
+MAX_ROUTING_LENGTH = 350000
 
 _BASE64_PREFIX = "base64:"
 _BODY_LINE = re.compile(r"^#\s*([A-Za-z0-9-]+)\s*:\s*(.*)$")
@@ -105,6 +110,8 @@ class SubscriptionMetadata:
     # Только предложения: адрес подписки меняет пользователь (src/sub/url_change.py).
     new_url: str = ""
     fallback_url: str = ""
+    # Предложение набора маршрутов (ссылка, `off` или base64); в группу не пишется.
+    routing_link: str = ""
 
     def overridden_by(self, body: SubscriptionMetadata) -> SubscriptionMetadata:
         """Values from the body win over headers; empty ones do not erase anything."""
@@ -164,6 +171,14 @@ def parse_metadata(values: Mapping[str, str]) -> SubscriptionMetadata:
             return ""
         return decode_value(raw.strip(), lenient_base64=key == KEY_ANNOUNCE).strip()
 
+    def routing() -> str:
+        # Значение само бывает base64 набора: `decode_value` его не трогает.
+        raw = values.get(KEY_ROUTING)
+        if not isinstance(raw, str):
+            return ""
+        raw = raw.strip()
+        return raw if len(raw) <= MAX_ROUTING_LENGTH else ""
+
     return SubscriptionMetadata(
         user_info=SubscriptionUserInfo.from_header(text(KEY_USERINFO)),
         update_interval_hours=_parse_interval(text(KEY_UPDATE_INTERVAL)),
@@ -173,6 +188,7 @@ def parse_metadata(values: Mapping[str, str]) -> SubscriptionMetadata:
         web_page_url=text(KEY_WEB_PAGE_URL),
         new_url=text(KEY_NEW_URL),
         fallback_url=text(KEY_FALLBACK_URL),
+        routing_link=routing(),
     )
 
 

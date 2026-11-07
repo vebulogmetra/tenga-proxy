@@ -58,6 +58,8 @@ class SubscriptionUpdater:
         self.new_url = ""
         # Запасной адрес, с которого загружен последний update(); пусто — основной.
         self.used_fallback_url = ""
+        # Набор маршрутов из заголовка `routing`: только предложение, решает контроллер.
+        self.routing_link = ""
 
     def fetch(self, url: str) -> str:
         """Fetch subscription content."""
@@ -305,10 +307,12 @@ class SubscriptionUpdater:
 
         self.new_url = ""
         self.used_fallback_url = ""
+        self.routing_link = ""
         fetched = self._fetch_with_fallback(url, group_id)
         beans = self.parse(fetched.content)
         metadata = read_metadata(fetched.headers, fetched.content)
         self.new_url = metadata.new_url
+        self.routing_link = metadata.routing_link
         if not self._profiles:
             return beans
 
