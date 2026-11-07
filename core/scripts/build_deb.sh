@@ -57,8 +57,9 @@ stage_files() {
     rm -rf "$PKG_ROOT/$LIB_DIR/src/"*.egg-info
     cp "$PROJECT_ROOT/gui.py" "$PKG_ROOT/$LIB_DIR/"
     cp -r "$PROJECT_ROOT/assets" "$PKG_ROOT/$LIB_DIR/"
-    # Снимки экрана и исходники логотипа — для README, ICO — для Windows.
-    rm -rf "$PKG_ROOT/$LIB_DIR/assets/"{screen-*.png,logo_inner.png,tenga-proxy.png,*.ico} \
+    # Снимки экрана — для README, ICO и монолит — для Windows. `logo_inner.png`
+    # остаётся: панель состояния рисует голубя из исходника 1024 px.
+    rm -rf "$PKG_ROOT/$LIB_DIR/assets/"{screen-*.png,tenga-proxy.png,*.ico} \
         "$PKG_ROOT/$LIB_DIR/assets/icons/win"
 
     install -m 0755 "$PROJECT_ROOT/core/bin/xray" "$PKG_ROOT/$LIB_DIR/core/bin/xray"
@@ -73,8 +74,10 @@ stage_files() {
         [ -f "$PKG_ROOT/$LIB_DIR/assets/icons/${icon}.svg" ] \
             || error "Иконка трея ${icon}.svg не попала в пакет"
     done
-    [ -f "$PKG_ROOT/$LIB_DIR/assets/logo-inner-256.png" ] \
-        || error "Логотип статус-карточки не попал в пакет"
+    [ -f "$PKG_ROOT/$LIB_DIR/assets/logo_inner.png" ] \
+        || error "Логотип панели состояния не попал в пакет"
+    [ -f "$PKG_ROOT/$LIB_DIR/assets/icons/ui/general.svg" ] \
+        || error "Значки разделов настроек не попали в пакет"
     [ -f "$PKG_ROOT/$LIB_DIR/assets/theme/hicolor/index.theme" ] \
         || error "Тема значков приложения не попала в пакет"
     [ -f "$PKG_ROOT/$LIB_DIR/assets/diagnostics/targets.json" ] \

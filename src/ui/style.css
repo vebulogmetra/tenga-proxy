@@ -3,31 +3,21 @@
    тёмная темы работают без отдельных правил.
    Синтаксис var() здесь неприменим: он появился только в GTK 4.16. */
 
+/* Панель состояния слева. Цвета состояний и акцент — те же, что в Qt:
+   `src/ui/logic/appearance.py` (ACCENT, STATE_COLORS), сверяет
+   tests/test_ui_shared_colors.py. */
 .status-card {
-  padding: 12px;
+  padding: 20px 20px 12px;
 }
 
-.status-card .status-icon {
-  color: alpha(currentColor, 0.55);
+.status-card .logo-button {
+  padding: 4px;
+  border-radius: 24px;
 }
 
-.status-card.status-connected .status-icon {
-  color: @success_color;
-}
-
-.status-card.status-connecting .status-icon {
-  color: @accent_color;
-}
-
-.status-card.status-error .status-icon,
-.status-card.status-blocked .status-icon {
-  color: @error_color;
-}
-
-/* Логотип — готовая картинка, а не symbolic-иконка: правила выше задают
-   `color`, который на текстуру не действует, поэтому состояние показывает
-   сама картинка (цветная или обесцвеченная). Прозрачность приглушает
-   логотип во всех состояниях, кроме «Подключено». */
+/* Логотип — готовая картинка: состояние показывает свечение под ней и сама
+   картинка (цветная или обесцвеченная). Прозрачность приглушает логотип во
+   всех состояниях, кроме «Подключено». */
 .status-card .status-logo {
   opacity: 0.55;
 }
@@ -36,21 +26,42 @@
   opacity: 1;
 }
 
-.status-card .logo-button {
-  padding: 4px;
+.status-card .connection-dot {
+  color: #8a969d;
+  font-size: 1.3em;
 }
 
-.status-card .status-warning {
-  color: @error_color;
+.status-card .connection-dot.status-connected {
+  color: #36c9b5;
 }
 
-.metrics {
-  font-size: 0.85em;
+.status-card .connection-dot.status-connecting,
+.status-card .connection-dot.status-disconnecting {
+  color: #ffa64d;
+}
+
+.status-card .connection-dot.status-error,
+.status-card .connection-dot.status-blocked {
+  color: #e07078;
+}
+
+.status-card .metric-value {
+  color: #36c9b5;
+  font-size: 1.25em;
+  font-weight: 600;
   font-feature-settings: "tnum";
 }
 
-.status-summary {
-  font-feature-settings: "tnum";
+.status-card.compact {
+  padding: 8px 16px 8px;
+}
+
+.status-card.compact .status-title {
+  font-size: 1.2em;
+}
+
+.status-card.compact .metric-value {
+  font-size: 1.05em;
 }
 
 .latency-good {

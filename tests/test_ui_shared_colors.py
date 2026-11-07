@@ -25,3 +25,10 @@ def test_qt_monolith_glow_comes_from_appearance():
     source = inspect.getsource(status_card)
     assert "GLOW_COLORS" in source or "glow_color" in source
     assert "#ffa64d" not in source
+
+
+def test_gtk_css_uses_the_shared_state_colors():
+    css = Path("src/ui/style.css").read_text(encoding="utf-8")
+    assert ACCENT in css
+    for css_class in ("status-connecting", "status-error", "status-disconnected"):
+        assert STATE_COLORS[css_class] in css
