@@ -159,7 +159,7 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Настройки — Veblock")
+        self.setWindowTitle("Настройки — Monoliten")
         self.setModal(True)
         self.resize(960, 700)
         self.setMinimumSize(640, 440)

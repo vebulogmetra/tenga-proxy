@@ -212,16 +212,19 @@ def test_missing_tun_rights_are_shown(app, monkeypatch):
     assert dialog.tun_access_label.isHidden()
 
 
-def test_theme_applies_at_once(app, monkeypatch):
+@pytest.mark.parametrize("theme", ["light", "dark", "system"])
+def test_theme_applies_at_once(app, monkeypatch, theme):
     applied = []
     monkeypatch.setattr("src.ui.qt.dialogs.settings.apply_theme", applied.append)
     dialog = _open(app)
 
-    dialog.theme_combo.select("dark")
+    dialog.theme_combo.select("light" if theme == "dark" else "dark")
+    applied.clear()
+    dialog.theme_combo.select(theme)
 
-    assert applied == ["dark"]
+    assert applied == [theme]
     dialog.save()
-    assert app.context.config.theme == "dark"
+    assert app.context.config.theme == theme
 
 
 # --- подписки ---

@@ -71,5 +71,5 @@ def test_about_copies_both_versions(qapp):
     dialog = AboutDialog("0.20.0", "25.1.1")
     dialog.copy_button.click()
 
-    assert QApplication.clipboard().text() == "Veblock 0.20.0\nxray-core 25.1.1"
+    assert QApplication.clipboard().text() == "Monoliten 0.20.0\nxray-core 25.1.1"
     assert dialog.version_label.text() == "Версия 0.20.0"

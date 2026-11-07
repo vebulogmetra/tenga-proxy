@@ -6,6 +6,8 @@ import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QLabel, QMessageBox
 
 from src.core.context import AppContext
@@ -51,6 +53,26 @@ def _profile(app, name="Проба", group_id=None):
 
 def _labels(menu):
     return [a.text() for a in menu.actions() if not a.isSeparator()]
+
+
+def test_row_ping_button_checks_only_its_server(made, monkeypatch):
+    first = _profile(made, "Первый")
+    second = _profile(made, "Второй")
+    made.activate()
+    process_events()
+    window = made.window
+    window.tree.setCurrentIndex(window.model.profile_index(first.id))
+    checked = []
+    monkeypatch.setattr(made.controller, "test_latency_for", checked.append)
+    index = window.model.profile_index(second.id)
+    rect = window.tree.visualRect(index)
+    assert not rect.isEmpty()
+    button = window.tree.itemDelegate().ping_button_rect(rect)
+
+    QTest.mouseClick(window.tree.viewport(), Qt.MouseButton.LeftButton, pos=button.center())
+
+    assert checked == [second.id]
+    assert not made.context.proxy_state.is_running
 
 
 # --- меню строк ---

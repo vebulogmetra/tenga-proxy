@@ -232,7 +232,7 @@ class AboutPage(QWidget):
         self.core_update_thread = None
         self.app_update_thread = None
 
-        about = QGroupBox("Veblock")
+        about = QGroupBox("Monoliten")
         form = QFormLayout(about)
         form.addRow("Версия", self._value(app_version()))
 

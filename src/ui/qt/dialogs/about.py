@@ -22,7 +22,7 @@ LOGO_SIZE = 96
 
 def debug_info(version: str, core: str) -> str:
     """Строка для отчёта об ошибке: обе версии рядом, как в GTK."""
-    return f"Veblock {version}\nxray-core {core}"
+    return f"Monoliten {version}\nxray-core {core}"
 
 
 class AboutDialog(QDialog):
@@ -34,7 +34,7 @@ class AboutDialog(QDialog):
 
         self.logo = QLabel()
         self.logo.setPixmap(logo_pixmap("status-connected", LOGO_SIZE))
-        name = QLabel("Veblock")
+        name = QLabel("Monoliten")
         name.setObjectName("aboutName")
         font = name.font()
         font.setPointSizeF(font.pointSizeF() * 1.6)

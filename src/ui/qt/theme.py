@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 def initialize_default_theme(context: AppContext) -> None:
-    """Светлая тема нового Qt-профиля; сохранённый выбор не переопределяется."""
+    """Тёмная тема нового Qt-профиля; сохранённый выбор не переопределяется."""
     if context.config.theme != "system":
         return
     try:
@@ -25,7 +25,7 @@ def initialize_default_theme(context: AppContext) -> None:
     except (OSError, ValueError):
         return
     if isinstance(saved, dict) and "theme" not in saved:
-        context.config.theme = "light"
+        context.config.theme = "dark"
 
 
 def apply_theme(theme: str | None) -> None:

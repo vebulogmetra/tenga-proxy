@@ -89,7 +89,7 @@ class _QtShell:
     def notify(self, text: str) -> None:
         self._app.last_notification_for_test = text
         if self._app.tray_item is not None and self._app.tray is not None:
-            self._app.tray_item.show_message("Veblock", text)
+            self._app.tray_item.show_message("Monoliten", text)
 
     def has_window(self) -> bool:
         return self._window() is not None
@@ -641,7 +641,7 @@ def run_app(
     from src.sub.route import local_proxy_url
 
     qt = QApplication.instance() or QApplication(["tenga-proxy"])
-    qt.setApplicationName("Veblock")
+    qt.setApplicationName("Monoliten")
     qt.setDesktopFileName("tenga-proxy")
     qt.setWindowIcon(QIcon(str(get_asset_path("tenga-proxy.ico"))))
     QNetworkInformation.loadDefaultBackend()

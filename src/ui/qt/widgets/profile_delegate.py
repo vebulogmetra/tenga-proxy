@@ -29,8 +29,30 @@ EXTRA_HEIGHT = 20
 
 class ProfileDelegate(QStyledItemDelegate):
     menu_requested = Signal(object, object)
+    ping_requested = Signal(object)
+
+    @staticmethod
+    def ping_button_rect(rect: QRect) -> QRect:
+        return QRect(rect.right() - 100, rect.bottom() - 29, 68, 24)
 
     def editorEvent(self, event, model, option, index) -> bool:
+        if (
+            index.column() == 0
+            and index.data(KIND_ROLE) == PROFILE
+            and (
+                event.type()
+                in (
+                    QEvent.Type.MouseButtonPress,
+                    QEvent.Type.MouseButtonRelease,
+                    QEvent.Type.MouseButtonDblClick,
+                )
+                and event.button() == Qt.MouseButton.LeftButton
+                and self.ping_button_rect(option.rect).contains(event.position().toPoint())
+            )
+        ):
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                self.ping_requested.emit(index)
+            return True
         if (
             event.type() == QEvent.Type.MouseButtonRelease
             and event.button() == Qt.MouseButton.LeftButton
@@ -88,7 +110,7 @@ class ProfileDelegate(QStyledItemDelegate):
                     QColor("#36c9b5"),
                 )
             text = QFontMetrics(font).elidedText(
-                title, Qt.TextElideMode.ElideRight, max(0, rect.width() - 144)
+                title, Qt.TextElideMode.ElideRight, max(0, rect.width() - 220)
             )
             painter.drawText(rect, Qt.AlignmentFlag.AlignTop, text)
             painter.setFont(option.font)
@@ -100,7 +122,7 @@ class ProfileDelegate(QStyledItemDelegate):
                 rect,
                 Qt.AlignmentFlag.AlignBottom,
                 option.fontMetrics.elidedText(
-                    detail, Qt.TextElideMode.ElideRight, max(0, rect.width() - 144)
+                    detail, Qt.TextElideMode.ElideRight, max(0, rect.width() - 220)
                 ),
             )
             right = rect.adjusted(0, 0, -24, 0)
@@ -112,8 +134,17 @@ class ProfileDelegate(QStyledItemDelegate):
             if active:
                 painter.setPen(QColor("#36c9b5"))
                 painter.drawText(
-                    right, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, "Подключён"
+                    right.adjusted(0, 0, -76, 0),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
+                    "Подключён",
                 )
+            button_rect = self.ping_button_rect(option.rect)
+            painter.setBrush(option.palette.button())
+            painter.setPen(option.palette.mid().color())
+            painter.drawRoundedRect(button_rect.adjusted(0, 0, -1, -1), 5, 5)
+            painter.setPen(option.palette.buttonText().color())
+            painter.drawText(button_rect, Qt.AlignmentFlag.AlignCenter, "Пинг")
+            painter.setPen(option.palette.text().color())
             painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "⋮")
             painter.restore()
             return

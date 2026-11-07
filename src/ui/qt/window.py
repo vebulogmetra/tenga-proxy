@@ -59,6 +59,7 @@ from src.ui.qt.icons import flagged
 from src.ui.qt.models import (
     ADDRESS_COLUMN,
     GROUP,
+    ID_ROLE,
     NAME_COLUMN,
     PING_COLUMN,
     PROFILE,
@@ -127,7 +128,7 @@ class MainWindow(QMainWindow):
         self._rebuilding = False
         self._monitoring_values: dict[str, QLabel] = {}
 
-        self.setWindowTitle("Veblock")
+        self.setWindowTitle("Monoliten")
         available = self.screen().availableGeometry()
         self.setMinimumSize(min(900, available.width()), min(540, available.height() - 40))
         geometry = parse_geometry(
@@ -247,6 +248,9 @@ class MainWindow(QMainWindow):
         delegate = ProfileDelegate(self.tree)
         self.tree.setItemDelegate(delegate)
         delegate.menu_requested.connect(self._row_menu)
+        delegate.ping_requested.connect(
+            lambda index: self._app.activate_action("test-profile", index.data(ID_ROLE))
+        )
         self.tree.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tree.setAlternatingRowColors(False)
         self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

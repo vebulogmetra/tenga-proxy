@@ -114,7 +114,7 @@ def test_activate_shows_the_window_with_profiles(made):
     app.activate()
 
     window = app.window
-    assert window.windowTitle() == "Veblock"
+    assert window.windowTitle() == "Monoliten"
     assert window.status_card.title.text() == "Отключено"
     group = window.model.item(0, 0)
     assert group.child(0, 0).text() == entry.name
@@ -308,7 +308,7 @@ def test_notifications_go_to_the_tray(made):
 
     app.controller.notify_user("Переключаюсь на запасной")
 
-    assert item.messages == [("Veblock", "Переключаюсь на запасной")]
+    assert item.messages == [("Monoliten", "Переключаюсь на запасной")]
     app.stop_tray()
 
 
