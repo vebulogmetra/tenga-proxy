@@ -143,6 +143,7 @@ sudo apt update
 sudo apt install -y \
     python3 \
     python3-gi \
+    python3-gi-cairo \
     python3-pip \
     gir1.2-gtk-4.0 \
     gir1.2-adw-1

@@ -79,7 +79,7 @@ def gtk_install_hint() -> str:
 
     if platform_info.IS_WINDOWS:
         return "Интерфейс GTK на Windows не поддерживается: запустите Veblock без --ui gtk."
-    return "Установите пакеты: sudo apt install python3-gi gir1.2-gtk-4.0 gir1.2-adw-1"
+    return "Установите пакеты: sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1"
 
 
 def recover_network() -> None:
