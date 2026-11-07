@@ -10,41 +10,36 @@ python gui.py
 
 ## Main Window
 
-The main application window contains the following elements:
+The window is the same on Linux (GTK) and Windows (Qt) except for the logo:
+a dove on Linux, a monolith on Windows.
 
-- **System tray** with quick connect/disconnect
-- **Server management** - view, add, edit, and delete servers
-- **DNS, VPN, and routing settings** - flexible connection configuration
-- **Connection statistics and latency** - performance monitoring
+![Main window](../../assets/screen-profiles.png)
 
-## "Servers" Tab
+The status panel always stays on the left: the logo, the session state, the
+active server, the mode, latency and traffic, and the result of the last check
+at the bottom. Click the logo to connect or disconnect; it is disabled during an
+operation. The glow under the logo is teal while a session runs, orange during an
+operation and red on an error. "Connected" alone does not mean the server
+answers: the check line reports that.
 
-On the "Servers" tab you can:
+The right side holds the servers: search, "Add…" (server from a link, from the
+clipboard, subscription, group), "Sort" and the groups. Each row shows the name,
+type, address and latency, a "Ping" button and an actions menu. The active server
+has a teal marker and a "Connected" label. Selecting another row does not change
+the connection: use "Switch to selected" below the list. Enter and double-click
+connect right away. "Test latency" at the bottom measures all servers.
 
-- Browse server lists grouped by categories
-- Add new servers from share links
-- Edit existing servers
-- Delete unwanted servers
-- Test server latency
-- Connect to selected server
+### Diagnostics
 
-## "Subscriptions" Tab
+The "Diagnostics" button below the list replaces the right side with the
+connection and VPN state, the active routing rules and the log; "← Servers" in
+the header bar brings the list back with the same query, selection and scroll
+position.
 
-On the "Subscriptions" tab you can:
+![Diagnostics](../../assets/screen-monitoring.png)
 
-- Add new subscriptions
-- Update existing subscriptions
-- Edit subscription parameters
-- Delete subscriptions
-
-## "Diagnostics" Tab
-
-The "Diagnostics" tab displays:
-
-- Proxy connection status
-- VPN connection status (if used)
-- Last check time
-- Manual connection check capability
+"Check now" and "Network diagnostics…" (a separate manual network check) are
+there too.
 
 The proxy status is not "the core process is running" but the result of a
 request through the server itself: the application reaches the test URL via
@@ -116,38 +111,30 @@ The full list is available from the "☰" menu → "Keyboard Shortcuts".
 
 ## Appearance
 
-The interface follows the GNOME HIG and uses the system theme: light and dark
-come from the desktop settings, there is no separate switch in the application.
+On Linux the interface follows the GNOME HIG and uses the system theme by
+default; Settings → General lets you pick system, light or dark.
 
-The window is adaptive. Below 550 points wide the view switcher moves from the
-header bar to the bottom, so the application stays usable in a narrow window.
+The window does not shrink below 900×540. When it is lower than 680 points the
+status panel becomes compact: a smaller logo and captions, with all the data
+still in place.
 
+## Settings Window
 
-## Windows window (Qt)
+Settings open in a separate window with seven sections: General, Monitoring,
+DNS, Routing, Censorship bypass, Subscriptions and About. Changes are saved
+automatically; the footer tells whether a change is pending, written, or needs a
+reconnect. Invalid values are not written. In system proxy mode the TUN fields
+are hidden, and their values are kept for when you return to TUN.
 
-The connection panel stays on the left. Click the monolith to connect or
-disconnect; it is disabled during an operation. Teal indicates a running session,
-orange an operation, and red an error. The separate health message reports whether
-connectivity has actually been checked.
+Subscriptions live in the Subscriptions section: "Add…", "Update", "Edit…" and
+"Delete" act on the selected subscription. Forms opened from there appear on
+top of the settings.
 
-The right side contains search, add and sorting menus, groups and two-line server
-rows. The active server has a teal marker and a Connected label. Selecting another
-row does not switch the session: use the explicit switch action below the list,
-where the target name is displayed. Enter and double-click retain their connection
-action.
+![Subscriptions in settings](../../assets/screen-subscriptions.png)
 
-Diagnostics replaces the right pane with connection status, routing and the log.
-Back to Servers restores search, selection and scrolling. Log refresh runs only
-while visible; export masks secrets, and clearing requires confirmation. Network
-diagnostics remains a separate action.
+General → Window has "Minimize to tray when the window is closed": while the
+tray icon is visible, closing the window only hides it; otherwise it quits.
 
-Settings opens a separate window with the six existing sections and automatic
-saving. Its footer distinguishes pending changes, a successful write and errors.
-Invalid values are not written. Runtime changes need an explicit reconnect; theme
-changes apply immediately. TUN fields are hidden in system proxy mode while their
-values are preserved. Light, dark and system themes remain available.
-
-[Synthetic main window](../design/windows-ui/main-dark-1180.png),
-[diagnostics](../design/windows-ui/diagnostics.png),
-[settings](../design/windows-ui/settings.png).
-The tab navigation described above applies to GTK on Linux.
+Qt window on Windows: [main window](../design/windows-ui/main-dark-1180.png) ·
+[diagnostics](../design/windows-ui/diagnostics.png) ·
+[settings](../design/windows-ui/settings.png). All screenshots use synthetic data.
