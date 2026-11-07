@@ -183,6 +183,15 @@ True), `cancel`. `ConnectionMonitor` и `AppController` получают его
 - Группы профилей (ProfileGroup) для организации подписок
 - ProfileEntry = ProxyBean + метаданные (latency, selected, group_id)
 
+**Маршрутизация** - общие правила в `DataStore.routing` (страница настроек
+«Маршрутизация», общий виджет `src/ui/widgets/routing_form.py` и
+`src/ui/qt/widgets/routing_form.py`, значения — `src/ui/logic/routing_form.py`);
+`ProfileEntry.routing_settings is None` означает «сервер использует общие»,
+объект — свои правила целиком. Заголовок `routing` подписки читается как
+предложение и проходит через то же окно импорта с подтверждением; хеш
+обработанного набора — `ProfileGroup.sub_routing_handled`. Дизайн:
+`docs/plans/2026-11-07-global-routing-design.md`.
+
 **XrayManager (`src/core/xray_manager.py`)** - управление xray-core:
 - Запуск/остановка процесса xray через subprocess
 - Генерация конфигурации из ProxyBean
