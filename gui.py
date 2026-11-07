@@ -135,6 +135,20 @@ def cleanup_legacy_install() -> None:
         log.info("Removed AppImage leftover %s", path)
 
 
+def cleanup_update_downloads() -> None:
+    """Убрать установщики прошлых самообновлений: при старте загрузка идти не может."""
+    from src.core.app_installer import remove_stale_downloads
+
+    log = logging.getLogger("startup")
+    try:
+        removed = remove_stale_downloads()
+    except Exception:
+        log.exception("Failed to remove update downloads")
+        return
+    for path in removed:
+        log.info("Removed update download %s", path)
+
+
 # --- GTK bootstrap ---
 # Маркер читает tests/test_gui_entrypoint.py: выше него — только определения,
 # ниже — запуск: логи, разбор аргументов и, для GTK, проверка библиотек.
@@ -255,6 +269,7 @@ def main() -> int:
     if holds_lock:
         recover_network()
         cleanup_legacy_install()
+        cleanup_update_downloads()
 
     try:
         options = {

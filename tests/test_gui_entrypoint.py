@@ -173,6 +173,27 @@ def test_legacy_cleanup_never_blocks_the_start(entry, monkeypatch):
     entry.cleanup_legacy_install()
 
 
+def test_update_downloads_are_removed_at_start(entry, monkeypatch, tmp_path):
+    from src.core import app_installer
+
+    stale = tmp_path / "veblock-old-setup.exe"
+    stale.write_bytes(b"x")
+    monkeypatch.setattr(app_installer, "download_dir", lambda: tmp_path)
+
+    entry.cleanup_update_downloads()
+
+    assert not stale.exists()
+
+
+def test_update_cleanup_never_blocks_the_start(entry, monkeypatch):
+    def boom(_directory=None):
+        raise PermissionError("read-only temp")
+
+    monkeypatch.setattr("src.core.app_installer.remove_stale_downloads", boom)
+
+    entry.cleanup_update_downloads()
+
+
 # --- выбор интерфейса ---
 
 
