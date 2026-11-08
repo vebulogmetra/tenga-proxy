@@ -86,13 +86,15 @@ def test_dns_queries_from_tun_are_handed_to_the_dns_module(context, profile, sys
     } in config["outbounds"]
 
 
-def test_system_resolver_is_addressed_explicitly(context, profile, system):
+@pytest.mark.parametrize("ru_direct", [False, True])
+def test_system_resolver_is_addressed_explicitly(context, profile, system, ru_direct):
     """`localhost` при перехвате дал бы петлю: запрос ядра вернулся бы в TUN.
 
     Поэтому системный резолвер пишется адресом, а его запросы отдельным
     правилом уходят в direct, привязанный к физическому интерфейсу.
     """
     use_custom_lists(context, direct=["direct.example"])
+    context.config.routing.ru_direct = ru_direct
 
     config = build_session_config(context, profile)
 
@@ -110,6 +112,18 @@ def test_system_resolver_is_addressed_explicitly(context, profile, system):
             "domains": ["domain:direct.example"],
             "skipFallback": True,
         },
+        *(
+            [
+                {
+                    "address": "192.168.0.1",
+                    "port": 53,
+                    "domains": ["geosite:category-ru", "geosite:category-gov-ru"],
+                    "skipFallback": True,
+                }
+            ]
+            if ru_direct
+            else []
+        ),
         {"address": DOH},
     ]
     assert config["routing"]["rules"][1] == {
