@@ -12,7 +12,6 @@ from PySide6.QtWidgets import QLineEdit, QMessageBox
 
 from src.core.context import AppContext
 from src.db.config import DnsProvider, ProxyMode, RoutingMode, RoutingSettings
-from src.db.data_store import LEGACY_USER_AGENT
 from src.ui.controller import CONFIRM_URL_CHANGE
 from src.ui.qt.application import QtApplication
 from src.ui.qt.dialogs.settings import SECTIONS, SettingsDialog
@@ -105,7 +104,6 @@ def test_fields_come_from_the_config(app):
     config = app.context.config
     config.inbound_address = "127.0.0.2"
     config.proxy_mode = ProxyMode.SYSTEM_PROXY
-    config.user_agent = LEGACY_USER_AGENT
     config.close_to_tray = False
 
     dialog = _open(app)
@@ -113,8 +111,6 @@ def test_fields_come_from_the_config(app):
     assert dialog.address_edit.text() == "127.0.0.2"
     assert dialog.mode_combo.selected() == ProxyMode.SYSTEM_PROXY
     assert not dialog.tun_name_edit.isEnabled()
-    # Старое значение по умолчанию показывается как «не задано».
-    assert dialog.user_agent_edit.text() == ""
     assert not dialog.close_to_tray_check.isChecked()
 
 
@@ -191,13 +187,25 @@ def test_fragment_fields_follow_the_switch(app):
     assert dialog.fragment_length_edit.isEnabled()
 
 
-def test_device_info_creates_the_hwid(app):
+def test_removed_request_settings_are_preserved(app):
+    config = app.context.config
+    config.user_agent = "SyntheticClient/1.0"
+    config.sub_send_device_info = True
+    config.sub_hwid = "synthetic-device"
+    config.sub_source_exceptions = ["http://example.org/sub"]
+    config.sub_insecure = True
     dialog = _open(app)
 
-    dialog.device_info_check.setChecked(True)
-    dialog.save()
+    assert not hasattr(dialog, "user_agent_edit")
+    dialog.interval_spin.setValue(27)
+    assert dialog.save()
 
-    assert app.context.config.sub_hwid
+    saved = _saved(app)
+    assert saved["user_agent"] == "SyntheticClient/1.0"
+    assert saved["sub_send_device_info"] is True
+    assert saved["sub_hwid"] == "synthetic-device"
+    assert saved["sub_source_exceptions"] == ["http://example.org/sub"]
+    assert saved["sub_insecure"] is True
 
 
 def test_missing_tun_rights_are_shown(app, monkeypatch):
@@ -500,6 +508,7 @@ def test_bad_routing_entry_blocks_saving(app):
 
 def test_restore_routing_row_follows_the_backup_on_the_routing_page(app):
     dialog = _open(app)
+    assert dialog.routing_extra_group.isHidden()
     assert not dialog.routing_extra.isRowVisible(dialog.restore_routing_row)
 
     app.context.config.routing_backup = RoutingSettings()
@@ -507,6 +516,7 @@ def test_restore_routing_row_follows_the_backup_on_the_routing_page(app):
     app.context.config.routing.use_saved_lists = True
     app.controller.sync_restore_routing()
 
+    assert not dialog.routing_extra_group.isHidden()
     assert dialog.routing_extra.isRowVisible(dialog.restore_routing_row)
     assert dialog.routing.lists["proxy"].toPlainText() == "imported.example"
     assert not dialog.autosave.pending

@@ -441,7 +441,8 @@ class SettingsDialog(Adw.Dialog):
 
         self.routing = RoutingForm(page, vpn_hint=VPN_LIST_HINT)
 
-        extra = Adw.PreferencesGroup(title="Дополнительно")
+        extra = self.routing_extra_group = Adw.PreferencesGroup(title="Дополнительно")
+        extra.set_visible(getattr(self._config, "routing_backup", None) is not None)
         page.add(extra)
         # Без подтверждения, как в Android: откат меняет только списки,
         # которые пользователь сам только что заменил импортом.
@@ -478,6 +479,7 @@ class SettingsDialog(Adw.Dialog):
 
     def sync_restore_routing(self, available: bool) -> None:
         """Импорт или откат поменял общие правила, пока открыты настройки."""
+        self.routing_extra_group.set_visible(available)
         self.restore_routing_row.set_visible(available)
         self._load_routing()
 
@@ -579,17 +581,19 @@ class SettingsDialog(Adw.Dialog):
             self._config.app_update_target or "Нет сведений о новой версии"
         )
         self.app_release_button.set_sensitive(bool(self._config.app_update_url))
+        updates = Adw.PreferencesGroup(title="Настройки обновлений")
+        page.add(updates)
         self.app_updates_row = Adw.SwitchRow(title="Проверять обновления приложения раз в сутки")
         self.app_updates_row.set_active(self._config.app_update_enabled)
-        group.add(self.app_updates_row)
+        updates.add(self.app_updates_row)
         self.app_prereleases_row = Adw.SwitchRow(
             title="Предлагать предварительные версии приложения"
         )
         self.app_prereleases_row.set_active(self._config.app_update_prerelease)
-        group.add(self.app_prereleases_row)
+        updates.add(self.app_prereleases_row)
         self.core_updates_row = Adw.SwitchRow(title="Проверять обновления ядра раз в три дня")
         self.core_updates_row.set_active(self._config.core_update_enabled)
-        group.add(self.core_updates_row)
+        updates.add(self.core_updates_row)
         manager = getattr(self._context, "xray_manager", None) if self._context else None
         self._core_version = core_version(manager)
         group.add(self._value_row("Ядро xray", self._core_version))

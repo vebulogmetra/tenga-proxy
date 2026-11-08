@@ -8,10 +8,12 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QCheckBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMenu,
     QMessageBox,
@@ -59,7 +61,20 @@ class SubscriptionsPage(QGroupBox):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(list(COLUMNS))
         self.tree.setRootIsDecorated(False)
-        self.tree.setMinimumHeight(160)
+        self.tree.setMinimumHeight(240)
+        self.tree.setAlternatingRowColors(True)
+        self.tree.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.tree.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tree.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.tree.setStyleSheet("QTreeView::item { padding: 10px 8px; }")
+        header = self.tree.header()
+        header.setMinimumSectionSize(90)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._on_context_menu)
         self.tree.itemDoubleClicked.connect(lambda *_: self._edit())
@@ -94,6 +109,7 @@ class SubscriptionsPage(QGroupBox):
         buttons.addStretch(1)
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
         layout.addWidget(self.tree)
         layout.addWidget(self.empty_label)
         layout.addLayout(buttons)
@@ -116,6 +132,12 @@ class SubscriptionsPage(QGroupBox):
                 details = " · ".join(part for part in (details, VIA_FALLBACK_TEXT) if part)
             item = QTreeWidgetItem([row.name, str(row.profile_count), row.updated_text, details])
             item.setData(0, GROUP_ROLE, row.group_id)
+            name_font = item.font(0)
+            name_font.setBold(True)
+            item.setFont(0, name_font)
+            item.setTextAlignment(1, Qt.AlignmentFlag.AlignCenter)
+            item.setToolTip(2, row.updated_text)
+            item.setToolTip(3, details)
             item.setToolTip(0, row.url)
             if row.announce:
                 item.setToolTip(1, row.announce)
@@ -127,8 +149,6 @@ class SubscriptionsPage(QGroupBox):
             self.tree.addTopLevelItem(item)
             if row.group_id == selected:
                 self.tree.setCurrentItem(item)
-        for column in range(1, len(COLUMNS)):
-            self.tree.resizeColumnToContents(column)
         self.tree.setVisible(bool(rows))
         self.empty_label.setVisible(not rows)
         self._sync_buttons()
@@ -250,15 +270,17 @@ class AboutPage(QWidget):
             self._with(self.app_update_label, self.app_check_button, self.app_update_button),
         )
         self.refresh_app_update()
+        updates = QGroupBox("Настройки обновлений")
+        updates_layout = QVBoxLayout(updates)
         self.app_updates_check = QCheckBox("Проверять обновления приложения раз в сутки")
         self.app_updates_check.setChecked(self._config.app_update_enabled)
-        form.addRow(self.app_updates_check)
+        updates_layout.addWidget(self.app_updates_check)
         self.app_prereleases_check = QCheckBox("Предлагать предварительные версии приложения")
         self.app_prereleases_check.setChecked(self._config.app_update_prerelease)
-        form.addRow(self.app_prereleases_check)
+        updates_layout.addWidget(self.app_prereleases_check)
         self.core_updates_check = QCheckBox("Проверять обновления ядра раз в три дня")
         self.core_updates_check.setChecked(self._config.core_update_enabled)
-        form.addRow(self.core_updates_check)
+        updates_layout.addWidget(self.core_updates_check)
 
         self._core_version = core_version(getattr(self._context, "xray_manager", None))
         form.addRow("Ядро xray", self._value(self._core_version))
@@ -268,6 +290,12 @@ class AboutPage(QWidget):
         form.addRow("Обновление ядра", self._with(self.core_update_label, self.core_update_button))
         self._show_core_update()
         form.addRow("Конфигурация", self._value(str(self._context.config_dir)))
+        form.setLabelAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        for row_number in range(form.rowCount()):
+            caption = form.itemAt(row_number, QFormLayout.ItemRole.LabelRole).widget()
+            field = form.itemAt(row_number, QFormLayout.ItemRole.FieldRole).widget()
+            caption.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            caption.setMinimumHeight(field.minimumSizeHint().height())
 
         maintenance = QGroupBox("Обслуживание")
         form = QFormLayout(maintenance)
@@ -293,6 +321,7 @@ class AboutPage(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(about)
+        layout.addWidget(updates)
         layout.addWidget(maintenance)
 
     @staticmethod

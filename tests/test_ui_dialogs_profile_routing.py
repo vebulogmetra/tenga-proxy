@@ -196,12 +196,12 @@ def test_block_list_round_trips(gtk_ready):
 def test_ru_direct_switch_round_trips(gtk_ready):
     profile = make_profile(routing=routing_settings(mode="custom"))
     dialog = make_dialog(profile)
-    assert not dialog.ru_direct_row.get_active()
+    assert dialog.ru_direct_row.get_active()
 
-    dialog.ru_direct_row.set_active(True)
+    dialog.ru_direct_row.set_active(False)
     dialog.save()
 
-    assert profile.routing_settings.ru_direct is True
+    assert profile.routing_settings.ru_direct is False
 
 
 def test_ready_made_rules_follow_the_mode(gtk_ready):

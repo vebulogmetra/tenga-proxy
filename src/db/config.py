@@ -491,7 +491,7 @@ class RoutingSettings(ConfigBase):
     # Готовые правила; оба стоят после пользовательских групп.
     bypass_local_networks: bool = True
     # Российские сайты и IP — напрямую (geosite:category-ru, geoip:ru).
-    ru_direct: bool = False
+    ru_direct: bool = True
     # direct/vpn/proxy
     rule_order: list[str] = field(default_factory=lambda: DEFAULT_ROUTING_ORDER.copy())
 

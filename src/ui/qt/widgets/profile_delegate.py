@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QIcon
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QStyle,
@@ -126,25 +126,42 @@ class ProfileDelegate(QStyledItemDelegate):
                     detail, Qt.TextElideMode.ElideRight, max(0, rect.width() - 220)
                 ),
             )
-            right = rect.adjusted(0, 0, -24, 0)
-            painter.drawText(
-                right,
-                Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
-                str(index.siblingAtColumn(PING_COLUMN).data() or ""),
-            )
-            if active:
-                painter.setPen(QColor(ACCENT))
-                painter.drawText(
-                    right.adjusted(0, 0, -76, 0),
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom,
-                    "Подключён",
-                )
+            # Controls use a regular font even when the active server title is bold.
+            control_font = option.font
+            control_font.setBold(False)
+            painter.setFont(control_font)
+            metrics = QFontMetrics(control_font)
             button_rect = self.ping_button_rect(option.rect)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+            def centered_text(text_rect, text):
+                bounds = metrics.tightBoundingRect(text)
+                painter.drawText(text_rect.center() - bounds.center(), text)
+
+            def chip(chip_rect, text, color):
+                painter.setBrush(background)
+                painter.setPen(color)
+                painter.drawRoundedRect(chip_rect.adjusted(0, 0, -1, -1), 5, 5)
+                centered_text(chip_rect, text)
+
+            latency = str(index.siblingAtColumn(PING_COLUMN).data() or "")
+            if latency:
+                width = max(button_rect.width(), metrics.horizontalAdvance(latency) + 16)
+                latency_rect = QRect(
+                    button_rect.right() - width + 1, option.rect.top() + 5, width, 24
+                )
+                chip(latency_rect, latency, option.palette.placeholderText().color())
+            if active:
+                width = metrics.horizontalAdvance("Подключён") + 16
+                badge_rect = QRect(
+                    button_rect.left() - width - 8, button_rect.top(), width, button_rect.height()
+                )
+                chip(badge_rect, "Подключён", QColor(ACCENT))
             painter.setBrush(option.palette.button())
             painter.setPen(option.palette.mid().color())
             painter.drawRoundedRect(button_rect.adjusted(0, 0, -1, -1), 5, 5)
             painter.setPen(option.palette.buttonText().color())
-            painter.drawText(button_rect, Qt.AlignmentFlag.AlignCenter, "Пинг")
+            centered_text(button_rect, "Пинг")
             painter.setPen(option.palette.text().color())
             painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "⋮")
             painter.restore()

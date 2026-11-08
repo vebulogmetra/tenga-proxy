@@ -35,8 +35,6 @@ from shiboken6 import isValid
 
 from src.core.config import get_asset_path
 from src.db.config import DnsProvider, ProxyMode, TlsFragmentSettings
-from src.db.data_store import DEFAULT_USER_AGENT, LEGACY_USER_AGENT
-from src.sub.device import ensure_hwid
 from src.sys import tun_access
 from src.ui.logic.appearance import ACCENT, THEME_LABELS, THEMES, normalize_theme
 from src.ui.logic.async_utils import run_in_background
@@ -111,7 +109,6 @@ ERROR_FIELDS = {
     "fragment_packets": "fragment_packets_edit",
     "fragment_length": "fragment_length_edit",
     "fragment_delay": "fragment_delay_edit",
-    "sub_exceptions": "sub_exceptions_edit",
 }
 
 
@@ -200,7 +197,7 @@ class SettingsDialog(QDialog):
             self._dns_page(),
             self._routing_page(),
             self._bypass_page(),
-            page(self.subscriptions, self._request_group()),
+            page(self.subscriptions),
             page(self.about),
         ):
             self.pages.addWidget(widget)
@@ -373,7 +370,7 @@ class SettingsDialog(QDialog):
 
         self.routing = RoutingForm(vpn_hint=VPN_LIST_HINT)
 
-        extra = QGroupBox("Дополнительно")
+        extra = self.routing_extra_group = QGroupBox("Дополнительно")
         self.routing_extra = QFormLayout(extra)
         # Без подтверждения, как в Android: откат возвращает только то, что
         # пользователь сам только что заменил импортом.
@@ -390,6 +387,7 @@ class SettingsDialog(QDialog):
         row.addWidget(label, 1)
         row.addWidget(self.restore_routing_button)
         self.routing_extra.addRow("Маршрутизация до импорта", self.restore_routing_row)
+        self.routing_extra_group.setVisible(self._config.routing_backup is not None)
         self.routing_extra.setRowVisible(
             self.restore_routing_row, self._config.routing_backup is not None
         )
@@ -445,33 +443,6 @@ class SettingsDialog(QDialog):
         form.addRow(self.mux_check)
         return page(fragment, mux)
 
-    def _request_group(self) -> QWidget:
-        request = QGroupBox("Запрос к провайдеру")
-        form = QFormLayout(request)
-        form.addRow(
-            hint(
-                f"Пустое поле — {DEFAULT_USER_AGENT}: так представляется большинство "
-                "клиентов, и провайдеры отдают ему обычный список серверов."
-            )
-        )
-        self.user_agent_edit = QLineEdit()
-        self.user_agent_edit.setPlaceholderText(DEFAULT_USER_AGENT)
-        form.addRow("User-Agent", self.user_agent_edit)
-        self.device_info_check = check(
-            "Отправлять данные устройства",
-            "Идентификатор, система и модель. Нужны провайдерам, которые считают лимит устройств",
-        )
-        form.addRow(self.device_info_check)
-        self.sub_exceptions_edit = QLineEdit()
-        self.sub_exceptions_edit.setToolTip("Через пробел")
-        form.addRow("Разрешённые HTTP/LAN URL", self.sub_exceptions_edit)
-        self.sub_insecure_check = check(
-            "Не проверять TLS-сертификат подписок",
-            "Отдельное исключение; не разрешает доступ к HTTP или локальной сети",
-        )
-        form.addRow(self.sub_insecure_check)
-        return request
-
     def _fields(self) -> list[QWidget]:
         return [
             self.address_edit,
@@ -497,10 +468,6 @@ class SettingsDialog(QDialog):
             self.fragment_length_edit,
             self.fragment_delay_edit,
             self.mux_check,
-            self.user_agent_edit,
-            self.device_info_check,
-            self.sub_exceptions_edit,
-            self.sub_insecure_check,
             *self.routing.fields(),
             *self.about.fields(),
         ]
@@ -618,11 +585,6 @@ class SettingsDialog(QDialog):
         self._sync_fragment()
         self.mux_check.setChecked(config.mux_default_on)
 
-        user_agent = config.user_agent.strip()
-        self.user_agent_edit.setText("" if user_agent == LEGACY_USER_AGENT else user_agent)
-        self.device_info_check.setChecked(config.sub_send_device_info)
-        self.sub_exceptions_edit.setText(" ".join(config.sub_source_exceptions))
-        self.sub_insecure_check.setChecked(config.sub_insecure)
         self._load_routing()
 
     def save(self) -> bool:
@@ -657,13 +619,6 @@ class SettingsDialog(QDialog):
         )
         config.mux_default_on = self.mux_check.isChecked()
 
-        config.user_agent = self.user_agent_edit.text().strip()
-        config.sub_source_exceptions = self.sub_exceptions_edit.text().split()
-        config.sub_insecure = self.sub_insecure_check.isChecked()
-        config.sub_send_device_info = self.device_info_check.isChecked()
-        if config.sub_send_device_info:
-            # Идентификатор сохранится вместе с остальными настройками.
-            ensure_hwid(config)
         self.about.store(config)
 
         if self.routing.values() != self._routing_loaded:
@@ -724,6 +679,7 @@ class SettingsDialog(QDialog):
 
         self.about.refresh_app_update()
         self.subscriptions.refresh()
+        self.routing_extra_group.setVisible(self._config.routing_backup is not None)
         self.routing_extra.setRowVisible(
             self.restore_routing_row, self._config.routing_backup is not None
         )

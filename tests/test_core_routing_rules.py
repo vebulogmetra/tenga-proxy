@@ -189,13 +189,13 @@ def test_local_networks_switch_can_be_turned_off(context, profile):
     assert "10.0.0.0/8" not in rule_values(config, "direct", "ip")
 
 
-def test_russian_sites_go_through_proxy_by_default(context, profile):
+def test_russian_sites_go_direct_by_default(context, profile):
     use_custom_lists(context, direct=["direct.example"])
 
     config = build_session_config(context, profile)
 
-    assert RoutingSettings().ru_direct is False
-    assert "geoip:ru" not in str(config["routing"]["rules"])
+    assert RoutingSettings().ru_direct is True
+    assert "geoip:ru" in str(config["routing"]["rules"])
 
 
 def test_ru_direct_adds_ip_and_domain_rules(context, profile):
@@ -289,3 +289,8 @@ def test_shared_rules_apply_without_own_rules(context, profile):
     config = build_session_config(context, profile)
 
     assert "domain:shared.example" in all_domains(config)
+
+
+def test_explicit_ru_direct_choice_is_preserved():
+    assert RoutingSettings.from_dict({"ru_direct": False}).ru_direct is False
+    assert RoutingSettings.from_dict({"mode": "custom"}).ru_direct is True

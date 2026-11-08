@@ -34,7 +34,10 @@ def geo(monkeypatch):
 
 @pytest.fixture
 def context(tmp_path):
-    return make_context(tmp_path)
+    context = make_context(tmp_path)
+    # Isolate DNS scenarios; Russian routing has its own test below.
+    context.config.routing.ru_direct = False
+    return context
 
 
 @pytest.fixture

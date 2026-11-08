@@ -102,6 +102,13 @@
   color: #36c9b5;
 }
 
+.profile-row .accent-text,
+.profile-row .latency {
+  border: 1px solid currentColor;
+  border-radius: 5px;
+  padding: 2px 8px;
+}
+
 .profile-row .details {
   font-size: 0.9em;
 }
