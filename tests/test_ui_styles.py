@@ -75,6 +75,7 @@ def test_marker_classes_have_rules():
     css = Path("src/ui/style.css").read_text(encoding="utf-8")
     for css_class in (
         subscriptions_list.SELECTED_CLASS,
+        subscriptions_list.ALT_CLASS,
         profile_row.ACTIVE_CLASS,
         profile_row.EXPIRED_CLASS,
         "connection-dot",

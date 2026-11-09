@@ -139,7 +139,25 @@
   min-height: 4px;
 }
 
+/* Таблица подписок в настройках: просторные чередующиеся строки, как в Qt. */
+.subscriptions-table > row.subscription-header {
+  padding: 8px 12px 6px;
+}
+
+.subscriptions-table > row.subscription-row {
+  padding: 10px 12px;
+}
+
+.subscriptions-table > row.subscription-alt {
+  background-color: alpha(currentColor, 0.04);
+}
+
+.subscriptions-table .subscription-name {
+  font-weight: bold;
+}
+
 /* Выбранная подписка в настройках: на неё действуют кнопки под списком. */
+.subscriptions-table > row.subscription-selected,
 row.subscription-selected {
   background-color: alpha(@accent_bg_color, 0.18);
 }

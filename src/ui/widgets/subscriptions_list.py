@@ -1,4 +1,4 @@
-"""Subscription list of the settings section «Подписки»: rows, menus and buttons."""
+"""Subscription list of the settings section «Подписки»: a table, menus and buttons."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Adw, Gio, GLib, Gtk
+from gi.repository import Adw, Gio, GLib, Gtk, Pango
 
 from src.ui.logic.subscriptions_view import (
     EMPTY_RESPONSE_HINT,
@@ -22,6 +22,9 @@ from src.ui.logic.subscriptions_view import (
 
 EMPTY_TEXT = "Подписок нет. Добавьте ссылку от провайдера."
 SELECTED_CLASS = "subscription-selected"
+ALT_CLASS = "subscription-alt"
+# Колонки — как у таблицы Qt; название и трафик растягиваются.
+COLUMNS = ("Название", "Серверов", "Обновлено", "Трафик и срок")
 BUTTONS = (
     ("Добавить…", "app.add-subscription", False),
     ("Обновить", "win.update-subscription", True),
@@ -31,7 +34,7 @@ BUTTONS = (
 
 
 class SubscriptionsList(Adw.PreferencesGroup):
-    """Subscription rows with their menus; buttons below act on the selected row."""
+    """Subscription table with row menus; buttons below act on the selected row."""
 
     __gtype_name__ = "TengaSubscriptionsList"
 
@@ -42,7 +45,11 @@ class SubscriptionsList(Adw.PreferencesGroup):
         self._counts: Mapping[int, int] = {}
         self._rows: list[SubscriptionRow] = []
         self._selected = -1
-        self._row_widgets: dict[int, Adw.ActionRow] = {}
+        self._row_widgets: dict[int, Gtk.ListBoxRow] = {}
+        self._url_labels: dict[int, Gtk.Label] = {}
+        # Ячейки строк в группах размеров: группа держит ширину по всем своим
+        # виджетам, поэтому ячейки удалённых строк из неё убираются.
+        self._sized: list[tuple[Gtk.SizeGroup, Gtk.Widget]] = []
         self._update_buttons: dict[int, Gtk.Button] = {}
         self._menu_buttons: dict[int, Gtk.MenuButton] = {}
         self._details_labels: dict[int, Gtk.Label] = {}
@@ -50,9 +57,30 @@ class SubscriptionsList(Adw.PreferencesGroup):
         self._empty_labels: dict[int, Gtk.Label] = {}
         self._via_fallback_labels: dict[int, Gtk.Label] = {}
 
-        self._empty_row = Adw.ActionRow(title=EMPTY_TEXT)
+        # Колонки строк выравниваются по заголовку через группы размеров:
+        # растягиваемые тоже, иначе запас делится от разной естественной ширины.
+        self._name_size = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._details_size = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._count_size = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._updated_size = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+        self._actions_size = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.HORIZONTAL)
+
+        # Свой список, а не строки группы: заголовок колонок и чередование
+        # фона нужны внутри одной рамки.
+        self._list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self._list.add_css_class("boxed-list")
+        self._list.add_css_class("subscriptions-table")
+        self._list.connect("row-activated", self._on_row_activated)
+        self.add(self._list)
+
+        self._header = self._build_header()
+        self._list.append(self._header)
+        # Ячейки заголовка остаются в группах навсегда.
+        self._sized.clear()
+
+        self._empty_row = Adw.ActionRow(title=EMPTY_TEXT, activatable=False)
         self._empty_row.add_css_class("dim-label")
-        self.add(self._empty_row)
+        self._list.append(self._empty_row)
 
         # Кнопки под списком, как в Qt; цель — выделенная строка.
         buttons = Gtk.Box(spacing=8, margin_top=12, halign=Gtk.Align.START)
@@ -68,10 +96,60 @@ class SubscriptionsList(Adw.PreferencesGroup):
 
     # --- модель ---
 
+    def _cells(
+        self,
+        name: Gtk.Widget,
+        count: Gtk.Widget,
+        updated: Gtk.Widget,
+        details: Gtk.Widget,
+        actions: Gtk.Widget,
+    ) -> Gtk.Box:
+        """One table line: name and details stretch, the rest fit their content."""
+        box = Gtk.Box(spacing=8)
+        box.add_css_class("subscription-cells")
+        name.set_hexpand(True)
+        details.set_hexpand(True)
+        for group, cell in (
+            (self._name_size, name),
+            (self._count_size, count),
+            (self._updated_size, updated),
+            (self._details_size, details),
+            (self._actions_size, actions),
+        ):
+            group.add_widget(cell)
+            self._sized.append((group, cell))
+        for cell in (name, count, updated, details, actions):
+            box.append(cell)
+        return box
+
+    def _build_header(self) -> Gtk.ListBoxRow:
+        labels = []
+        for index, title in enumerate(COLUMNS):
+            label = Gtk.Label(label=title, xalign=0.5 if index == 1 else 0.0)
+            label.add_css_class("caption-heading")
+            label.add_css_class("dim-label")
+            labels.append(label)
+        labels[1].set_size_request(72, -1)
+        labels[2].set_size_request(90, -1)
+        row = Gtk.ListBoxRow(activatable=False, selectable=False)
+        row.add_css_class("subscription-header")
+        row.set_child(self._cells(*labels, Gtk.Box()))
+        return row
+
+    def _on_row_activated(self, _list: Gtk.ListBox, row: Gtk.ListBoxRow) -> None:
+        for gid, widget in self._row_widgets.items():
+            if widget is row:
+                self._select(gid)
+                return
+
     def _rebuild(self) -> None:
+        for group, cell in self._sized:
+            group.remove_widget(cell)
+        self._sized.clear()
         for widget in self._row_widgets.values():
-            self.remove(widget)
+            self._list.remove(widget)
         self._row_widgets.clear()
+        self._url_labels.clear()
         self._update_buttons.clear()
         self._menu_buttons.clear()
         self._details_labels.clear()
@@ -81,55 +159,63 @@ class SubscriptionsList(Adw.PreferencesGroup):
 
         self._rows = build_subscription_rows(self._groups, self._counts)
 
-        # Строки идут перед кнопками: `add` кладёт строки в общий список
-        # группы, а остальные виджеты — под ним.
-        for row in self._rows:
-            self.add(self._build_row(row))
+        for index, row in enumerate(self._rows):
+            widget = self._build_row(row)
+            # Чередование фона, как в таблице Qt: длинную строку легче
+            # проследить до её кнопок.
+            if index % 2:
+                widget.add_css_class(ALT_CLASS)
+            self._list.append(widget)
+        self._header.set_visible(bool(self._rows))
         self._empty_row.set_visible(not self._rows)
 
         ids = [row.group_id for row in self._rows]
         self._select(self._selected if self._selected in ids else (ids[0] if ids else -1))
 
-    def _build_row(self, row: SubscriptionRow) -> Adw.ActionRow:
-        # Имя и адрес приходят извне: амперсанд в query не является разметкой.
-        action_row = Adw.ActionRow()
-        action_row.set_use_markup(False)
-        action_row.set_title(row.name)
-        action_row.set_subtitle(row.url)
-        action_row.set_subtitle_lines(1)
-        action_row.set_activatable(True)
-        action_row.connect("activated", lambda _row, gid=row.group_id: self._select(gid))
+    def _build_row(self, row: SubscriptionRow) -> Gtk.ListBoxRow:
+        # Имя и адрес приходят извне: обычный текст, амперсанд — не разметка.
+        name_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
+        title = Gtk.Label(label=row.name, xalign=0.0, ellipsize=Pango.EllipsizeMode.END)
+        title.add_css_class("subscription-name")
+        title.set_tooltip_text(row.name)
+        name_box.append(title)
+        url = Gtk.Label(label=row.url, xalign=0.0, ellipsize=Pango.EllipsizeMode.END)
+        url.add_css_class("caption")
+        url.add_css_class("dim-label")
+        url.set_tooltip_text(row.url)
+        name_box.append(url)
+        self._url_labels[row.group_id] = url
 
-        if row.announce:
-            action_row.add_suffix(self._build_announce_button(row))
+        count = Gtk.Label(label=str(row.profile_count), xalign=0.5)
+        count.add_css_class("numeric")
+        count.set_size_request(72, -1)
+        updated = Gtk.Label(label=row.updated_text, xalign=0.0)
+        updated.set_tooltip_text(row.updated_text)
+        updated.set_size_request(90, -1)
 
-        meta_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
-        meta = Gtk.Label(label=f"{row.profile_count} · {row.updated_text}", xalign=1.0)
-        meta.add_css_class("dim-label")
-        meta.add_css_class("caption")
-        meta_box.append(meta)
+        details_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, valign=Gtk.Align.CENTER)
         if row.details_text:
-            details = Gtk.Label(label=row.details_text, xalign=1.0)
-            details.add_css_class("caption")
+            details = self._cell_label(row.details_text)
             # Истёкшую подписку видно сразу: серверов в ней обычно уже нет.
             details.add_css_class("error" if row.expired else "dim-label")
-            meta_box.append(details)
+            details_box.append(details)
             self._details_labels[row.group_id] = details
         if row.empty:
             # Без пометки сохранённые серверы выглядели бы рабочими.
-            empty = Gtk.Label(label=EMPTY_RESPONSE_TEXT, xalign=1.0)
-            empty.add_css_class("caption")
+            empty = self._cell_label(EMPTY_RESPONSE_TEXT)
             empty.add_css_class("error")
             empty.set_tooltip_text(EMPTY_RESPONSE_HINT)
-            meta_box.append(empty)
+            details_box.append(empty)
             self._empty_labels[row.group_id] = empty
         if row.via_fallback:
-            via_fallback = Gtk.Label(label=VIA_FALLBACK_TEXT, xalign=1.0)
-            via_fallback.add_css_class("caption")
+            via_fallback = self._cell_label(VIA_FALLBACK_TEXT)
             via_fallback.add_css_class("dim-label")
-            meta_box.append(via_fallback)
+            details_box.append(via_fallback)
             self._via_fallback_labels[row.group_id] = via_fallback
-        action_row.add_suffix(meta_box)
+
+        actions = Gtk.Box(spacing=2, halign=Gtk.Align.END, valign=Gtk.Align.CENTER)
+        if row.announce:
+            actions.append(self._build_announce_button(row))
 
         button = Gtk.Button(icon_name="view-refresh-symbolic")
         button.set_valign(Gtk.Align.CENTER)
@@ -138,19 +224,35 @@ class SubscriptionsList(Adw.PreferencesGroup):
         # Действие окна, как у пунктов меню: диалог настроек живёт внутри окна.
         button.set_action_name("win.update-subscription")
         button.set_action_target_value(GLib.Variant.new_int32(row.group_id))
-        action_row.add_suffix(button)
+        actions.append(button)
 
         menu_button = Gtk.MenuButton(icon_name="view-more-symbolic")
         menu_button.set_valign(Gtk.Align.CENTER)
         menu_button.set_tooltip_text("Действия")
         menu_button.add_css_class("flat")
         menu_button.set_menu_model(self._menu_model_for(row))
-        action_row.add_suffix(menu_button)
+        actions.append(menu_button)
 
-        self._row_widgets[row.group_id] = action_row
+        list_row = Gtk.ListBoxRow(activatable=True)
+        list_row.add_css_class("subscription-row")
+        # Ширину колонки задаёт группа размеров; кнопки прижаты к её правому
+        # краю, чтобы «Обновить» и меню стояли друг под другом и без объявления.
+        actions_cell = Gtk.Box()
+        actions.set_hexpand(True)
+        actions_cell.append(actions)
+        list_row.set_child(self._cells(name_box, count, updated, details_box, actions_cell))
+        list_row.update_property([Gtk.AccessibleProperty.LABEL], [row.name])
+
+        self._row_widgets[row.group_id] = list_row
         self._update_buttons[row.group_id] = button
         self._menu_buttons[row.group_id] = menu_button
-        return action_row
+        return list_row
+
+    @staticmethod
+    def _cell_label(text: str) -> Gtk.Label:
+        label = Gtk.Label(label=text, xalign=0.0, ellipsize=Pango.EllipsizeMode.END)
+        label.set_tooltip_text(text)
+        return label
 
     def _build_announce_button(self, row: SubscriptionRow) -> Gtk.MenuButton:
         """A button revealing the provider's announcement in a popover."""
@@ -232,6 +334,12 @@ class SubscriptionsList(Adw.PreferencesGroup):
     def get_empty_text(self) -> str:
         return self._empty_row.get_title()
 
+    def is_header_shown_for_test(self) -> bool:
+        return self._header.get_visible()
+
+    def is_alternate_for_test(self, *, group_id: int) -> bool:
+        return self._row_widgets[group_id].has_css_class(ALT_CLASS)
+
     def select_for_test(self, *, group_id: int) -> None:
         self._select(group_id)
 
@@ -239,7 +347,7 @@ class SubscriptionsList(Adw.PreferencesGroup):
         return len(self._rows)
 
     def get_subtitles(self) -> list[str]:
-        return [widget.get_subtitle() for widget in self._row_widgets.values()]
+        return [label.get_text() for label in self._url_labels.values()]
 
     def get_details_for_test(self, *, group_id: int) -> str:
         label = self._details_labels.get(group_id)
@@ -263,7 +371,7 @@ class SubscriptionsList(Adw.PreferencesGroup):
         return self._update_buttons[group_id]
 
     def activate_row_for_test(self, *, group_id: int) -> None:
-        self._row_widgets[group_id].emit("activated")
+        self._list.emit("row-activated", self._row_widgets[group_id])
 
     def is_selected_for_test(self, *, group_id: int) -> bool:
         return self._row_widgets[group_id].has_css_class(SELECTED_CLASS)

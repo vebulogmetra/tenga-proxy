@@ -65,6 +65,20 @@ def test_rows_match_the_subscription_count(page, data):
     assert page.get_row_count() == 2
 
 
+def test_the_table_has_a_header_and_alternating_rows(page, data):
+    page.set_data(*data)
+
+    assert page.is_header_shown_for_test()
+    assert not page.is_alternate_for_test(group_id=1)
+    assert page.is_alternate_for_test(group_id=2)
+
+
+def test_the_header_hides_without_subscriptions(page):
+    page.set_data({}, {})
+
+    assert not page.is_header_shown_for_test()
+
+
 def test_subtitle_carries_the_full_url(page, data):
     long_url = "https://sub.example/" + "x" * 200
     groups, counts = data

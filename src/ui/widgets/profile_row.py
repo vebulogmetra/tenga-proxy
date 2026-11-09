@@ -58,8 +58,10 @@ class ProfileRowWidget(Gtk.Box):
         self.append(texts)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2, valign=Gtk.Align.CENTER)
-        self._latency = _text("latency", xalign=1.0)
-        self._badge = _text("accent-text", "caption", xalign=1.0, visible=False)
+        # Плашки как в Qt: задержка приглушена вместе с рамкой, «Подключён»
+        # обычным шрифтом, а не мелким.
+        self._latency = _text("latency", "dim-label", xalign=0.5)
+        self._badge = _text("accent-text", xalign=0.5, visible=False)
         right.append(self._latency)
         right.append(self._badge)
         self.append(right)
