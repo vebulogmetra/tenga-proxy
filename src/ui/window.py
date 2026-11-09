@@ -296,6 +296,7 @@ class MainWindow(Adw.ApplicationWindow):
         "profile-routing",
         "test-profile",
         "test-group",
+        "connect-best",
         "keep-working",
         "toggle-group",
         "edit-group",
@@ -408,6 +409,11 @@ class MainWindow(Adw.ApplicationWindow):
         app = self.get_application()
         if app is not None:
             app.test_latency_for_group(group_id)
+
+    def _row_connect_best(self, group_id: int) -> None:
+        app = self.get_application()
+        if app is not None:
+            app.connect_best(group_id)
 
     def _row_toggle_group(self, group_id: int) -> None:
         self.profiles_page.toggle_group(group_id)

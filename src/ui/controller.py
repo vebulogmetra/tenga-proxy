@@ -23,8 +23,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from src import __app_name__
 from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
-from src.core.failover import FailoverController
-from src.core.probe_result import ProbeResult
+from src.core.failover import FailoverController, rank_candidates
+from src.core.probe_result import ProbeResult, is_fresh
 from src.diag.assess import recommendations as rec
 from src.sys.app_install import can_self_update, launch_installer
 from src.ui.logic.async_utils import run_in_background
@@ -59,6 +59,9 @@ CORE_EXIT_GAVE_UP = "Ядро остановилось, трафик идёт н
 BLOCK_RELEASED = "Блокировка снята"
 BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился сбоем, блокировка трафика снята"
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
+BEST_NONE_ANSWERED = "Ни один сервер группы не ответил"
+BEST_ALREADY_ACTIVE = "Уже подключён лучший сервер: {name}"
+
 CORE_RESTART_COOLDOWN = 60.0
 VPN_WATCH_INTERVAL_MS = 5000
 
@@ -1092,36 +1095,116 @@ class AppController:
         if not started:
             self.toast("Проверка задержки уже идёт")
 
-    def test_latency_for_group(self, group_id: int) -> None:
-        """Measure the latency of one group, ordering rows as results arrive."""
+    def test_latency_for_group(
+        self, group_id: int, *, then: Callable[[], None] | None = None
+    ) -> bool:
+        """Measure the latency of one group, ordering rows as results arrive.
+
+        `then` — после завершения замера; возвращает, начался ли замер.
+        """
         if not self._can_probe():
-            return
+            return False
         store = self.context.profiles
         if store.get_group(group_id) is None:
             self.toast("Группа не найдена")
-            return
+            return False
 
         profile_ids = [profile.id for profile in store.get_profiles_in_group(group_id)]
         if not profile_ids:
             self.toast("В группе нет серверов")
-            return
+            return False
 
         # Пинг группы — единственный случай, когда порядок строк говорит о
         # результате: список пересортировывается по задержке, пока идёт замер.
         self._shell.sort_by_ping()
 
+        def done() -> None:
+            self._on_latency_done()
+            if then is not None:
+                then()
+
         runner = self._ensure_latency_runner()
         started = runner.run(
             profile_ids,
             on_result=self._on_latency_result_live,
-            on_done=self._on_latency_done,
+            on_done=done,
         )
         if not started:
             self.toast("Проверка задержки уже идёт")
-            return
+            return False
 
         self._show_ping_progress(PingProgress({group_id: profile_ids}))
         self.toast(f"Проверяю задержку: {len(profile_ids)} серверов")
+        return True
+
+    # --- подключить лучший ---
+
+    def current_group_id(self) -> int | None:
+        """Группа, о которой говорит трей: активного, выбранного или последнего сервера."""
+        store = self.context.profiles
+        state = self.context.proxy_state
+        profile = store.get_profile(state.started_profile_id) if state.is_running else None
+        if profile is None:
+            selected = self._shell.selected_profile_id()
+            profile = None if selected is None else store.get_profile(selected)
+        if profile is None:
+            profile = store.last_used_profile()
+        return None if profile is None else profile.group_id
+
+    def _best_fresh(self, group_id: int):
+        """Первый по `rank_candidates`, если он ответил на свежем замере."""
+        profiles = self.context.profiles.get_profiles_in_group(group_id)
+        now = time.time()
+        ranked = rank_candidates(profiles, now=now)
+        if not ranked:
+            return None
+        best = ranked[0]
+        if best.probe_failure is not None or best.latency_ms <= 0:
+            return None
+        return best if is_fresh(best.checked_at, now) else None
+
+    def connect_best(self, group_id: int | None = None) -> None:
+        """Подключить лучший сервер группы; без свежих замеров — сначала замерить её."""
+        if group_id is None:
+            group_id = self.current_group_id()
+        if group_id is None:
+            self.toast("Выберите сервер в списке")
+            return
+        if self.connection_busy():
+            self.toast("Подключение уже выполняется")
+            return
+        store = self.context.profiles
+        if store.get_group(group_id) is None:
+            self.toast("Группа не найдена")
+            return
+        if not store.get_profiles_in_group(group_id):
+            self.toast("В группе нет серверов")
+            return
+
+        best = self._best_fresh(group_id)
+        if best is not None:
+            self._connect_best_to(best)
+            return
+
+        runner = self._ensure_latency_runner()
+
+        def after_probe() -> None:
+            found = self._best_fresh(group_id)
+            if found is not None:
+                self._connect_best_to(found)
+            elif runner.last_run_complete:
+                # Неполный замер (нет пути мимо туннеля, сбой) уже объяснён своим
+                # тостом: «никто не ответил» про него было бы неправдой.
+                self.toast(BEST_NONE_ANSWERED)
+
+        self.test_latency_for_group(group_id, then=after_probe)
+
+    def _connect_best_to(self, profile) -> None:
+        state = self.context.proxy_state
+        if state.is_running and state.started_profile_id == profile.id:
+            self.toast(BEST_ALREADY_ACTIVE.format(name=profile.name))
+            return
+        self.connect_profile(profile.id)
 
     def _show_ping_progress(self, progress: PingProgress | None) -> None:
         """Hand the progress of a run to the group rows; None hides it."""

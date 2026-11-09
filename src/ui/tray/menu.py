@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from src.ui.logic.menus import CONNECT_BEST_LABEL
 from src.ui.logic.status import RELEASE_BLOCK_LABEL, ConnectionState
 from src.ui.tray.dbusmenu import MenuItem, separator
 
@@ -50,6 +51,14 @@ def _connection_entries(state: ConnectionState) -> list[MenuItem]:
             MenuItem(RELEASE_BLOCK_LABEL, action="app.release-block"),
         ]
     return [MenuItem("Подключить", action="app.connect")]
+
+
+def _best_entries(state: ConnectionState) -> list[MenuItem]:
+    # Во время подключения второе не начнётся, а при блокировке трей ведёт на
+    # сервер прошлого сеанса, а не на другой.
+    if state in (ConnectionState.CONNECTING, ConnectionState.BLOCKED):
+        return []
+    return [MenuItem(CONNECT_BEST_LABEL, action="app.connect-best")]
 
 
 def _profile_entries(profiles: Sequence, active_profile_id: int | None) -> list[MenuItem]:
@@ -98,6 +107,7 @@ def build_menu(
         MenuItem(_status_label(state, profile_name), enabled=False),
         separator(),
         *_connection_entries(state),
+        *_best_entries(state),
         separator(),
         MenuItem("Серверы", children=_profile_entries(profiles, active_profile_id)),
         MenuItem("Добавить сервер…", action="app.add-profile"),

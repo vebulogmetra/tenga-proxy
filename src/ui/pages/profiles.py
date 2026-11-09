@@ -13,7 +13,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, Gio, GLib, GObject, Gtk, Pango
 
 from src.ui.logic.latency import PingProgress
-from src.ui.logic.menus import ADD_MENU
+from src.ui.logic.menus import ADD_MENU, CONNECT_BEST_GROUP_LABEL
 from src.ui.logic.profiles_view import (
     EMPTY_DESCRIPTION,
     EMPTY_TITLE,
@@ -314,6 +314,7 @@ class ProfilesPage(Gtk.Box):
             if item.row.is_subscription:
                 actions.append("Обновить подписку", f"win.update-subscription({group_id})")
             actions.append("Тест задержки", f"win.test-group({group_id})")
+            actions.append(CONNECT_BEST_GROUP_LABEL, f"win.connect-best({group_id})")
             actions.append("Оставить рабочие…", f"win.keep-working({group_id})")
             menu.append_section(None, actions)
 

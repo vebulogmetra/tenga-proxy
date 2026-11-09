@@ -378,6 +378,7 @@ def test_header_buttons_match_and_about_is_in_the_menu_and_settings(app):
     assert window.settings_button.height() == window.menu_button.height()
     assert [action.text() for action in window.main_menu.actions()] == [
         "Обновить подписки",
+        "Подключить лучший сервер",
         "Проверить задержку",
         "Диагностика сети…",
         "Настройки",

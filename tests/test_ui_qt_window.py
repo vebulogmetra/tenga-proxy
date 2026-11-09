@@ -109,11 +109,26 @@ def test_group_menu_and_subscription_extra(made):
     assert _labels(plain_menu) == [
         "Свернуть группу",
         "Тест задержки",
+        "Подключить лучший",
         "Оставить рабочие…",
         "Редактировать",
         "Удалить",
     ]
     assert "Обновить подписку" in _labels(sub_menu)
+
+
+def test_connect_best_reaches_the_controller_with_and_without_a_group(made, monkeypatch):
+    seen = []
+    monkeypatch.setattr(made.controller, "connect_best", lambda gid=None: seen.append(gid))
+    group = made.controller.add_group("Дом")
+    _profile(made, group_id=group.id)
+    made.activate()
+
+    menu = made.window.context_menu(made.window.model.group_index(group.id))
+    next(a for a in menu.actions() if a.text() == "Подключить лучший").trigger()
+    made.activate_action("connect-best")
+
+    assert seen == [group.id, None]
 
 
 def test_menu_entry_runs_the_row_action(made):

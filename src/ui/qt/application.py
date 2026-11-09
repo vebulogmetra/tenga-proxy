@@ -229,6 +229,7 @@ class QtApplication:
             "add-group": self.open_add_group,
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
+            "connect-best": lambda: self.controller.connect_best(),
             "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
             "search": self._focus_search,
             "settings": self.open_settings,
@@ -272,6 +273,10 @@ class QtApplication:
         # Трей и меню строк адресуют профиль или группу числом.
         for name in ROW_ACTIONS:
             self._handlers[name] = lambda target, fn=row_handlers[name]: fn(int(target))
+        # Меню строки называет группу, трей и главное меню — нет: тогда текущая.
+        self._handlers["connect-best"] = lambda target: self.controller.connect_best(
+            None if target is None else int(target)
+        )
         self.controller.sync_restore_routing()
 
     def activate_action(self, name: str, target=None) -> None:

@@ -1653,3 +1653,100 @@ def test_a_payload_that_changes_nothing_is_not_offered(made):
 
     assert not _routing_forms(shell)
     assert controller.context.profiles.get_group(group_id).sub_routing_handled
+
+
+# --- подключить лучший ---
+
+
+def _measured(controller, group_id, latency_ms, *, age=0):
+    from src.core.probe_result import ProbeResult
+
+    entry = add_profile(controller, group_id=group_id)
+    entry.apply_probe(ProbeResult(latency_ms=latency_ms, checked_at=int(time.time()) - age))
+    return entry
+
+
+def test_connect_best_uses_fresh_results_without_probing(made):
+    controller, shell, _ = made
+    group = controller.add_group("G")
+    _measured(controller, group.id, 200)
+    best = _measured(controller, group.id, 50)
+    _measured(controller, group.id, 10, age=3600)  # быстрее, но давно
+    probed = []
+    controller.set_latency_probe(lambda pid: probed.append(pid) or 5)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_best(group.id)
+    _wait(controller)
+
+    assert probed == []
+    assert calls == [("connect", best.id)]
+
+
+def test_connect_best_probes_the_group_when_results_are_stale(made):
+    controller, shell, _ = made
+    group = controller.add_group("G")
+    slow = _measured(controller, group.id, 30, age=3600)
+    fast = add_profile(controller, group_id=group.id)
+    controller.set_latency_probe(lambda pid: 20 if pid == fast.id else 90)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_best(group.id)
+    _wait_latency(controller)
+    _wait(controller)
+
+    assert ("sort_by_ping",) in shell.calls
+    assert controller.context.profiles.get_profile(slow.id).latency_ms == 90
+    assert calls == [("connect", fast.id)]
+
+
+def test_connect_best_reports_when_nobody_answered(made):
+    from src.ui.controller import BEST_NONE_ANSWERED
+
+    controller, shell, _ = made
+    group = controller.add_group("G")
+    add_profile(controller, group_id=group.id)
+    add_profile(controller, group_id=group.id)
+    controller.set_latency_probe(lambda _pid: -1)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_best(group.id)
+    _wait_latency(controller)
+
+    assert shell.last_toast == BEST_NONE_ANSWERED
+    assert calls == []
+
+
+def test_connect_best_without_a_group_takes_the_active_one(made):
+    controller, shell, _ = made
+    first = controller.add_group("A")
+    second = controller.add_group("B")
+    _measured(controller, first.id, 10)
+    active = _measured(controller, second.id, 80)
+    best = _measured(controller, second.id, 40)
+    controller.context.proxy_state.set_running(active.id, mode="proxy")
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_best()
+    _wait(controller)
+
+    assert calls == [("connect", best.id)]
+
+
+def test_connect_best_keeps_the_session_when_it_is_already_the_best(made):
+    controller, shell, _ = made
+    group = controller.add_group("G")
+    best = _measured(controller, group.id, 40)
+    _measured(controller, group.id, 90)
+    controller.context.proxy_state.set_running(best.id, mode="proxy")
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    controller.connect_best(group.id)
+
+    assert calls == []
+    assert shell.last_toast == f"Уже подключён лучший сервер: {best.name}"

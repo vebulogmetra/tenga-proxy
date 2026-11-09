@@ -248,3 +248,21 @@ def test_blocked_state_offers_both_ways_out():
 )
 def test_other_states_do_not_offer_to_release_the_block(state):
     assert _find(build_menu(state, [], profile_name=""), "Снять блокировку") is None
+
+
+@pytest.mark.parametrize(
+    ("state", "offered"),
+    [
+        (ConnectionState.DISCONNECTED, True),
+        (ConnectionState.CONNECTED, True),
+        (ConnectionState.ERROR, True),
+        (ConnectionState.CONNECTING, False),
+        (ConnectionState.BLOCKED, False),
+    ],
+)
+def test_connect_best_is_offered_unless_busy_or_blocked(state, offered):
+    entry = _find(build_menu(state, [], profile_name="Р"), "Подключить лучший сервер")
+
+    assert (entry is not None) == offered
+    if offered:
+        assert entry.action == "app.connect-best"

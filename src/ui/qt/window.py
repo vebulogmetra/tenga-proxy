@@ -40,7 +40,7 @@ from src.ui.logic.geometry import (
     format_geometry,
     parse_geometry,
 )
-from src.ui.logic.menus import ADD_MENU, MAIN_MENU
+from src.ui.logic.menus import ADD_MENU, CONNECT_BEST_GROUP_LABEL, MAIN_MENU
 from src.ui.logic.monitoring_view import (
     NOT_CHECKED,
     format_last_check,
@@ -110,6 +110,7 @@ GROUP_MENU = (
     ("toggle-group", ""),  # подпись зависит от того, раскрыта ли группа
     ("update-subscription", "Обновить подписку"),
     ("test-group", "Тест задержки"),
+    ("connect-best", CONNECT_BEST_GROUP_LABEL),
     ("keep-working", "Оставить рабочие…"),
     None,
     ("edit-group", "Редактировать"),

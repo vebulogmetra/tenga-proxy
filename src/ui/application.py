@@ -287,6 +287,7 @@ class TengaApplication(Adw.Application):
             "add-group": self._open_add_group,
             "refresh-subscriptions": lambda: self.controller.refresh_subscriptions(),
             "test-latency": lambda: self.controller.test_latency(),
+            "connect-best": lambda: self.controller.connect_best(),
             "network-diagnostics": lambda: self.controller.open_network_diagnostics(),
             "search": self._focus_search,
             "settings": self._open_settings,
@@ -430,6 +431,9 @@ class TengaApplication(Adw.Application):
 
     def test_latency_for_group(self, group_id: int) -> None:
         self.controller.test_latency_for_group(group_id)
+
+    def connect_best(self, group_id: int | None = None) -> None:
+        self.controller.connect_best(group_id)
 
     # Имена с подчёркиванием читают существующие тесты.
 
