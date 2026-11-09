@@ -157,6 +157,7 @@ def test_waits_for_the_network_then_gives_up():
     harness = Harness()
     harness.recovery.on_sleep()
     harness.online = False
+    harness.route = None
 
     harness.recovery.on_resume()
     harness.loop.fire()
@@ -174,6 +175,7 @@ def test_waits_for_the_network_then_gives_up():
 def test_network_appearing_within_the_window_continues_recovery():
     harness = Harness()
     harness.online = False
+    harness.route = None
     harness.recovery.on_network_changed()
     harness.settle()
     assert harness.recovery.active
@@ -181,6 +183,18 @@ def test_network_appearing_within_the_window_continues_recovery():
     harness.online = True
     harness.route = CAFE
     harness.loop.fire()
+
+    assert harness.events == [("reconnect", RecoveryReason.NETWORK)]
+
+
+def test_a_physical_route_counts_as_network_when_the_monitor_disagrees():
+    # NetworkManager говорит «нет сети», пока соседний интерфейс застрял в DHCP.
+    harness = Harness()
+    harness.online = False
+    harness.route = CAFE
+
+    harness.recovery.on_network_changed()
+    harness.settle()
 
     assert harness.events == [("reconnect", RecoveryReason.NETWORK)]
 

@@ -1,6 +1,6 @@
 """Восстановление сеанса после сна и смены сети.
 
-Без тулкита: события приходят от оболочки (logind, `WM_POWERBROADCAST`,
+Без тулкита: события приходят от оболочки (logind, питание Windows,
 `Gio.NetworkMonitor`, `QNetworkInformation`), а монитор, проверка, отпечаток
 сети и переподключение передаются снаружи. Правило одно с failover: пока
 виновата сеть, а не сервер, сервер не меняется.
@@ -9,7 +9,8 @@
 
 1. Сон — монитор на паузе, failover проверки не считает.
 2. Пробуждение или смена сети (после 3 с тишины) — окно до 30 с ждёт сеть.
-3. Сеть есть — сравнивается отпечаток (шлюз и интерфейс маршрута по умолчанию):
+3. Сеть есть (монитор так говорит или есть физический маршрут по умолчанию) —
+   сравнивается отпечаток (шлюз и интерфейс маршрута по умолчанию):
    в TUN другой отпечаток значит, что маршрут до сервера ведёт в никуда, и сеанс
    переподключается сразу. Иначе — одна внеочередная проверка, при неудаче одно
    переподключение; дальше работает обычный failover.
@@ -49,7 +50,6 @@ class _Phase(StrEnum):
     ASLEEP = "asleep"
     SETTLING = "settling"  # пачка сигналов сети: ждём тишины
     WAITING = "waiting"  # ждём, когда появится сеть
-    FINGERPRINT = "fingerprint"  # читаем маршрут по умолчанию
     CHECKING = "checking"  # ждём итога внеочередной проверки
 
 
@@ -188,50 +188,55 @@ class NetworkRecovery:
             return
         self._phase = _Phase.WAITING
         self._deadline = self._now() + NETWORK_WAIT_SECONDS
-        if not self._poll_network():
-            return
-        self._timer = self._loop.schedule(POLL_MS, self._poll_network)
+        self._poll_network()
 
-    def _poll_network(self) -> bool:
-        """True — ждать дальше; так же отвечает таймеру главного цикла."""
+    def _poll_network(self) -> None:
+        """Есть ли сеть: так говорит монитор или есть физический маршрут по умолчанию.
+
+        Одного монитора мало: NetworkManager отвечает «нет сети», пока соседний
+        интерфейс застрял в подключении, хотя маршрут через новую сеть уже работает.
+        """
         if self._phase is not _Phase.WAITING:
-            self._timer = None
-            return False
-        if self._network_available():
-            self._timer = None
-            self._compare_fingerprint()
-            return False
-        if self._now() >= self._deadline:
-            logger.info("No network within %d s: leaving the session as is", NETWORK_WAIT_SECONDS)
-            self._timer = None
-            self._finish()
-            return False
-        return True
+            return
+        generation = self._generation
 
-    def _compare_fingerprint(self) -> None:
+        def read(current: Fingerprint | None) -> None:
+            if generation != self._generation or self._phase is not _Phase.WAITING:
+                return
+            if current is not None or self._network_available():
+                self._compare_fingerprint(current)
+                return
+            if self._now() >= self._deadline:
+                logger.info(
+                    "No network within %d s: leaving the session as is", NETWORK_WAIT_SECONDS
+                )
+                self._finish()
+                return
+            self._timer = self._loop.schedule(POLL_MS, self._next_poll)
+
+        self._read_fingerprint(read)
+
+    def _next_poll(self) -> bool:
+        self._timer = None
+        self._poll_network()
+        return False
+
+    def _compare_fingerprint(self, current: Fingerprint | None) -> None:
         if not self._session_active():
             self._finish()
             return
-        self._phase = _Phase.FINGERPRINT
-        generation = self._generation
-
-        def compared(current: Fingerprint | None) -> None:
-            if generation != self._generation or self._phase is not _Phase.FINGERPRINT:
-                return
-            known = self._known
-            if current is not None:
-                self._known = current
-            changed = current is not None and known is not None and current != known
-            if changed and self._tun_session():
-                # Маршрут до сервера привязан к прежнему шлюзу: проверка не нужна.
-                logger.warning("Default route changed %s -> %s: reconnecting", known, current)
-                reason = self._reason
-                self._finish()
-                self._reconnect(reason)
-                return
-            self._start_check()
-
-        self._read_fingerprint(compared)
+        known = self._known
+        if current is not None:
+            self._known = current
+        changed = current is not None and known is not None and current != known
+        if changed and self._tun_session():
+            # Маршрут до сервера привязан к прежнему шлюзу: проверка не нужна.
+            logger.warning("Default route changed %s -> %s: reconnecting", known, current)
+            reason = self._reason
+            self._finish()
+            self._reconnect(reason)
+            return
+        self._start_check()
 
     def _start_check(self) -> None:
         self._resume_if_paused()
