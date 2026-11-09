@@ -88,3 +88,19 @@ def test_gui_bundle_has_diagnostics_catalog():
     dests = {Path(src).name: dest.replace("\\", "/") for src, dest in datas}
     assert dests["targets.json"] == "assets/diagnostics"
     assert dests["placements.json"] == "assets/diagnostics"
+
+
+def test_bundle_uses_windows_system_icu(monkeypatch):
+    original_init = _Recorder.__init__
+    foreign_icu = ("icuuc.dll", "C:/poppler/icuuc.dll", "BINARY")
+    required = ("Qt6Core.dll", "C:/qt/Qt6Core.dll", "BINARY")
+
+    def record(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.binaries = [foreign_icu, required]
+
+    monkeypatch.setattr(_Recorder, "__init__", record)
+    gui, svc = _analyses()
+
+    assert gui.binaries == [required]
+    assert svc.binaries == [required]

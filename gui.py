@@ -287,10 +287,12 @@ def main() -> int:
 
         return run_app(**options)
     except ImportError as e:
+        logger.exception("Failed to import the GUI")
         print(f"Ошибка импорта: {e}")
         print(install_hint(FRONTEND))
         return 1
     except Exception as e:
+        logger.exception("Failed to start the GUI")
         print(f"Ошибка: {e}")
         import traceback
 

@@ -90,6 +90,14 @@ svc_exe = EXE(  # noqa: F821
     console=True,
 )
 
+# Qt использует системную ICU Windows 10+. PyInstaller может найти одноимённую
+# DLL Poppler/Conda в PATH: у неё другие экспорты, и QtCore перестаёт загружаться.
+# Не кладём её рядом с приложением, чтобы загрузчик использовал System32.
+for analysis in (gui, svc):
+    analysis.binaries = [
+        entry for entry in analysis.binaries if Path(entry[0]).name.lower() != "icuuc.dll"
+    ]
+
 coll = COLLECT(  # noqa: F821
     gui_exe,
     gui.binaries,

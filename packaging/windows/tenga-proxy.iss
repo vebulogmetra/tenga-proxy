@@ -50,6 +50,8 @@ Name: "autostart"; Description: "{cm:AutoStart}"; Flags: unchecked
 Source: "..\..\dist\windows\tenga-proxy\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [InstallDelete]
+; Удалить ошибочно упакованную стороннюю ICU при обновлении поверх старой сборки.
+Type: files; Name: "{app}\_internal\icuuc.dll"
 ; Ярлыки версий до переименования в Veblock.
 Type: filesandordirs; Name: "{autoprograms}\Tenga Proxy"
 Type: files; Name: "{autodesktop}\Tenga Proxy.lnk"
