@@ -11,10 +11,17 @@ import time
 from gi.repository import GObject, Gtk, Pango
 
 from src.core.config import get_asset_path
-from src.ui.logic.profiles_view import ProfileRow, ping_is_failure, ping_text, ping_tooltip
+from src.ui.logic.profiles_view import (
+    ProfileRow,
+    ping_is_failure,
+    ping_is_stale,
+    ping_text,
+    ping_tooltip,
+)
 
 ACTIVE_CLASS = "profile-active"
 PROBE_FAILED_CLASS = "probe-failed"
+PROBE_STALE_CLASS = "probe-stale"
 EXPIRED_CLASS = "subscription-expired"
 ACTIVE_BADGE = "Подключён"
 MENU_TOOLTIP = "Действия"
@@ -91,8 +98,9 @@ class ProfileRowWidget(Gtk.Box):
         self._title.set_tooltip_text(row.title)
         details = " · ".join(part for part in (row.proxy_type.upper(), row.address) if part)
         self._details.set_text(details)
+        now = time.time()
         self._latency.set_text(ping_text(row))
-        self._latency.set_tooltip_text(ping_tooltip(row, time.time()) or None)
+        self._latency.set_tooltip_text(ping_tooltip(row, now) or None)
         # Отказ не приглушается: его цвет — признак ошибки, а метка — её название.
         failed = ping_is_failure(row)
         if failed:
@@ -101,6 +109,11 @@ class ProfileRowWidget(Gtk.Box):
         else:
             self._latency.remove_css_class(PROBE_FAILED_CLASS)
             self._latency.add_css_class("dim-label")
+        # Устаревшая задержка приглушена сильнее: по ней ещё выбирают, но с оглядкой.
+        if ping_is_stale(row, now):
+            self._latency.add_css_class(PROBE_STALE_CLASS)
+        else:
+            self._latency.remove_css_class(PROBE_STALE_CLASS)
         self._badge.set_text(ACTIVE_BADGE if row.is_active else "")
         self._badge.set_visible(row.is_active)
         self._marker.set_visible(row.is_active)
@@ -124,6 +137,9 @@ class ProfileRowWidget(Gtk.Box):
 
     def latency_failed(self) -> bool:
         return self._latency.has_css_class(PROBE_FAILED_CLASS)
+
+    def latency_stale(self) -> bool:
+        return self._latency.has_css_class(PROBE_STALE_CLASS)
 
     def get_badge(self) -> str:
         return self._badge.get_text() if self._badge.get_visible() else ""

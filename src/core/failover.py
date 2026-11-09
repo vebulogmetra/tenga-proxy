@@ -12,18 +12,24 @@ import time
 from collections.abc import Callable, Collection, Sequence
 from typing import Any
 
+from src.core.probe_result import is_fresh
+
 logger = logging.getLogger("tenga.core.failover")
 
 # Сколько не возвращаться к профилю, который только что перестал отвечать.
 RECENT_FAILURE_TTL_SECONDS = 15 * 60
 
 
-def pick_candidate(profiles: Sequence[Any], *, excluded: Collection[int]) -> Any | None:
-    """Профиль, на который переключаться: сначала с известной задержкой, по возрастанию.
+def rank_candidates(
+    profiles: Sequence[Any], *, excluded: Collection[int] = (), now: float | None = None
+) -> list[Any]:
+    """Профили в порядке выбора: свежие измеренные по задержке, затем несвежие.
 
     Затем непроверенные, в порядке списка: про них ничего не известно, а
-    измеренный хотя бы отвечал. Отказавшие при замере — в последнюю очередь.
+    измеренный хотя бы отвечал. Отказавшие при замере — в последнюю очередь:
+    сервер, который не ответил, не становится лучше от прошедшего времени.
     """
+    moment = time.time() if now is None else now
     candidates = [profile for profile in profiles if profile.id not in excluded]
     failed = [p for p in candidates if getattr(p, "probe_failure", None) is not None]
     rest = [p for p in candidates if getattr(p, "probe_failure", None) is None]
@@ -31,8 +37,18 @@ def pick_candidate(profiles: Sequence[Any], *, excluded: Collection[int]) -> Any
         (profile for profile in rest if profile.latency_ms > 0),
         key=lambda profile: profile.latency_ms,
     )
+    fresh = [p for p in measured if is_fresh(int(getattr(p, "checked_at", 0) or 0), moment)]
+    fresh_ids = {id(p) for p in fresh}
+    stale = [p for p in measured if id(p) not in fresh_ids]
     unmeasured = [profile for profile in rest if profile.latency_ms <= 0]
-    ordered = measured + unmeasured + failed
+    return fresh + stale + unmeasured + failed
+
+
+def pick_candidate(
+    profiles: Sequence[Any], *, excluded: Collection[int], now: float | None = None
+) -> Any | None:
+    """Профиль, на который переключаться: первый по `rank_candidates`."""
+    ordered = rank_candidates(profiles, excluded=excluded, now=now)
     return ordered[0] if ordered else None
 
 

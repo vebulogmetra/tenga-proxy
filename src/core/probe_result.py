@@ -13,6 +13,15 @@ from enum import StrEnum
 DETAIL_LIMIT = 300
 # Сколько замер ждёт ответа сервера; называется и в подсказке отказа.
 PROBE_TIMEOUT_SECONDS = 3
+# Сколько замер считается свежим: по нему выбирают сервер без перезамера.
+PROBE_FRESH_SECONDS = 30 * 60
+
+
+def is_fresh(checked_at: int, now: float) -> bool:
+    """Замер моложе PROBE_FRESH_SECONDS; время 0 (старый файл) — несвежий."""
+    if checked_at <= 0:
+        return False
+    return now - checked_at < PROBE_FRESH_SECONDS
 
 
 class ProbeFailure(StrEnum):

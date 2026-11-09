@@ -121,6 +121,10 @@
   color: #d13438;
 }
 
+.profile-row .latency.probe-stale {
+  opacity: 0.35;
+}
+
 .group-row {
   padding: 10px 4px;
 }

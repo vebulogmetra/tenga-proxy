@@ -22,6 +22,7 @@ from src.ui.logic.profiles_view import (
     group_count_text,
     group_summary,
     ping_is_failure,
+    ping_is_stale,
     ping_text,
     ping_tooltip,
 )
@@ -39,6 +40,7 @@ DETAILS_ROLE = Qt.ItemDataRole.UserRole + 3
 PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 4
 ACTIVE_ROLE = Qt.ItemDataRole.UserRole + 5
 PROBE_FAILED_ROLE = Qt.ItemDataRole.UserRole + 6
+PROBE_STALE_ROLE = Qt.ItemDataRole.UserRole + 7
 GROUP, PROFILE = "group", "profile"
 
 # Истёкшая подписка: тот же красный, что у ошибок в карточке.
@@ -107,8 +109,10 @@ class ProfileTreeModel(QStandardItemModel):
         ]
         cells[ADDRESS_COLUMN].setToolTip(row.address)
         ping = cells[PING_COLUMN]
-        ping.setToolTip(ping_tooltip(row, time.time()))
+        now = time.time()
+        ping.setToolTip(ping_tooltip(row, now))
         ping.setData(ping_is_failure(row), PROBE_FAILED_ROLE)
+        ping.setData(ping_is_stale(row, now), PROBE_STALE_ROLE)
         if ping_is_failure(row):
             ping.setForeground(QBrush(QColor(ERROR_TEXT)))
         cells[PING_COLUMN].setTextAlignment(

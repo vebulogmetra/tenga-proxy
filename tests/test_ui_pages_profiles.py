@@ -489,13 +489,23 @@ def test_profile_row_marks_a_failed_probe_and_explains_it(gtk_ready):
     assert widget.latency_failed()
     assert widget.get_latency_tooltip() == "Ядро отвергло параметры сервера\ninvalid password"
 
-    # Та же строка после успешного замера: без цвета ошибки, без подсказки.
+    # Та же строка после успешного замера: без цвета ошибки, со временем.
+    import time
     from dataclasses import replace
 
-    widget.bind(replace(failed, latency_ms=40, probe_failure=None, probe_detail=""))
+    fresh = replace(
+        failed, latency_ms=40, probe_failure=None, probe_detail="", checked_at=int(time.time())
+    )
+    widget.bind(fresh)
     assert widget.get_latency() == "40 мс"
     assert not widget.latency_failed()
-    assert widget.get_latency_tooltip() == ""
+    assert not widget.latency_stale()
+    assert widget.get_latency_tooltip() == "Проверено: только что"
+
+    # Давний замер приглушён сильнее и подписан.
+    widget.bind(replace(fresh, checked_at=int(time.time()) - 3 * 3600))
+    assert widget.latency_stale()
+    assert widget.get_latency_tooltip() == "Проверено: 3 ч назад\nРезультат устарел"
 
 
 def test_ping_button_tests_only_its_server(page, data):

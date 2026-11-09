@@ -14,6 +14,7 @@ from src.ui.qt.models import (
     GROUP,
     PING_COLUMN,
     PROBE_FAILED_ROLE,
+    PROBE_STALE_ROLE,
     PROFILE,
     PROGRESS_ROLE,
     TYPE_COLUMN,
@@ -144,5 +145,7 @@ def test_failed_probe_has_a_label_tooltip_and_error_flag(qapp):
 
     measured = group.child(1, PING_COLUMN)
     assert measured.text() == "40 мс"
-    assert measured.toolTip() == ""
+    assert measured.toolTip() == "Результат устарел"  # время замера неизвестно
     assert measured.data(PROBE_FAILED_ROLE) is False
+    assert measured.data(PROBE_STALE_ROLE) is True
+    assert ping.data(PROBE_STALE_ROLE) is False

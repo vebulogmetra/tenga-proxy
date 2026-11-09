@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from src.core.probe_result import PROBE_TIMEOUT_SECONDS, ProbeFailure
+from src.core.probe_result import PROBE_TIMEOUT_SECONDS, ProbeFailure, is_fresh
 from src.ui.logic.country_flags import split_flag_prefix
 
 SUBSCRIPTION_ICON = "network-server-symbolic"
@@ -35,6 +35,7 @@ FAILURE_REASONS = {
     ProbeFailure.CORE_FAILED: "Не удалось запустить ядро для проверки",
 }
 CHECKED_PREFIX = "Проверено: "
+STALE_TEXT = "Результат устарел"
 
 EMPTY_TITLE = "Серверов пока нет"
 EMPTY_DESCRIPTION = "Добавьте сервер по ссылке или подключите подписку."
@@ -88,6 +89,13 @@ def ping_is_failure(row: ProfileRow) -> bool:
     return row.probe_failure is not None
 
 
+def ping_is_stale(row: ProfileRow, now: float) -> bool:
+    """Задержка измерена, но давно: метка приглушается сильнее обычного."""
+    if row.probe_failure is not None or row.latency_ms is None or row.latency_ms <= 0:
+        return False
+    return not is_fresh(row.checked_at, now)
+
+
 def ping_text(row: ProfileRow) -> str:
     """Задержка, метка отказа или «—», если проверки не было."""
     if row.probe_failure is not None:
@@ -121,6 +129,8 @@ def ping_tooltip(row: ProfileRow, now: float) -> str:
         return ""
     if row.checked_at > 0:
         lines.append(CHECKED_PREFIX + checked_text(row.checked_at, now))
+    if ping_is_stale(row, now):
+        lines.append(STALE_TEXT)
     if row.probe_failure is not None and row.probe_detail:
         lines.append(row.probe_detail)
     return "\n".join(line for line in lines if line)

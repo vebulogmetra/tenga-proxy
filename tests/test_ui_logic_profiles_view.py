@@ -233,8 +233,9 @@ def test_ping_tooltip_names_the_timeout():
     [
         (30, "только что"),
         (-10, "только что"),
-        (59 * 60, "59 мин назад"),
-        (3 * 3600, "3 ч назад"),
+        (29 * 60, "29 мин назад"),
+        (59 * 60, "59 мин назад\nРезультат устарел"),
+        (3 * 3600, "3 ч назад\nРезультат устарел"),
     ],
 )
 def test_ping_tooltip_relative_time(age, expected):
@@ -247,12 +248,24 @@ def test_ping_tooltip_shows_a_date_for_old_checks():
     old = NOW - 3 * 86400
     expected = datetime.fromtimestamp(old).strftime("%d.%m.%Y %H:%M")
 
-    assert ping_tooltip(row(42, checked_at=old), NOW) == f"Проверено: {expected}"
+    assert ping_tooltip(row(42, checked_at=old), NOW) == (
+        f"Проверено: {expected}\nРезультат устарел"
+    )
+
+
+def test_ping_is_stale_only_for_an_old_latency():
+    from src.ui.logic.profiles_view import ping_is_stale
+
+    assert not ping_is_stale(row(42, checked_at=NOW - 60), NOW)
+    assert ping_is_stale(row(42, checked_at=NOW - 3600), NOW)
+    assert ping_is_stale(row(42), NOW)  # старый файл: время неизвестно
+    assert not ping_is_stale(row(), NOW)
+    assert not ping_is_stale(row(failure=ProbeFailure.TIMEOUT, checked_at=NOW - 3600), NOW)
 
 
 def test_ping_tooltip_is_empty_without_a_check():
     assert ping_tooltip(row(), NOW) == ""
-    assert ping_tooltip(row(42), NOW) == ""  # старый файл: время неизвестно
+    assert ping_tooltip(row(42), NOW) == "Результат устарел"  # старый файл: время неизвестно
     assert ping_tooltip(row(failure=ProbeFailure.UNREACHABLE), NOW) == (
         "Ядро не смогло соединиться с сервером"
     )

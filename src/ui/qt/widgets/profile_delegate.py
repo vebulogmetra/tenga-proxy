@@ -22,12 +22,14 @@ from src.ui.qt.models import (
     KIND_ROLE,
     PING_COLUMN,
     PROBE_FAILED_ROLE,
+    PROBE_STALE_ROLE,
     PROFILE,
     PROGRESS_ROLE,
     TYPE_COLUMN,
 )
 
 PROGRESS_HEIGHT = 10
+STALE_ALPHA = 0.5
 EXTRA_HEIGHT = 20
 
 
@@ -183,6 +185,9 @@ class ProfileDelegate(QStyledItemDelegate):
                     if ping.data(PROBE_FAILED_ROLE)
                     else option.palette.placeholderText().color()
                 )
+                if ping.data(PROBE_STALE_ROLE):
+                    # Устаревшая задержка приглушена сильнее, как в GTK.
+                    color.setAlphaF(color.alphaF() * STALE_ALPHA)
                 chip(self.latency_rect(option.rect, metrics, latency), latency, color)
             if active:
                 width = metrics.horizontalAdvance("Подключён") + 16

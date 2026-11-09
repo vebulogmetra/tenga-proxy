@@ -11,13 +11,14 @@ SILENT = ConnectionStatus(proxy_ok=False, proxy_error="Сервер не отв�
 ALIVE = ConnectionStatus(proxy_ok=True, server_probed=True)
 
 
-def profile(profile_id: int, latency_ms: int = -1, group_id: int = 1, failure=None):
+def profile(profile_id: int, latency_ms: int = -1, group_id: int = 1, failure=None, checked_at=0):
     return SimpleNamespace(
         id=profile_id,
         group_id=group_id,
         latency_ms=latency_ms,
         name=f"P{profile_id}",
         probe_failure=failure,
+        checked_at=checked_at,
     )
 
 
@@ -49,6 +50,27 @@ def test_failed_profiles_come_after_untested_ones():
 
     assert pick_candidate(profiles, excluded={1}).id == 3
     assert pick_candidate(profiles, excluded={1, 3}).id == 2
+
+
+def test_fresh_measurements_come_before_stale_ones():
+    from src.core.failover import rank_candidates
+    from src.core.probe_result import PROBE_FRESH_SECONDS, ProbeFailure
+
+    now = 10_000_000.0
+    old = int(now - PROBE_FRESH_SECONDS - 1)
+    profiles = [
+        profile(1, 40, checked_at=old),
+        profile(2, 300, checked_at=int(now - 60)),
+        profile(3, -1),
+        profile(4, 90, checked_at=int(now - 10)),
+        profile(5, failure=ProbeFailure.TIMEOUT, checked_at=int(now)),
+        profile(6, 20),  # время неизвестно — несвежий
+    ]
+
+    ranked = [p.id for p in rank_candidates(profiles, now=now)]
+
+    assert ranked == [4, 2, 6, 1, 3, 5]
+    assert pick_candidate(profiles, excluded={4}, now=now).id == 2
 
 
 def test_no_candidate_when_everything_is_excluded():
