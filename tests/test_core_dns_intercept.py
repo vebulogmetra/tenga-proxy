@@ -193,6 +193,7 @@ def test_no_interception_without_physical_interface(context, profile, monkeypatc
 
 
 def test_interception_with_active_vpn_keeps_vpn_dns(context, profile, system, monkeypatch):
+    monkeypatch.setattr(config_builder, "companion_vpn_supported", lambda: True)
     """Режим «VPN поверх»: домены VPN-списка по-прежнему резолвит DNS-сервер VPN."""
     profile.vpn_settings = VpnSettings(enabled=True, connection_name="corp")
     monkeypatch.setattr(config_builder, "is_vpn_active", lambda _name: True)

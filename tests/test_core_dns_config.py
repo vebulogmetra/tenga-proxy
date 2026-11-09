@@ -48,6 +48,7 @@ def profile(context):
 @pytest.fixture
 def vpn(monkeypatch, profile):
     """Профиль с поднятым VPN NetworkManager (интерфейс tun0)."""
+    monkeypatch.setattr(config_builder, "companion_vpn_supported", lambda: True)
     profile.vpn_settings = VpnSettings(enabled=True, connection_name="corp")
     monkeypatch.setattr(config_builder, "is_vpn_active", lambda _name: True)
     monkeypatch.setattr(config_builder, "get_vpn_interface", lambda _name: "tun0")
