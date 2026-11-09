@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QFontMetrics, QFontMetricsF, QIcon, QPainter
 from PySide6.QtWidgets import (
     QApplication,
     QStyle,
     QStyledItemDelegate,
     QStyleOptionProgressBar,
     QStyleOptionViewItem,
+    QToolTip,
 )
 
+from src.core.config import get_asset_path
 from src.ui.logic.appearance import ACCENT
 from src.ui.qt.models import (
     ACTIVE_ROLE,
@@ -34,7 +36,15 @@ class ProfileDelegate(QStyledItemDelegate):
 
     @staticmethod
     def ping_button_rect(rect: QRect) -> QRect:
-        return QRect(rect.right() - 100, rect.bottom() - 29, 68, 24)
+        return QRect(rect.right() - 64, rect.bottom() - 29, 32, 24)
+
+    def helpEvent(self, event, view, option, index) -> bool:
+        if index.data(KIND_ROLE) == PROFILE and self.ping_button_rect(option.rect).contains(
+            event.pos()
+        ):
+            QToolTip.showText(event.globalPos(), "Проверить задержку", view)
+            return True
+        return super().helpEvent(event, view, option, index)
 
     def editorEvent(self, event, model, option, index) -> bool:
         if (
@@ -130,13 +140,14 @@ class ProfileDelegate(QStyledItemDelegate):
             control_font = option.font
             control_font.setBold(False)
             painter.setFont(control_font)
-            metrics = QFontMetrics(control_font)
+            metrics = QFontMetrics(control_font, painter.device())
             button_rect = self.ping_button_rect(option.rect)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
             def centered_text(text_rect, text):
-                bounds = metrics.tightBoundingRect(text)
-                painter.drawText(text_rect.center() - bounds.center(), text)
+                bounds = QFontMetricsF(painter.font(), painter.device()).tightBoundingRect(text)
+                center = QRectF(text_rect.adjusted(0, 0, -1, -1)).center()
+                painter.drawText(center - bounds.center(), text)
 
             def chip(chip_rect, text, color):
                 painter.setBrush(background)
@@ -161,7 +172,9 @@ class ProfileDelegate(QStyledItemDelegate):
             painter.setPen(option.palette.mid().color())
             painter.drawRoundedRect(button_rect.adjusted(0, 0, -1, -1), 5, 5)
             painter.setPen(option.palette.buttonText().color())
-            centered_text(button_rect, "Пинг")
+            icon_rect = QRect(0, 0, 18, 18)
+            icon_rect.moveCenter(button_rect.center())
+            QIcon(str(get_asset_path("icons/ui/speedometer.svg"))).paint(painter, icon_rect)
             painter.setPen(option.palette.text().color())
             painter.drawText(rect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, "⋮")
             painter.restore()

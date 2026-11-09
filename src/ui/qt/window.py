@@ -47,6 +47,7 @@ from src.ui.logic.monitoring_view import (
     last_check_text,
     monitoring_view,
 )
+from src.ui.logic.platform_texts import profile_routing_title
 from src.ui.logic.profiles_view import (
     EMPTY_DESCRIPTION,
     EMPTY_TITLE,
@@ -99,7 +100,7 @@ logger = logging.getLogger("tenga.ui.qt.window")
 # подписок на главном экране Qt нет.
 PROFILE_MENU = (
     ("connect-profile", "Подключить"),
-    ("profile-routing", "VPN и маршруты…"),
+    ("profile-routing", profile_routing_title() + "…"),
     ("test-profile", "Тест задержки"),
     None,
     ("edit-profile", "Редактировать"),

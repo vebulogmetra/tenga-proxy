@@ -145,3 +145,8 @@ def vpn_server_addresses(connection_name: str) -> tuple[str, ...]:
 
 def vpn_tunnel_interface(connection_name: str) -> str | None:
     return None
+
+
+def companion_vpn_supported() -> bool:
+    """Сопутствующее VPN-подключение сервера поддерживается только на Linux."""
+    return False

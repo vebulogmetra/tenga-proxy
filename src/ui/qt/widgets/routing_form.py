@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 )
 
 from src.db.config import RoutingMode
+from src.ui.logic.platform_texts import companion_vpn_available
 from src.ui.logic.routing_form import (
     LISTS,
     ORDER_LABELS,
@@ -42,6 +43,7 @@ class RoutingForm(QWidget):
     def __init__(self, *, vpn_hint: str | None = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._enabled = True
+        self._vpn_available = companion_vpn_available()
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
 
@@ -50,7 +52,14 @@ class RoutingForm(QWidget):
         self.mode_combo = KeyedCombo(RoutingMode.ALL, RoutingMode.LABELS)
         self.mode_combo.currentIndexChanged.connect(self._sync_mode)
         form.addRow("Правила", self.mode_combo)
-        self.order_combo = KeyedCombo(ORDER_PRESETS, ORDER_LABELS)
+        self._orders = dict(ORDER_PRESETS)
+        labels = dict(ORDER_LABELS)
+        if not self._vpn_available:
+            self._orders = {
+                key: ORDER_PRESETS[key] for key in ("direct_proxy_vpn", "proxy_direct_vpn")
+            }
+            labels = {key: ORDER_LABELS[key].replace(" → VPN", "") for key in self._orders}
+        self.order_combo = KeyedCombo(self._orders, labels)
         form.addRow("Приоритет групп", self.order_combo)
         self.bypass_check = _check(
             "Локальные сети напрямую",
@@ -78,6 +87,8 @@ class RoutingForm(QWidget):
             inner.addWidget(edit)
             self.lists[key] = edit
             column.addWidget(box)
+            if key == "vpn" and not self._vpn_available:
+                box.hide()
 
     # --- состояние ---
 
@@ -106,7 +117,17 @@ class RoutingForm(QWidget):
     def load(self, routing) -> None:
         values = form_values(routing)
         self.mode_combo.select(values.mode)
-        self.order_combo.select(values.order)
+        order = values.order
+        if not self._vpn_available:
+            projected = [group for group in ORDER_PRESETS[order] if group != "vpn"]
+            order = next(
+                key
+                for key, groups in self._orders.items()
+                if [group for group in groups if group != "vpn"] == projected
+            )
+        self._loaded_order = values.order
+        self._displayed_order = order
+        self.order_combo.select(order)
         self.bypass_check.setChecked(values.bypass_local_networks)
         self.ru_direct_check.setChecked(values.ru_direct)
         for key, text in values.lists.items():
@@ -117,7 +138,12 @@ class RoutingForm(QWidget):
     def values(self) -> FormValues:
         return FormValues(
             mode=self.mode_combo.selected(),
-            order=self.order_combo.selected(),
+            order=(
+                self._loaded_order
+                if not self._vpn_available
+                and self.order_combo.selected() == getattr(self, "_displayed_order", None)
+                else self.order_combo.selected()
+            ),
             bypass_local_networks=self.bypass_check.isChecked(),
             ru_direct=self.ru_direct_check.isChecked(),
             lists={key: edit.toPlainText() for key, edit in self.lists.items()},
@@ -128,7 +154,9 @@ class RoutingForm(QWidget):
         from src.ui.logic.forms import parse_host_list
 
         first_error: ValueError | None = None
-        for edit in self.lists.values():
+        for key, edit in self.lists.items():
+            if key == "vpn" and not self._vpn_available:
+                continue
             try:
                 parse_host_list(edit.toPlainText())
                 mark_error(edit, None)
@@ -137,4 +165,10 @@ class RoutingForm(QWidget):
                 first_error = first_error or error
         if first_error is not None:
             raise first_error
-        apply_form_values(routing, self.values())
+        values = self.values()
+        previous_vpn = list(getattr(routing, "vpn_list", []))
+        if not self._vpn_available:
+            values.lists["vpn"] = ""
+        apply_form_values(routing, values)
+        if not self._vpn_available:
+            routing.vpn_list = previous_vpn

@@ -6,9 +6,16 @@ import threading
 from dataclasses import dataclass, field
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.core import core_pid
 from src.core.connection import ConnectionService
 from src.core.http_probe import ProbeEndpoint
+
+
+@pytest.fixture(autouse=True)
+def companion_vpn_capability(monkeypatch):
+    monkeypatch.setattr("src.core.connection.companion_vpn_supported", lambda: True)
 
 
 @dataclass
@@ -664,3 +671,17 @@ def test_system_proxy_mode_does_not_touch_the_block(tmp_path, monkeypatch, firew
     service.disconnect()
 
     assert firewall_calls == []
+
+
+def test_windows_ignores_saved_companion_vpn_without_system_calls(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.core.connection.companion_vpn_supported", lambda: False)
+    profile = FakeProfile(vpn_settings=FakeVpn(enabled=True, auto_connect=True))
+    service = ConnectionService(make_context(tmp_path, profile))
+    monkeypatch.setattr("src.core.connection.connect_vpn", lambda *_: pytest.fail("VPN started"))
+    monkeypatch.setattr("src.core.connection.disconnect_vpn", lambda *_: pytest.fail("VPN stopped"))
+    monkeypatch.setattr(
+        "src.core.connection.is_vpn_active", lambda *_: pytest.fail("VPN inspected")
+    )
+    service._auto_connect_vpn(profile, 1)
+    service._auto_disconnect_vpn(1)
+    assert service._profile_vpn_name(profile) is None

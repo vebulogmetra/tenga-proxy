@@ -15,6 +15,15 @@ from tests.support.qt import wait_until
 
 pytestmark = pytest.mark.qt
 
+
+@pytest.fixture(autouse=True)
+def linux_companion_vpn(monkeypatch):
+    from src.ui.logic import platform_texts
+
+    monkeypatch.setattr(platform_texts, "companion_vpn_available", lambda: True)
+    monkeypatch.setattr("src.ui.qt.widgets.routing_form.companion_vpn_available", lambda: True)
+
+
 LINK = "vless://11111111-1111-1111-1111-111111111111@host.example:443?type=tcp#P"
 
 
@@ -176,3 +185,18 @@ def test_disabling_own_rules_drops_them_and_keeps_the_text(qapp):
     assert dialog.save()
     assert profile.routing_settings is None
     assert dialog.lists["proxy"].toPlainText() == "own.com"
+
+
+def test_windows_has_no_vpn_controls_and_preserves_linux_settings(qapp, monkeypatch):
+    from src.ui.logic import platform_texts
+
+    monkeypatch.setattr(platform_texts, "companion_vpn_available", lambda: False)
+    monkeypatch.setattr("src.ui.qt.widgets.routing_form.companion_vpn_available", lambda: False)
+    profile = _profile(vpn=VpnSettings(enabled=True, connection_name="linux-vpn"))
+    dialog = _dialog(profile)
+    assert not hasattr(dialog, "vpn_check")
+    assert dialog.tabs.tabText(0) == "Сервер"
+    assert dialog.windowTitle() == "Маршруты сервера"
+    assert dialog.save()
+    assert profile.vpn_settings.enabled
+    assert profile.vpn_settings.connection_name == "linux-vpn"

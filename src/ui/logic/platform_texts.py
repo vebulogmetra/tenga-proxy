@@ -46,3 +46,12 @@ _SETTINGS_PAGE_TITLES = {
 
 def settings_page_title(page: str) -> str:
     return _SETTINGS_PAGE_TITLES[page]
+
+
+def companion_vpn_available() -> bool:
+    """Сопутствующий VPN и его маршруты — возможность Linux."""
+    return not platform_info.IS_WINDOWS
+
+
+def profile_routing_title() -> str:
+    return "VPN и маршруты" if companion_vpn_available() else "Маршруты сервера"

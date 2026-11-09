@@ -166,3 +166,16 @@ def test_dot_server_is_skipped(context, profile):
     addresses = _dns_addresses(config)
     assert not any("dns.google" in address for address in addresses)
     assert "localhost" in addresses
+
+
+def test_windows_ignores_linux_vpn_settings_when_building(context, profile, monkeypatch):
+    from src.db.config import VpnSettings
+
+    profile.vpn_settings = VpnSettings(enabled=True, connection_name="linux-only")
+    monkeypatch.setattr("src.core.config_builder.companion_vpn_supported", lambda: False)
+    monkeypatch.setattr(
+        "src.core.config_builder.is_vpn_active", lambda *_: pytest.fail("VPN inspected")
+    )
+    config = build_session_config(context, profile)
+    assert config is not None
+    assert all(outbound.get("tag") != "vpn" for outbound in config["outbounds"])

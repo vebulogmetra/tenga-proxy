@@ -8,12 +8,12 @@ gi.require_version("Gtk", "4.0")
 
 from gi.repository import GObject, Gtk, Pango
 
+from src.core.config import get_asset_path
 from src.ui.logic.profiles_view import ProfileRow, ping_text
 
 ACTIVE_CLASS = "profile-active"
 EXPIRED_CLASS = "subscription-expired"
 ACTIVE_BADGE = "Подключён"
-PING_LABEL = "Пинг"
 MENU_TOOLTIP = "Действия"
 
 
@@ -61,12 +61,15 @@ class ProfileRowWidget(Gtk.Box):
         # Плашки как в Qt: задержка приглушена вместе с рамкой, «Подключён»
         # обычным шрифтом, а не мелким.
         self._latency = _text("latency", "dim-label", xalign=0.5)
-        self._badge = _text("accent-text", xalign=0.5, visible=False)
+        self._badge = _text("accent-text", xalign=0.5, yalign=0.5, visible=False)
         right.append(self._latency)
         right.append(self._badge)
         self.append(right)
 
-        self.ping_button = Gtk.Button(label=PING_LABEL, valign=Gtk.Align.CENTER)
+        image = Gtk.Image.new_from_file(str(get_asset_path("icons/ui/speedometer.svg")))
+        image.set_pixel_size(18)
+        self.ping_button = Gtk.Button(child=image, valign=Gtk.Align.CENTER)
+        self.ping_button.update_property([Gtk.AccessibleProperty.LABEL], ["Проверить задержку"])
         self.ping_button.add_css_class("flat")
         self.ping_button.connect("clicked", lambda _b: self.emit("ping-clicked"))
         self.append(self.ping_button)

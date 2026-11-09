@@ -40,6 +40,7 @@ from src.db.profiles import ProfileEntry
 from src.sys.firewall_policy import SOCKET_MARK
 from src.sys.resolver import system_dns_servers
 from src.sys.vpn import (
+    companion_vpn_supported,
     get_default_interface,
     get_vpn_dns_servers,
     get_vpn_interface,
@@ -163,7 +164,7 @@ def _build_session_config(context: AppContext, profile: ProfileEntry | None) -> 
             rule_order = routing.get_rule_order()
         except AttributeError:
             rule_order = DEFAULT_ROUTING_ORDER
-        vpn_settings = profile.vpn_settings
+        vpn_settings = profile.vpn_settings if companion_vpn_supported() else None
         vpn_tag = None
         vpn_interface = None
         direct_domains: list[str] = []

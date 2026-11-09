@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QLabel, QMessageBox
 
 from src.core.context import AppContext
 from src.fmt import parse_link
+from src.ui.logic.platform_texts import profile_routing_title
 from src.ui.qt.application import QtApplication
 from src.ui.qt.dialogs.profile import AddProfileDialog
 from src.ui.qt.models import ADDRESS_COLUMN, EXPIRED_COLOR, NAME_COLUMN
@@ -86,7 +87,7 @@ def test_profile_menu_matches_gtk(made):
 
     assert _labels(menu) == [
         "Подключить",
-        "VPN и маршруты…",
+        profile_routing_title() + "…",
         "Тест задержки",
         "Редактировать",
         "Удалить",

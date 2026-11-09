@@ -35,6 +35,7 @@ class FakeProfile:
 @pytest.fixture
 def world(tmp_path, monkeypatch):
     """Сеанс TUN с включённой блокировкой, перехватом DNS и resolved."""
+    monkeypatch.setattr("src.core.connection.companion_vpn_supported", lambda: True)
     context = MagicMock()
     profiles = {1: FakeProfile(id=1), 2: FakeProfile(id=2)}
     context.config_dir = tmp_path

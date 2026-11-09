@@ -32,6 +32,7 @@ from src.sys.tun_dns import route_system_dns_to_tun
 from src.sys.tun_firewall import apply_firewall, remove_firewall
 from src.sys.tun_route import apply_tun_routes, restore_tun_routes
 from src.sys.vpn import (
+    companion_vpn_supported,
     connect_vpn,
     disconnect_vpn,
     get_default_interface,
@@ -326,6 +327,8 @@ class ConnectionService:
 
     def _profile_vpn_name(self, profile) -> str | None:
         """VPN, который будет работать в этом сеансе и которому нужны разрешения."""
+        if not companion_vpn_supported():
+            return None
         vpn = getattr(profile, "vpn_settings", None)
         if not vpn or not vpn.enabled:
             return None
@@ -469,6 +472,9 @@ class ConnectionService:
         Отказ VPN не срывает подключение: прокси без VPN работоспособен, а
         пользователь увидит состояние на странице мониторинга.
         """
+        if not companion_vpn_supported():
+            self._reset_vpn_flag()
+            return
         vpn = getattr(profile, "vpn_settings", None)
         if not vpn or not vpn.enabled or not getattr(vpn, "auto_connect", False):
             self._reset_vpn_flag()
@@ -648,6 +654,9 @@ class ConnectionService:
             self.release_block()
 
     def _auto_disconnect_vpn(self, profile_id: int) -> None:
+        if not companion_vpn_supported():
+            self._reset_vpn_flag()
+            return
         context = self._context
         try:
             if not profile_id or profile_id < 0:

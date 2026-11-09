@@ -41,7 +41,8 @@ class ProfileRoutingDialog(QDialog):
         self, profile, shared_routing: RoutingSettings, parent: QWidget | None = None
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("VPN и маршруты")
+        self.setWindowTitle(platform_texts.profile_routing_title())
+        self._vpn_available = platform_texts.companion_vpn_available()
         self.setModal(True)
         self.setMinimumSize(560, 600)
         self._form_style = FormStyle(self)
@@ -50,7 +51,7 @@ class ProfileRoutingDialog(QDialog):
         self._shared = shared_routing
 
         self.tabs = QTabWidget()
-        self.tabs.addTab(self._build_vpn_page(), "VPN")
+        self.tabs.addTab(self._build_vpn_page(), "VPN" if self._vpn_available else "Сервер")
         self.tabs.addTab(self._scrolled(self._build_routing_page()), "Маршрутизация")
         self.status = QLabel()
         self.status.setWordWrap(True)
@@ -71,11 +72,17 @@ class ProfileRoutingDialog(QDialog):
         watch(
             [
                 self.name_edit,
-                self.vpn_check,
-                self.vpn_name_edit,
-                self.vpn_auto_check,
-                self.vpn_interface_edit,
-                self.direct_interface_edit,
+                *(
+                    [
+                        self.vpn_check,
+                        self.vpn_name_edit,
+                        self.vpn_auto_check,
+                        self.vpn_interface_edit,
+                        self.direct_interface_edit,
+                    ]
+                    if self._vpn_available
+                    else []
+                ),
                 self.own_rules_check,
                 *self.form.fields(),
             ],
@@ -106,6 +113,10 @@ class ProfileRoutingDialog(QDialog):
         self.address_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         form.addRow("Адрес", self.address_label)
         column.addWidget(profile)
+
+        if not self._vpn_available:
+            column.addStretch(1)
+            return page
 
         vpn = QGroupBox(platform_texts.vpn_group_title())
         form = QFormLayout(vpn)
@@ -181,13 +192,14 @@ class ProfileRoutingDialog(QDialog):
         self.name_edit.setText(bean.display_name)
         self.address_label.setText(f"{bean.server_address}:{bean.server_port}")
 
-        vpn = getattr(profile, "vpn_settings", None) or VpnSettings()
-        self.vpn_check.setChecked(vpn.enabled)
-        self.vpn_name_edit.setText(vpn.connection_name)
-        self.vpn_auto_check.setChecked(getattr(vpn, "auto_connect", False))
-        self.vpn_interface_edit.setText(getattr(vpn, "interface_name", "") or "")
-        self.direct_interface_edit.setText(getattr(vpn, "direct_interface", "") or "")
-        self._sync_vpn()
+        if self._vpn_available:
+            vpn = getattr(profile, "vpn_settings", None) or VpnSettings()
+            self.vpn_check.setChecked(vpn.enabled)
+            self.vpn_name_edit.setText(vpn.connection_name)
+            self.vpn_auto_check.setChecked(getattr(vpn, "auto_connect", False))
+            self.vpn_interface_edit.setText(getattr(vpn, "interface_name", "") or "")
+            self.direct_interface_edit.setText(getattr(vpn, "direct_interface", "") or "")
+            self._sync_vpn()
 
         routing = getattr(profile, "routing_settings", None)
         self.own_rules_check.setChecked(routing is not None)
@@ -214,17 +226,18 @@ class ProfileRoutingDialog(QDialog):
         if name:
             profile.bean.name = name
 
-        if getattr(profile, "vpn_settings", None) is None:
-            profile.vpn_settings = VpnSettings()
-        vpn = profile.vpn_settings
-        vpn.enabled = self.vpn_check.isChecked()
-        # Безымянное подключение система не найдёт — остаётся прежнее.
-        connection_name = self.vpn_name_edit.text().strip()
-        if connection_name:
-            vpn.connection_name = connection_name
-        vpn.auto_connect = self.vpn_auto_check.isChecked()
-        vpn.interface_name = self.vpn_interface_edit.text().strip()
-        vpn.direct_interface = self.direct_interface_edit.text().strip()
+        if self._vpn_available:
+            if getattr(profile, "vpn_settings", None) is None:
+                profile.vpn_settings = VpnSettings()
+            vpn = profile.vpn_settings
+            vpn.enabled = self.vpn_check.isChecked()
+            # Безымянное подключение система не найдёт — остаётся прежнее.
+            connection_name = self.vpn_name_edit.text().strip()
+            if connection_name:
+                vpn.connection_name = connection_name
+            vpn.auto_connect = self.vpn_auto_check.isChecked()
+            vpn.interface_name = self.vpn_interface_edit.text().strip()
+            vpn.direct_interface = self.direct_interface_edit.text().strip()
 
         # None — сервер использует общие правила из настроек приложения.
         profile.routing_settings = routing

@@ -614,3 +614,8 @@ def vpn_tunnel_interface(connection_name: str) -> str | None:
         if len(parts) >= 4 and parts[2] == "inet" and parts[3].partition("/")[0] in addresses:
             return parts[1]
     return None
+
+
+def companion_vpn_supported() -> bool:
+    """Сопутствующее VPN-подключение сервера поддерживается только на Linux."""
+    return True

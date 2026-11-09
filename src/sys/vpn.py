@@ -4,6 +4,7 @@ from src.core.platform_info import IS_WINDOWS
 
 if IS_WINDOWS:
     from src.sys.windows.vpn import (
+        companion_vpn_supported,
         connect_vpn,
         disconnect_vpn,
         get_default_interface,
@@ -19,6 +20,7 @@ if IS_WINDOWS:
     )
 else:
     from src.sys.linux.vpn import (
+        companion_vpn_supported,
         connect_vpn,
         disconnect_vpn,
         get_default_interface,
@@ -34,6 +36,7 @@ else:
     )
 
 __all__ = [
+    "companion_vpn_supported",
     "connect_vpn",
     "disconnect_vpn",
     "get_default_interface",

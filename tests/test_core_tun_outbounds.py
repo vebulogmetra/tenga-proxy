@@ -222,3 +222,8 @@ def test_system_proxy_mode_keeps_the_system_resolver(context, profile):
     config = build_session_config(context, profile)
 
     assert "domainStrategy" not in sockopt(config, profile.bean.display_name)
+
+
+@pytest.fixture(autouse=True)
+def linux_vpn_capability(monkeypatch):
+    monkeypatch.setattr("src.core.config_builder.companion_vpn_supported", lambda: True)
