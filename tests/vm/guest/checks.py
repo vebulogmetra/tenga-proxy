@@ -337,6 +337,28 @@ def test_network_flap_does_not_leak_and_the_session_recovers(guarded):
     assert table() is not None
 
 
+def server_route(address: str) -> str:
+    return lab.sh("ip", "-4", "route", "get", address).stdout
+
+
+def test_moving_to_another_network_reconnects_the_tun_session(app):
+    """Смена Wi-Fi под TUN: маршрут до сервера должен уйти на новый шлюз."""
+    app.connect("A", EXIT_A)
+    assert "uplink0" in server_route(EXIT_A)
+
+    lab.sh("nmcli", "connection", "up", lab.SECOND_PROFILE, timeout=45)
+    lab.sh("nmcli", "connection", "down", lab.UPLINK_PROFILE, timeout=45)
+
+    wait_until(
+        lambda: f"via {lab.SECOND_GATEWAY} dev uplink1" in server_route(EXIT_A),
+        "маршрут до сервера через новую сеть",
+        timeout=60,
+    )
+    app.wait_for_exit(EXIT_A, timeout=60)
+    app.wait_state("A")
+    assert "Reconnecting the session" in app.log_text()
+
+
 def test_container_traffic_is_closed_with_the_host(guarded):
     command = (
         "docker", "run", "--rm", "lab-busybox",

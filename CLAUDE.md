@@ -275,6 +275,16 @@ deb-пакета, маршруты в TUN (`0.0.0.0/1` и `128.0.0.0/1`, мар�
 годности — `2027-01-19`, после него выводы ограничены. Дизайн:
 `docs/plans/2026-11-05-network-diagnostics-desktop-design.md`.
 
+**Автовыбор и восстановление сеанса** - `rank_candidates` в `src/core/failover.py`
+ставит свежие (моложе 30 минут, `is_fresh`) замеры раньше давних; на этом порядке
+стоят failover, «Подключить лучший» (`AppController.connect_best`) и фоновый
+перезамер группы активного сервера раз в 15 минут при включённом автопереключении.
+Сон и смена сети: оболочки (`src/ui/system_events.py`, `src/ui/qt/system_events.py`,
+на Windows — `src/sys/power_events.py`) зовут `on_sleep`/`on_resume`/`on_network_changed`
+контроллера, решает `NetworkRecovery` (`src/core/net_recovery.py`): в TUN смена
+маршрута по умолчанию (`src/sys/netwatch.py`) — сразу переподключение, иначе одна
+проверка. Дизайн: `docs/plans/2026-11-09-auto-select-and-network-recovery-design.md`.
+
 **ConnectionMonitor (`src/core/monitor.py`)** - мониторинг соединения:
 - Периодическая проверка доступности proxy
 - Отслеживание статуса (Disconnected, Connecting, Connected, Error)

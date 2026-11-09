@@ -60,6 +60,10 @@ VPN_SELF = "100.64.8.2"
 TUN = "xray0"
 VPN_NAME = "lab-vpn"
 UPLINK_PROFILE = "lab-uplink"
+# Вторая сеть, как другая точка Wi-Fi: свой шлюз и адрес, профиль поднимают сценарии
+SECOND_PROFILE = "lab-uplink2"
+SECOND_SELF = "192.0.2.2"
+SECOND_GATEWAY = "192.0.2.1"
 # Последняя строка потока подключения: мониторинг в настройках лаборатории выключен
 SESSION_READY = "Monitoring is disabled in settings"
 UUID = "6f1f7c3a-3a55-4c8e-9a0b-2d3f4a5b6c7d"
@@ -524,6 +528,10 @@ def _build_namespace() -> None:
     in_inet("ip", "addr", "add", f"{GATEWAY}/24", "dev", "lab0")
     in_inet("ip", "addr", "add", f"{LAN_PEER}/24", "dev", "lab0")
     in_inet("ip", "-6", "addr", "add", "2001:db8:1::1/64", "dev", "lab0", "nodad")
+    sh("ip", "link", "add", "uplink1", "type", "veth", "peer", "name", "lab1")
+    sh("ip", "link", "set", "lab1", "netns", "inet")
+    in_inet("ip", "link", "set", "lab1", "up")
+    in_inet("ip", "addr", "add", f"{SECOND_GATEWAY}/24", "dev", "lab1")
 
 
 def _leave_qemu_nic_for_ssh_only() -> None:
@@ -561,6 +569,22 @@ def _manage_uplink() -> None:
         "ipv6.gateway", "2001:db8:1::1",
     )  # fmt: skip
     sh("nmcli", "connection", "up", UPLINK_PROFILE)
+
+    wait_until(
+        lambda: sh("nmcli", "device", "set", "uplink1", "managed", "yes", check=False).returncode
+        == 0,
+        "NetworkManager увидел uplink1",
+    )
+    sh(
+        "nmcli", "connection", "add", "type", "ethernet",
+        "con-name", SECOND_PROFILE, "ifname", "uplink1", "connection.autoconnect", "no",
+        "ipv4.method", "manual",
+        "ipv4.addresses", f"{SECOND_SELF}/24",
+        "ipv4.gateway", SECOND_GATEWAY,
+        "ipv4.dns", SECOND_GATEWAY,
+        "ipv4.route-metric", "700",
+        "ipv6.method", "disabled",
+    )  # fmt: skip
 
 
 def _prepare_openvpn() -> None:
@@ -669,6 +693,7 @@ def reset_network() -> None:
         except ProcessLookupError:
             pass
     sh("nmcli", "connection", "down", VPN_NAME, check=False, timeout=45)
+    sh("nmcli", "connection", "down", SECOND_PROFILE, check=False, timeout=45)
     sh("nft", "delete", "table", "inet", "veblock", check=False)
     for address in (EXIT_A, EXIT_B):
         sh("ip", "route", "del", f"{address}/32", check=False)
