@@ -30,6 +30,9 @@ SWITCH_LABEL = "Переключить на выбранный"
 EMPTY_TITLE = "Добавьте сервер или подписку"
 BLOCKED_BANNER = "Соединение потеряно. Трафик закрыт, локальная сеть доступна"
 RELEASE_BLOCK_LABEL = "Снять блокировку"
+# Подключение, начатое восстановлением сеанса: заголовок карточки вместо «Подключение…».
+RECONNECT_NETWORK = "Переподключение: сменилась сеть"
+RECONNECT_SLEEP = "Переподключение после сна"
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,12 @@ class StatusView:
     # Пока операция идёт, кнопка недоступна: контроллер не умеет прерывать
     # начатое подключение, а повторное нажатие дало бы только тост.
     action_enabled: bool = True
+
+
+def connecting_view(profile_name: str = "", note: str = "") -> StatusView:
+    """Карточка во время подключения; `note` — заголовок переподключения."""
+    view = status_view(ConnectionState.CONNECTING, profile_name=profile_name)
+    return replace(view, title=note) if note else view
 
 
 def mode_text(proxy_mode: str) -> str:
@@ -195,6 +204,8 @@ class ConnectionPresentation:
 
     operation: str = ""
     target_name: str = ""
+    # Свой заголовок подключения: «Переподключение: сменилась сеть».
+    note: str = ""
     error: str = ""
     error_snapshot: tuple[bool, int | None] | None = None
     check_session: tuple[bool, int | None] | None = None
@@ -212,9 +223,10 @@ class ConnectionPresentation:
             self.check_baseline = last_check_time
         return bool(last_check_time and last_check_time > self.check_baseline)
 
-    def begin(self, operation: str, target_name: str = "") -> None:
+    def begin(self, operation: str, target_name: str = "", note: str = "") -> None:
         self.operation = operation
         self.target_name = target_name
+        self.note = note
         self.error = ""
         self.error_snapshot = None
 
@@ -251,11 +263,13 @@ class ConnectionPresentation:
             # Об отключении оболочка может и не сообщить: занятый поток при
             # работающем прокси без начатого подключения — это отключение.
             disconnecting = self.operation == "disconnect" or (not self.operation and running)
-            title = "Отключение…" if disconnecting else view.title
-            return replace(view, title=title, button_label=title)
+            if disconnecting:
+                return replace(view, title="Отключение…", button_label="Отключение…")
+            return replace(view, title=self.note) if self.note else view
         if self.operation == "disconnect" and running:
             self.fail("Не удалось отключиться. Подробности в журнале.", snapshot)
         self.operation = ""
+        self.note = ""
         if running:
             return status_view(
                 ConnectionState.CONNECTED,

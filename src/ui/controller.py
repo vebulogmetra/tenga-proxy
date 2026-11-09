@@ -30,12 +30,19 @@ from src.core.failover import (
     rank_candidates,
     reprobe_targets,
 )
+from src.core.net_recovery import NetworkRecovery, RecoveryReason
 from src.core.probe_result import ProbeResult, is_fresh
 from src.diag.assess import recommendations as rec
 from src.sys.app_install import can_self_update, launch_installer
 from src.ui.logic.async_utils import run_in_background
 from src.ui.logic.latency import LatencyRunner, PingProgress, ProbeFn, make_batch_probe
-from src.ui.logic.status import BLOCKED_BANNER, ConnectionState, is_traffic_blocked
+from src.ui.logic.status import (
+    BLOCKED_BANNER,
+    RECONNECT_NETWORK,
+    RECONNECT_SLEEP,
+    ConnectionState,
+    is_traffic_blocked,
+)
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version
 
@@ -111,7 +118,7 @@ class Shell(Protocol):
 
     def refresh_pages(self) -> None: ...
 
-    def show_connecting(self, profile_name: str) -> None: ...
+    def show_connecting(self, profile_name: str, note: str = "") -> None: ...
 
     def show_error(self, message: str) -> None: ...
 
@@ -234,6 +241,7 @@ class AppController:
         self._reprobe_running = False
         self._reprobe_discarded = False
         self._monotonic: Callable[[], float] = time.monotonic
+        self.recovery = self._make_recovery()
 
     # --- сообщения ---
 
@@ -432,8 +440,11 @@ class AppController:
     def connection_busy(self) -> bool:
         return self.connection_thread is not None and self.connection_thread.is_alive()
 
-    def connect_profile(self, profile_id: int) -> None:
-        """Start the proxy for one profile in the background."""
+    def connect_profile(self, profile_id: int, *, note: str = "") -> None:
+        """Start the proxy for one profile in the background.
+
+        `note` — свой заголовок карточки: «Переподключение: сменилась сеть».
+        """
         if self._reprobe_running:
             # Фоновый перезамер не держит подключение (иначе failover ждал бы его),
             # а его результаты после смены сеанса не в счёт: сеть менялась на ходу.
@@ -451,7 +462,7 @@ class AppController:
             self.toast("Подключение уже выполняется")
             return
 
-        self._shell.show_connecting(profile.name)
+        self._shell.show_connecting(profile.name, note)
         # Промежуточное состояние живёт только в UI: в proxy_state его нет,
         # и сам по себе трей о нём не узнает.
         self._shell.set_tray_state(ConnectionState.CONNECTING, profile.name)
@@ -550,10 +561,10 @@ class AppController:
         else:
             self._shell.set_tray_state(ConnectionState.ERROR, "")
 
-    def reconnect_current(self) -> None:
+    def reconnect_current(self, *, note: str = "") -> None:
         state = self.context.proxy_state
         if state.is_running:
-            self.connect_profile(state.started_profile_id)
+            self.connect_profile(state.started_profile_id, note=note)
 
     def set_profile_activation_handler(self, handler: Callable[[int], None]) -> None:
         """Install what happens when a profile row is activated."""
@@ -570,6 +581,7 @@ class AppController:
         if result.ok:
             self.context.profiles.mark_used(profile_id)
             self._save_profiles()
+            self.recovery.remember_fingerprint()
             self.toast(f"Подключено: {profile_name}")
             if result.warning:
                 self.toast(result.warning)
@@ -583,6 +595,7 @@ class AppController:
 
     def _on_disconnection_done(self, result) -> None:
         if result.ok:
+            self.recovery.cancel()
             self.toast("Отключено")
             self._shell.set_tray_state(ConnectionState.DISCONNECTED, "")
         else:
@@ -701,10 +714,88 @@ class AppController:
             switch_to=self.connect_profile,
             notify=self.notify_user,
             network_available=self._network_available,
+            suspended=lambda: self.recovery.active,
         )
-        monitor.set_on_status_changed(self._failover.handle_status)
+        failover = self._failover
+
+        def on_status(previous, status) -> None:
+            # Сначала failover: в окне восстановления он сбросит счёт, а не
+            # засчитает неудачу, которую восстановление и так разберёт.
+            failover.handle_status(previous, status)
+            self.recovery.handle_status(status)
+
+        monitor.set_on_status_changed(on_status)
         if self._reprobe_watch is None:
             self._reprobe_watch = self._loop.schedule(AUTO_REPROBE_TICK_MS, self._auto_reprobe_tick)
+
+    # --- сон и смена сети ---
+
+    def on_sleep(self) -> None:
+        """Система уходит в сон (logind, WM_POWERBROADCAST)."""
+        self.recovery.on_sleep()
+
+    def on_resume(self) -> None:
+        """Система проснулась."""
+        self.recovery.on_resume()
+
+    def on_network_changed(self) -> None:
+        """Сменилась сеть или её доступность; сигналы гасятся выжиданием."""
+        self.recovery.on_network_changed()
+
+    def _make_recovery(self) -> NetworkRecovery:
+        from src.sys import netwatch
+
+        state = self.context.proxy_state
+
+        def background(fn, on_done) -> None:
+            # На Windows снимок сети — запрос к системе: не в главном потоке.
+            run_in_background(
+                fn,
+                on_done=on_done,
+                on_error=lambda _error: on_done(None),
+                dispatch=self._loop.dispatch,
+                name="tenga-netwatch",
+            )
+
+        return NetworkRecovery(
+            loop=self._loop,
+            session_active=lambda: state.is_running and not self.connection_busy(),
+            tun_session=lambda: state.started_mode == "tun",
+            network_available=lambda: self._network_available(),
+            fingerprint=netwatch.default_route,
+            pause_monitor=self._pause_monitor,
+            resume_monitor=self._resume_monitor,
+            check_session=self._check_session_now,
+            reconnect=self._reconnect_after,
+            background=background,
+        )
+
+    def _pause_monitor(self) -> None:
+        monitor = self.context.monitor
+        if monitor is not None:
+            monitor.stop()
+
+    def _resume_monitor(self) -> None:
+        monitor = self.context.monitor
+        if monitor is not None and self.context.proxy_state.is_running:
+            monitor.start()
+
+    def _check_session_now(self) -> bool:
+        """Одна внеочередная проверка; False — проверить нечем."""
+        monitor = self.context.monitor
+        if monitor is None or not self.context.config.monitoring.enabled:
+            return False
+        if monitor.running:
+            monitor.check_now()
+        else:
+            # Первый тик запуска и есть проверка сервера.
+            monitor.start()
+        return True
+
+    def _reconnect_after(self, reason: RecoveryReason) -> None:
+        note = RECONNECT_SLEEP if reason is RecoveryReason.SLEEP else RECONNECT_NETWORK
+        logger.warning("Reconnecting the session: %s", note)
+        self.reconnect_current(note=note)
 
     # --- фоновый перезамер ---
 

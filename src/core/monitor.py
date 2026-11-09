@@ -72,6 +72,11 @@ class ConnectionMonitor:
         """Set callback for status changes."""
         self._on_status_changed = callback
 
+    @property
+    def running(self) -> bool:
+        """Таймер проверок заведён."""
+        return self._timer_id is not None
+
     def start(self) -> None:
         """Start monitoring."""
         if self._timer_id is not None:

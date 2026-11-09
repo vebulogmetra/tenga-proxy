@@ -64,6 +64,7 @@ from src.ui.logic.status import (
     SWITCH_LABEL,
     ConnectionPresentation,
     ConnectionState,
+    connecting_view,
     health_text,
     is_traffic_blocked,
     mode_text,
@@ -467,11 +468,9 @@ class MainWindow(QMainWindow):
             "disconnect" if disconnect else "connect", profile.name if profile else ""
         )
 
-    def show_connecting(self, profile_name: str = "") -> None:
-        self.presentation.begin("connect", profile_name)
-        self.status_card.update_view(
-            status_view(ConnectionState.CONNECTING, profile_name=profile_name)
-        )
+    def show_connecting(self, profile_name: str = "", note: str = "") -> None:
+        self.presentation.begin("connect", profile_name, note)
+        self.status_card.update_view(connecting_view(profile_name, note))
 
     def show_error(self, message: str) -> None:
         state = self._context.proxy_state

@@ -73,8 +73,10 @@ class FakeShell:
     def refresh_pages(self):
         self.calls.append(("refresh_pages",))
 
-    def show_connecting(self, profile_name):
+    def show_connecting(self, profile_name, note=""):
         self.calls.append(("show_connecting", profile_name))
+        if note:
+            self.calls.append(("connecting_note", note))
 
     def show_error(self, message):
         self.calls.append(("show_error", message))
@@ -1848,3 +1850,66 @@ def test_connecting_during_a_background_reprobe_discards_its_results(made):
 
     assert calls == [("connect", other.id)]
     assert controller.context.profiles.get_profile(active.id).latency_ms != 33
+
+
+# --- сон и смена сети ---
+
+
+def _recovering(made, route):
+    from src.core.net_recovery import _call_now
+
+    controller, shell, loop = made
+    controller.recovery._background = _call_now
+    controller.recovery._fingerprint = lambda: route[0]
+    entry = add_profile(controller)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    controller.context.proxy_state.set_running(entry.id, mode="tun")
+    controller.recovery.remember_fingerprint()
+    return controller, shell, loop, entry, calls
+
+
+def test_network_change_in_tun_reconnects_with_a_note(made):
+    from src.core.net_recovery import SETTLE_MS
+    from src.ui.logic.status import RECONNECT_NETWORK
+
+    route = [("192.168.1.1", "wlan0")]
+    controller, shell, loop, entry, calls = _recovering(made, route)
+    route[0] = ("10.0.0.1", "wlan0")
+
+    controller.on_network_changed()
+    assert calls == []
+    assert any(interval == SETTLE_MS for interval, _fn in loop.scheduled)
+    loop.fire()
+    _wait(controller)
+
+    assert calls == [("connect", entry.id)]
+    assert ("connecting_note", RECONNECT_NETWORK) in shell.calls
+
+
+def test_failover_waits_while_the_session_recovers(made):
+    from src.core.monitor import ConnectionStatus
+    from src.ui.logic.status import RECONNECT_SLEEP
+
+    route = [("192.168.1.1", "wlan0")]
+    controller, shell, _loop, entry, calls = _recovering(made, route)
+    add_profile(controller, group_id=entry.group_id)
+    controller.context.config.monitoring.failover_enabled = True
+    controller.context.config.monitoring.failover_threshold = 1
+    monitor = MagicMock(running=True)
+    statuses = []
+    monitor.set_on_status_changed.side_effect = statuses.append
+    controller.context.set_monitor(monitor)
+    controller.watch_monitor()
+
+    controller.on_sleep()
+    assert monitor.stop.called
+    controller.on_resume()
+    assert monitor.check_now.called
+    silent = ConnectionStatus(proxy_ok=False, server_probed=True)
+    statuses[0](silent, silent)
+    _wait(controller)
+
+    # Порог в одну неудачу, но сервер не сменился: переподключён тот же.
+    assert calls == [("connect", entry.id)]
+    assert ("connecting_note", RECONNECT_SLEEP) in shell.calls

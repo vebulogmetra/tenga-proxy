@@ -34,6 +34,7 @@ from src.ui.logic.status import (
     RELEASE_BLOCK_LABEL,
     ConnectionPresentation,
     ConnectionState,
+    connecting_view,
     health_text,
     is_traffic_blocked,
     mode_text,
@@ -654,12 +655,12 @@ class MainWindow(Adw.ApplicationWindow):
             )
         )
 
-    def show_connecting(self, profile_name: str = "") -> None:
+    def show_connecting(self, profile_name: str = "", note: str = "") -> None:
         """Put the card into the intermediate state while xray-core starts."""
         # Контроллер зовёт это до запуска потока, connection_busy() ещё False,
         # поэтому карточка рисуется напрямую, а не через refresh_status().
-        self._presentation.begin("connect", profile_name)
-        self.status_card.update(status_view(ConnectionState.CONNECTING, profile_name=profile_name))
+        self._presentation.begin("connect", profile_name, note)
+        self.status_card.update(connecting_view(profile_name, note))
 
     def show_error(self, message: str) -> None:
         """Show a connection failure; it stays until the next attempt or state change."""

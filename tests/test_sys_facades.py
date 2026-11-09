@@ -14,6 +14,7 @@ FACADES = [
     "resolver",
     "netbind",
     "netwatch",
+    "power_events",
     "tun_route",
     "tun_dns",
     "tun_access",

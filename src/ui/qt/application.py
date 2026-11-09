@@ -103,9 +103,9 @@ class _QtShell:
             window.refresh_pages()
         self._app.refresh_dialog()
 
-    def show_connecting(self, profile_name: str) -> None:
+    def show_connecting(self, profile_name: str, note: str = "") -> None:
         if (window := self._window()) is not None:
-            window.show_connecting(profile_name)
+            window.show_connecting(profile_name, note)
 
     def show_error(self, message: str) -> None:
         if (window := self._window()) is not None:
@@ -212,6 +212,7 @@ class QtApplication:
             network_available=network_available,
             app_version=app_version,
         )
+        self._system_events = None
         self.actions: dict[str, QAction] = {}
         self._handlers: dict[str, Callable[[int | None], None]] = {}
         self._register_actions()
@@ -568,10 +569,30 @@ class QtApplication:
         """То, что GTK делает в `do_startup`: тема, failover, трей, активация."""
         apply_theme(getattr(self.context.config, "theme", None))
         self.controller.watch_monitor()
+        self.watch_system_events()
         self.controller.report_recovery()
         if self._with_tray:
             self.start_tray()
         self._start_activation_server()
+
+    def watch_system_events(self, *, network=None, bus=None) -> None:
+        """Сон и смена сети — в восстановление сеанса контроллера."""
+        from src.ui.qt.system_events import SystemEvents
+
+        if self._system_events is not None:
+            self._system_events.stop()
+        self._system_events = SystemEvents(self, self.loop, network=network, bus=bus)
+        self._system_events.start()
+
+    # Цель событий системы: контроллер разыменовывается в момент сигнала.
+    def on_sleep(self) -> None:
+        self.controller.on_sleep()
+
+    def on_resume(self) -> None:
+        self.controller.on_resume()
+
+    def on_network_changed(self) -> None:
+        self.controller.on_network_changed()
 
     def run(self, uris=()) -> int:
         # Процессное: тесты зовут `start()`, но не `run()`, и сигналы pytest
@@ -595,6 +616,9 @@ class QtApplication:
         # Ядро гасится до снятия блокировки, как в GTK.
         self.controller.shutdown()
         self.stop_tray()
+        if self._system_events is not None:
+            self._system_events.stop()
+            self._system_events = None
         if self._signal_timer is not None:
             self._signal_timer.stop()
         if self._activation is not None:

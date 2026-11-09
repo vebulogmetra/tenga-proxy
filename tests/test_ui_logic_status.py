@@ -194,6 +194,25 @@ def test_a_new_attempt_clears_the_previous_error():
     assert view.action_enabled is False
 
 
+def test_reconnect_after_a_network_change_names_the_reason():
+    from src.ui.logic.status import RECONNECT_NETWORK, connecting_view
+
+    presentation = ConnectionPresentation()
+    presentation.begin("connect", "Польша", RECONNECT_NETWORK)
+
+    view = _resolve(presentation, busy=True, running=True)
+
+    assert view.title == RECONNECT_NETWORK
+    assert view.subtitle == "Польша"
+    assert view.button_label == "Подключение…"
+    assert connecting_view("Польша", RECONNECT_NETWORK).title == RECONNECT_NETWORK
+    assert connecting_view("Польша").title == "Подключение…"
+
+    # Подключение закончилось — заголовок не переживает его.
+    _resolve(presentation, busy=False, running=True)
+    assert presentation.note == ""
+
+
 def test_a_busy_running_session_without_a_connect_is_disconnecting():
     # GTK не сообщает о начале отключения: занятый поток при работающем
     # прокси и без начатого подключения — это отключение.

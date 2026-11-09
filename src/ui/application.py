@@ -97,10 +97,10 @@ class _GtkShell:
         if window is not None:
             window.refresh_pages()
 
-    def show_connecting(self, profile_name: str) -> None:
+    def show_connecting(self, profile_name: str, note: str = "") -> None:
         window = self._window()
         if window is not None:
-            window.show_connecting(profile_name)
+            window.show_connecting(profile_name, note)
 
     def show_error(self, message: str) -> None:
         window = self._window()
@@ -205,6 +205,7 @@ class TengaApplication(Adw.Application):
         self.tray = None
         self._with_tray = with_tray
         self._signal_source_ids: list[int] = []
+        self._system_events = None
         self._window: MainWindow | None = None
         self.diagnostics_window = None
         self._dialog = None
@@ -233,6 +234,7 @@ class TengaApplication(Adw.Application):
         self._register_actions()
         self._setup_signal_handlers()
         self.watch_monitor()
+        self.watch_system_events()
         self.controller.report_recovery()
         if self._with_tray:
             self.start_tray()
@@ -261,6 +263,9 @@ class TengaApplication(Adw.Application):
         self.controller.shutdown()
 
         self.stop_tray()
+        if self._system_events is not None:
+            self._system_events.stop()
+            self._system_events = None
 
         for source_id in self._signal_source_ids:
             GLib.source_remove(source_id)
@@ -365,6 +370,26 @@ class TengaApplication(Adw.Application):
 
     def watch_monitor(self) -> None:
         self.controller.watch_monitor()
+
+    def watch_system_events(self, *, bus=None, monitor=None) -> None:
+        """Сон (logind) и смена сети (`Gio.NetworkMonitor`) — в восстановление сеанса."""
+        from src.ui.system_events import SystemEvents
+
+        if self._system_events is not None:
+            self._system_events.stop()
+        self._system_events = SystemEvents(self, bus=bus, monitor=monitor)
+        self._system_events.start()
+
+    # Цель событий системы: контроллер разыменовывается в момент сигнала,
+    # `reset_for_tests` подменяет его.
+    def on_sleep(self) -> None:
+        self.controller.on_sleep()
+
+    def on_resume(self) -> None:
+        self.controller.on_resume()
+
+    def on_network_changed(self) -> None:
+        self.controller.on_network_changed()
 
     def notify_user(self, text: str) -> None:
         self.controller.notify_user(text)

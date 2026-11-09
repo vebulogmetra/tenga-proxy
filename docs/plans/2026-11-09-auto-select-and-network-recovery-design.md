@@ -90,10 +90,15 @@
 | | Сон и пробуждение | Смена сети |
 | --- | --- | --- |
 | GTK (Linux) | `org.freedesktop.login1.Manager.PrepareForSleep` на системной шине через `Gio.DBusConnection` | `Gio.NetworkMonitor::network-changed` |
-| Qt (Windows) | `WM_POWERBROADCAST` (`PBT_APMSUSPEND`, `PBT_APMRESUMEAUTOMATIC`) через `QAbstractNativeEventFilter` | `QNetworkInformation::reachabilityChanged` и `transportMediumChanged` |
+| Qt (Windows) | `PowerRegisterSuspendResumeNotification` (`PBT_APMSUSPEND`, `PBT_APMRESUMEAUTOMATIC`), фасад `src/sys/power_events.py` | `QNetworkInformation::reachabilityChanged` и `transportMediumChanged` |
 | Qt (Linux, `--ui qt`) | тот же logind, через `QtDBus` | `QNetworkInformation` |
 
 Сигналы сети приходят пачками, поэтому контроллер выжидает 3 секунды тишины.
+
+`WM_POWERBROADCAST` получают только окна верхнего уровня, а окно Qt создаётся
+лениво: приложение в трее живёт и без него. Поэтому на Windows подписка без окна,
+обратный вызов из системного потока идёт в главный через `dispatch`. GTK —
+`src/ui/system_events.py`, Qt — `src/ui/qt/system_events.py`.
 
 ### Отпечаток сети
 
@@ -132,8 +137,9 @@ GTK-free модуль `src/core/net_recovery.py`, `NetworkRecovery`, с подс
 ### Что видит пользователь
 
 Нового состояния в `ConnectionState` нет. Используется
-«Подключение…» с текстом «Переподключение: сменилась сеть» или «…после сна» и
-ту же строку в трее. Ошибка после восстановления показывается обычной ошибкой
+«Подключение…» с заголовком карточки «Переподключение: сменилась сеть» или
+«Переподключение после сна» (`ConnectionPresentation.note`). Трей показывает
+обычное «Статус: подключение…». Ошибка после восстановления показывается обычной ошибкой
 подключения с причиной. В словарь
 [общего дизайна](2026-11-02-shared-ui-design.md) добавляется
 «Переподключение».
