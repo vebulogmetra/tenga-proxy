@@ -56,6 +56,22 @@ class StatsEndpoint:
             return f"{LOOPBACK}:{self.port}"
         return "unix://" + self.path
 
+    def is_ready(self) -> bool:
+        """Локальный listener уже принимает соединения; запросы к серверу не нужны."""
+        address = self.address
+        try:
+            if address.startswith("unix://"):
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+                    probe.settimeout(0.05)
+                    probe.connect(address.removeprefix("unix://"))
+            else:
+                host, port = address.rsplit(":", 1)
+                with socket.create_connection((host, int(port)), timeout=0.05):
+                    pass
+        except OSError:
+            return False
+        return True
+
     def close(self):
         self._port = None
         if self._directory is not None:

@@ -88,6 +88,12 @@ class ServiceState:
             self._stop_locked()
         return {}
 
+    def close(self) -> None:
+        try:
+            self.core_stop()
+        finally:
+            self._net.close()
+
     def core_status(self) -> dict:
         with self._lock:
             with self._log_lock:

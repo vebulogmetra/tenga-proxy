@@ -18,7 +18,7 @@ IPV6_UNICAST_IF = 31
 
 
 def socket_binder(interface: str) -> Callable[[socket.socket], None]:
-    """Адаптер определяется один раз: снимок сети — это запуск PowerShell, а сокетов сотни."""
+    """Адаптер определяется один раз: снимок сети требует обхода адаптеров, а сокетов сотни."""
     adapter = netinfo.snapshot().adapter(interface)
 
     def bind(sock: socket.socket) -> None:

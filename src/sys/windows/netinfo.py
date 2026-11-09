@@ -1,6 +1,6 @@
 """Снимок сети Windows: адаптеры, их IPv4-адреса, DNS, маршруты по умолчанию и половина `0.0.0.0/1`.
 
-Один вызов PowerShell возвращает всё сразу и кэшируется на пару секунд: при
+IP Helper API возвращает снимок, который кэшируется на пару секунд: при
 подключении сборщик конфига подряд спрашивает интерфейс, DNS и состояние VPN.
 Имя интерфейса — `InterfaceAlias` («Ethernet», «Wi-Fi»): его же понимают
 `netsh` и `sockopt.interface` ядра.
@@ -13,34 +13,9 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from src.sys.windows.powershell import run_json
+from src.sys.windows.iphelper import read_snapshot
 
 CACHE_SECONDS = 2.0
-# Первый вызов грузит модули NetTCPIP и CIM: на холодной системе это дольше
-# стандартных 15 секунд PowerShell-обёртки.
-SNAPSHOT_TIMEOUT = 45
-
-SCRIPT = r"""
-[Console]::OutputEncoding = [Text.Encoding]::UTF8
-$result = @{
-  adapters = @(Get-NetAdapter -IncludeHidden | ForEach-Object {
-    @{ alias = $_.Name; index = $_.ifIndex; status = [string]$_.Status;
-       description = $_.InterfaceDescription } })
-  ips = @(Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | ForEach-Object {
-    @{ alias = $_.InterfaceAlias; ip = $_.IPAddress; index = $_.InterfaceIndex } })
-  dns = @(Get-DnsClientServerAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-    ForEach-Object { @{ alias = $_.InterfaceAlias; servers = @($_.ServerAddresses) } })
-  routes = @(Get-NetRoute -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-      Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' -or $_.DestinationPrefix -eq '0.0.0.0/1' } |
-      ForEach-Object {
-    $if = Get-NetIPInterface -InterfaceIndex $_.ifIndex -AddressFamily IPv4 `
-      -ErrorAction SilentlyContinue
-    @{ alias = $_.InterfaceAlias; index = $_.ifIndex; prefix = $_.DestinationPrefix;
-       nexthop = $_.NextHop; metric = $_.RouteMetric; ifmetric = [int]$if.InterfaceMetric } })
-}
-$result | ConvertTo-Json -Depth 5 -Compress
-"""
-
 DEFAULT_PREFIX = "0.0.0.0/0"
 # Половина маршрута по умолчанию, которую служба ставит на TUN: по ней виден активный туннель.
 SPLIT_PREFIX = "0.0.0.0/1"
@@ -180,9 +155,7 @@ def snapshot() -> NetSnapshot:
         now = time.monotonic()
         if _cached is not None and now - _cached[0] < CACHE_SECONDS:
             return _cached[1]
-        result = parse_snapshot(run_json(SCRIPT, timeout=SNAPSHOT_TIMEOUT))
-        # A cold PowerShell query can take longer than CACHE_SECONDS itself.
-        # Start the reuse window after it finishes, otherwise the next caller
-        # immediately launches the same expensive query again.
+        result = read_snapshot()
+        # Окно повторного использования начинается после завершения запроса.
         _cached = (time.monotonic(), result)
         return result

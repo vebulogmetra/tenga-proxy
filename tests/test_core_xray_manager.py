@@ -6,6 +6,8 @@ import subprocess
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from src.core.xray_manager import TrafficStats, XrayManager
 
 
@@ -353,3 +355,44 @@ def test_failing_callback_does_not_escape_the_pump(monkeypatch):
     core.die()
 
     assert called.wait(1.0)
+
+
+def test_readiness_probe_returns_without_fixed_delay(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    manager._process = MagicMock()
+    manager._process.poll.return_value = None
+    monkeypatch.setattr(
+        "src.core.xray_manager.time.sleep", lambda *_: pytest.fail("unexpected sleep")
+    )
+    assert manager._wait_for_process_ready(ready=lambda: True)
+
+
+def test_readiness_timeout_does_not_report_live_unready_core_as_ready(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    manager._process = MagicMock()
+    manager._process.poll.return_value = None
+    assert not manager._wait_for_process_ready(timeout=0, ready=lambda: False)
+
+
+def test_dead_core_is_not_ready_even_when_probe_succeeds(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    manager._process = MagicMock()
+    manager._process.poll.return_value = 1
+    assert not manager._wait_for_process_ready(ready=lambda: True)
+
+
+def test_readiness_probe_error_stops_the_started_core(monkeypatch):
+    manager = _make_manager(monkeypatch)
+    core = _FakeCore()
+
+    def fail(_config):
+        raise OSError("adapter query failed")
+
+    manager._startup_ready = fail
+    monkeypatch.setattr(manager._stats_endpoint, "is_ready", lambda: True)
+    monkeypatch.setattr("src.core.xray_manager.subprocess.Popen", lambda *_a, **_k: core)
+    monkeypatch.setattr(manager, "_core_logger", lambda: MagicMock())
+    ok, error = manager.start({"inbounds": [], "outbounds": []})
+    assert not ok and "adapter query failed" in error
+    assert core.poll() is not None
+    assert manager._process is None

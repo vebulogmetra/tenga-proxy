@@ -122,10 +122,18 @@ class NetOps:
     """Исполнитель команд; в тестах подменяется `run` и `powershell`."""
 
     def __init__(self, run: Callable[[list[str]], bool] = _run, powershell=None) -> None:
+        self._session = None
         if powershell is None:
-            from src.sys.windows.powershell import run_json as powershell
+            from src.sys.windows.powershell import NrptSession
+
+            self._session = NrptSession()
+            powershell = self._session.run
         self._run = run
         self._powershell = powershell
+
+    def close(self) -> None:
+        if self._session is not None:
+            self._session.close()
 
     def run(self, cmd: list[str]) -> bool:
         return self._run(cmd)
@@ -144,6 +152,6 @@ class NetOps:
 
     def undo(self, entry: dict) -> None:
         if entry["op"] == "route.delete":
-            self._run(route_delete(entry["prefix"], entry["index"]))
+            self.run(route_delete(entry["prefix"], entry["index"]))
         elif entry["op"] == "nrpt.remove":
             self._powershell(nrpt_remove_script(entry["name"]))

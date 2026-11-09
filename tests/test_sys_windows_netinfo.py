@@ -76,8 +76,8 @@ def test_snapshot_is_cached(monkeypatch):
     calls = []
     monkeypatch.setattr(
         netinfo,
-        "run_json",
-        lambda script, **_kw: calls.append(script) or json.dumps(SNAPSHOT),
+        "read_snapshot",
+        lambda: calls.append(True) or netinfo.parse_snapshot(json.dumps(SNAPSHOT)),
     )
     netinfo.invalidate()
 
@@ -88,17 +88,17 @@ def test_snapshot_is_cached(monkeypatch):
     assert len(calls) == 1
 
 
-def test_slow_snapshot_is_cached_after_powershell_finishes(monkeypatch):
+def test_slow_snapshot_is_cached_after_query_finishes(monkeypatch):
     now = [0.0]
     calls = []
 
-    def slow_query(script, **_kwargs):
-        calls.append(script)
+    def slow_query():
+        calls.append(True)
         now[0] += netinfo.CACHE_SECONDS + 1
-        return json.dumps(SNAPSHOT)
+        return netinfo.parse_snapshot(json.dumps(SNAPSHOT))
 
     monkeypatch.setattr(netinfo.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(netinfo, "run_json", slow_query)
+    monkeypatch.setattr(netinfo, "read_snapshot", slow_query)
     netinfo.invalidate()
     try:
         first = netinfo.snapshot()
@@ -173,8 +173,3 @@ def test_default_route_ignores_the_split_halves():
     snapshot = netinfo.parse_snapshot(json.dumps(data))
 
     assert netinfo.default_route(snapshot).alias == "Ethernet"
-
-
-def test_script_collects_the_split_halves_too():
-    assert "'0.0.0.0/1'" in netinfo.SCRIPT
-    assert "prefix = $_.DestinationPrefix" in netinfo.SCRIPT

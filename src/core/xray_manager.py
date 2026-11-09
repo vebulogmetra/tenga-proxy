@@ -22,7 +22,6 @@ from src.core.config import (
 from src.core.geo import ASSET_ENV, asset_dir_for_core
 from src.core.log_redaction import RedactingFormatter
 from src.core.logging_utils import daily_file_handler
-from src.core.performance import measure_time
 from src.core.platform_info import no_window
 from src.core.stats_endpoint import StatsEndpoint
 
@@ -85,6 +84,7 @@ class XrayManager:
         binary_path: str | None = None,
         stats_api_addr: str = DEFAULT_STATS_API_ADDR,
         stats_api_token: str = DEFAULT_STATS_API_TOKEN,
+        startup_ready: Callable[[dict], bool] | None = None,
     ):
         """
         Initialize manager.
@@ -94,6 +94,7 @@ class XrayManager:
                         (first core/bin/xray, then system)
             stats_api_addr: Stats API address (host:port for HTTP or host:port for gRPC)
             stats_api_token: Token for Stats API authentication
+            startup_ready: Optional readiness probe; used by the Windows TUN service
         """
         if binary_path is None:
             binary_path = find_xray_binary()
@@ -103,6 +104,7 @@ class XrayManager:
                     "it is available in PATH or in core/bin/ directory"
                 )
 
+        self._startup_ready = startup_ready
         self._binary_path = binary_path
         self._stats_endpoint = StatsEndpoint()
         self._stats_api_addr = stats_api_addr
@@ -134,10 +136,13 @@ class XrayManager:
             return None
         return {**os.environ, ASSET_ENV: str(asset_dir)}
 
-    def _wait_for_process_ready(self, timeout: float = 2.0) -> bool:
+    def _wait_for_process_ready(
+        self, timeout: float = 2.0, ready: Callable[[], bool] | None = None
+    ) -> bool:
         """Wait for xray process to be ready.
 
-        Uses active polling instead of blocking sleep.
+        With a readiness probe, returns as soon as the core is ready.
+        Without a probe, retains the survival window used by existing callers.
 
         Args:
             timeout: Maximum time to wait in seconds
@@ -145,20 +150,17 @@ class XrayManager:
         Returns:
             True if process is ready, False if it failed
         """
-        start = time.time()
-        while time.time() - start < timeout:
-            if self._process is None:
+        deadline = time.monotonic() + timeout
+        while True:
+            if self._process is None or self._process.poll() is not None:
                 return False
-
-            # Check if process exited
-            if self._process.poll() is not None:
-                return False
-
-            # Small sleep to avoid busy waiting
-            time.sleep(0.1)
-
-        # Process is still running after timeout
-        return True
+            if ready is not None and ready():
+                return self._process.poll() is None
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                # Старый режим без пробы: проверяем только выживание процесса.
+                return ready is None
+            time.sleep(min(0.05, remaining))
 
     @property
     def binary_path(self) -> str:
@@ -268,7 +270,6 @@ class XrayManager:
 
         return config
 
-    @measure_time("XrayManager.start")
     def start(self, config: dict[str, Any]) -> tuple[bool, str]:
         """
         Start xray-core with configuration.
@@ -319,8 +320,16 @@ class XrayManager:
             )
             self._log_pump.start()
 
-            if not self._wait_for_process_ready(timeout=2.0) or not self._survived_startup():
-                self._cleanup()
+            ready = (
+                (lambda: self._stats_endpoint.is_ready() and self._startup_ready(config))
+                if self._startup_ready
+                else None
+            )
+            if (
+                not self._wait_for_process_ready(timeout=5.0 if ready else 2.0, ready=ready)
+                or not self._survived_startup()
+            ):
+                self.stop()
                 return False, f"xray-core exited with error: see log file: {XRAY_LOG_FILE}"
 
             # Check that Stats API is available (optional - xray may not have HTTP API enabled)
@@ -332,7 +341,7 @@ class XrayManager:
             self._cleanup()
             return False, f"Binary not found: {self._binary_path}"
         except Exception as e:
-            self._cleanup()
+            self.stop()
             return False, f"Startup error: {e}"
 
     def _core_logger(self) -> logging.Logger:

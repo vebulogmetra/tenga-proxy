@@ -39,11 +39,12 @@ def _restrict(directory: Path) -> None:
 
 def build_state():
     from src.core.xray_manager import XrayManager
+    from src.sys.windows.iphelper import tun_ready
     from src.winsvc.journal import Journal
     from src.winsvc.netops import NetOps
     from src.winsvc.state import ServiceState
 
-    runner = XrayManager(binary_path=None)
+    runner = XrayManager(binary_path=None, startup_ready=tun_ready)
     state = ServiceState(
         runner=runner, net=NetOps(), journal=Journal(data_dir() / "svc-state.json")
     )
@@ -71,7 +72,7 @@ def run(stop_event: threading.Event) -> None:
     while not stop_event.wait(1.0):
         state.tick()
     server.stop()
-    state.core_stop()
+    state.close()
 
 
 def framework_class():

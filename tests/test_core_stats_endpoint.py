@@ -82,3 +82,17 @@ def test_windows_stats_listen_on_loopback_port(monkeypatch):
     assert endpoint.address == f"127.0.0.1:{settings['port']}"
     endpoint.close()
     assert endpoint._port is None
+
+
+def test_readiness_probe_handles_unavailable_listener(monkeypatch):
+    from src.core import platform_info, stats_endpoint
+
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
+    endpoint = stats_endpoint.StatsEndpoint()
+    endpoint._port = 12345
+
+    def refuse(*_args, **_kwargs):
+        raise ConnectionRefusedError("not listening")
+
+    monkeypatch.setattr(stats_endpoint.socket, "create_connection", refuse)
+    assert not endpoint.is_ready()
