@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.server
 import shutil
 import socket
+import sys
 import threading
 import time
 from pathlib import Path
@@ -597,6 +598,7 @@ def test_batch_core_cleans_up_its_config_file(monkeypatch):
     assert not written[0].exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="сценарий оболочки вместо xray")
 def test_every_profile_gets_core_failed_when_the_core_does_not_start(monkeypatch, tmp_path):
     # Проверку `-test` ядро «прошло», а процесс пишет ошибку и сразу завершается.
     monkeypatch.setattr(batch_probe, "core_check", lambda *_: (True, ""))
