@@ -13,6 +13,7 @@ FACADES = [
     "vpn",
     "resolver",
     "netbind",
+    "netwatch",
     "tun_route",
     "tun_dns",
     "tun_access",

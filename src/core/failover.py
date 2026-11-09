@@ -78,12 +78,14 @@ class FailoverController:
         switch_to: Callable[[int], None],
         notify: Callable[[str], None],
         network_available: Callable[[], bool] = lambda: True,
+        suspended: Callable[[], bool] = lambda: False,
         now: Callable[[], float] = time.monotonic,
     ) -> None:
         self._context = context
         self._switch_to = switch_to
         self._notify = notify
         self._network_available = network_available
+        self._suspended = suspended
         self._now = now
         self._profile_id = -1
         self._failures = 0
@@ -113,8 +115,9 @@ class FailoverController:
             self._exhausted = False
             return
 
-        if not self._network_available():
-            # Сети нет вовсе: сервер тут ни при чём, перебирать профили незачем.
+        if not self._network_available() or self._suspended():
+            # Сети нет вовсе или идёт восстановление после сна и смены сети:
+            # сервер тут ни при чём, перебирать профили незачем.
             self._failures = 0
             return
 

@@ -92,6 +92,7 @@ class Harness:
         self.messages: list[str] = []
         self.clock = 1000.0
         self.online = True
+        self.recovering = False
         self.state = SimpleNamespace(is_running=True, started_profile_id=current)
         self.monitoring = SimpleNamespace(failover_enabled=enabled, failover_threshold=threshold)
         context = SimpleNamespace(
@@ -109,6 +110,7 @@ class Harness:
             switch_to=self._switch,
             notify=self.messages.append,
             network_available=lambda: self.online,
+            suspended=lambda: self.recovering,
             now=lambda: self.clock,
         )
 
@@ -175,6 +177,22 @@ def test_failures_without_network_are_not_blamed_on_the_server():
     harness.feed(SILENT, SILENT, SILENT, SILENT)
 
     assert harness.switched == []
+
+
+def test_failures_during_network_recovery_are_not_counted():
+    harness = Harness([profile(1, 50), profile(2, 80)])
+    harness.feed(SILENT, SILENT)
+    harness.recovering = True
+
+    harness.feed(SILENT, SILENT, SILENT)
+    assert harness.switched == []
+
+    # После окна счёт начинается заново, прежние неудачи не в счёт.
+    harness.recovering = False
+    harness.feed(SILENT, SILENT)
+    assert harness.switched == []
+    harness.feed(SILENT)
+    assert harness.switched == [2]
 
 
 def test_candidates_come_only_from_the_group_of_the_active_profile():
