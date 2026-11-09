@@ -46,6 +46,7 @@ from src.ui.logic.platform_texts import (
 from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TUN_NAME,
+    FAILOVER_SUBTITLE,
     LOG_LEVELS,
     SAVE_FAILED,
     SAVE_IDLE,
@@ -324,6 +325,7 @@ class SettingsDialog(QDialog):
         form = QFormLayout(failover)
         form.addRow(hint("Если сервер перестал отвечать, подключается другой сервер той же группы"))
         self.failover_check = check("Переключаться автоматически")
+        self.failover_check.setToolTip(FAILOVER_SUBTITLE)
         self.failover_check.toggled.connect(self._sync_monitoring)
         form.addRow(self.failover_check)
         self.failover_threshold_spin = spin(1, 10)

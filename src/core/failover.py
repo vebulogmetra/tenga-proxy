@@ -18,6 +18,9 @@ logger = logging.getLogger("tenga.core.failover")
 
 # Сколько не возвращаться к профилю, который только что перестал отвечать.
 RECENT_FAILURE_TTL_SECONDS = 15 * 60
+# Фоновый перезамер группы активного сервера при включённом автопереключении.
+AUTO_REPROBE_MINUTES = 15
+AUTO_REPROBE_LIMIT = 30
 
 
 def rank_candidates(
@@ -50,6 +53,19 @@ def pick_candidate(
     """Профиль, на который переключаться: первый по `rank_candidates`."""
     ordered = rank_candidates(profiles, excluded=excluded, now=now)
     return ordered[0] if ordered else None
+
+
+def reprobe_targets(
+    profiles: Sequence[Any], *, active_id: int, limit: int, now: float | None = None
+) -> list[int]:
+    """Кого перемерять в фоне: активный, затем по `rank_candidates`, не больше `limit`.
+
+    Большая подписка перемеряется не целиком: фоновая работа не растёт вместе с ней.
+    """
+    ordered = rank_candidates(profiles, excluded={active_id}, now=now)
+    ids = [profile.id for profile in profiles if profile.id == active_id]
+    ids.extend(profile.id for profile in ordered)
+    return ids[: max(0, limit)]
 
 
 class FailoverController:

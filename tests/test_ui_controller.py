@@ -1750,3 +1750,101 @@ def test_connect_best_keeps_the_session_when_it_is_already_the_best(made):
 
     assert calls == []
     assert shell.last_toast == f"Уже подключён лучший сервер: {best.name}"
+
+
+# --- фоновый перезамер ---
+
+
+class Clock:
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
+def _reprobing(made, *, failover=True):
+    from src.core.failover import AUTO_REPROBE_MINUTES
+
+    controller, shell, loop = made
+    controller.context.config.monitoring.failover_enabled = failover
+    clock = Clock()
+    controller._monotonic = clock
+    group = controller.add_group("G")
+    active = add_profile(controller, group_id=group.id)
+    other = add_profile(controller, group_id=group.id)
+    probed = []
+    controller.set_latency_probe(lambda pid: probed.append(pid) or 70)
+    controller.context.proxy_state.set_running(active.id, mode="proxy")
+    # Первый вызов запоминает начало сеанса, замер — через интервал.
+    assert controller.maybe_auto_reprobe() is False
+    clock.now += AUTO_REPROBE_MINUTES * 60
+    return controller, shell, clock, active, other, probed
+
+
+def test_background_reprobe_refreshes_the_group_without_switching(made):
+    controller, shell, _clock, active, other, probed = _reprobing(made)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+    shell.toasts.clear()
+
+    assert controller.maybe_auto_reprobe() is True
+    _wait_latency(controller)
+
+    assert sorted(probed) == sorted([active.id, other.id])
+    assert controller.context.profiles.get_profile(other.id).latency_ms == 70
+    assert calls == []
+    # Тихо: без тостов и пересортировки списка.
+    assert shell.toasts == []
+    assert ("sort_by_ping",) not in shell.calls
+    # Следующий — снова через интервал.
+    assert controller.maybe_auto_reprobe() is False
+
+
+def test_background_reprobe_needs_failover_and_a_session(made):
+    controller, _shell, _clock, _active, _other, probed = _reprobing(made, failover=False)
+
+    assert controller.maybe_auto_reprobe() is False
+    controller.context.config.monitoring.failover_enabled = True
+    controller.context.proxy_state.set_stopped()
+    assert controller.maybe_auto_reprobe() is False
+    assert probed == []
+
+
+def test_background_reprobe_waits_for_network_and_other_work(made):
+    controller, _shell, _clock, _active, _other, probed = _reprobing(made)
+    controller._network_available = lambda: False
+    assert controller.maybe_auto_reprobe() is False
+
+    controller._network_available = lambda: True
+    controller._subscription_busy = True
+    assert controller.maybe_auto_reprobe() is False
+
+    controller._subscription_busy = False
+    assert controller.maybe_auto_reprobe() is True
+    _wait_latency(controller)
+    assert probed
+
+
+def test_connecting_during_a_background_reprobe_discards_its_results(made):
+    import threading
+
+    controller, _shell, _clock, active, other, _probed = _reprobing(made)
+    release = threading.Event()
+
+    def slow_probe(_pid):
+        release.wait(5)
+        return 33
+
+    controller.set_latency_probe(slow_probe)
+    calls = []
+    controller.set_connection_service(FakeService(calls))
+
+    assert controller.maybe_auto_reprobe() is True
+    controller.connect_profile(other.id)
+    _wait(controller)
+    release.set()
+    _wait_latency(controller)
+
+    assert calls == [("connect", other.id)]
+    assert controller.context.profiles.get_profile(active.id).latency_ms != 33

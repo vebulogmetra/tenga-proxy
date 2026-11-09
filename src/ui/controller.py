@@ -23,7 +23,13 @@ from typing import TYPE_CHECKING, Any, Protocol
 from src import __app_name__
 from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
-from src.core.failover import FailoverController, rank_candidates
+from src.core.failover import (
+    AUTO_REPROBE_LIMIT,
+    AUTO_REPROBE_MINUTES,
+    FailoverController,
+    rank_candidates,
+    reprobe_targets,
+)
 from src.core.probe_result import ProbeResult, is_fresh
 from src.diag.assess import recommendations as rec
 from src.sys.app_install import can_self_update, launch_installer
@@ -61,6 +67,9 @@ BLOCK_RELEASED_AFTER_CRASH = "Прошлый сеанс завершился с�
 # Ядро, падающее снова сразу после перезапуска, перезапускать бесполезно.
 BEST_NONE_ANSWERED = "Ни один сервер группы не ответил"
 BEST_ALREADY_ACTIVE = "Уже подключён лучший сервер: {name}"
+
+# Как часто проверять, не пора ли фоновому перезамеру (интервал — AUTO_REPROBE_MINUTES).
+AUTO_REPROBE_TICK_MS = 60_000
 
 CORE_RESTART_COOLDOWN = 60.0
 VPN_WATCH_INTERVAL_MS = 5000
@@ -219,6 +228,12 @@ class AppController:
         self.app_update_thread = None
         self._app_release_fetcher = None
         self._diagnostics: DiagnosticsSession | None = None
+        self._reprobe_watch: object | None = None
+        self._reprobe_session: int | None = None
+        self._reprobe_last = 0.0
+        self._reprobe_running = False
+        self._reprobe_discarded = False
+        self._monotonic: Callable[[], float] = time.monotonic
 
     # --- сообщения ---
 
@@ -246,6 +261,9 @@ class AppController:
         if self._vpn_watch is not None:
             self._loop.cancel(self._vpn_watch)
             self._vpn_watch = None
+        if self._reprobe_watch is not None:
+            self._loop.cancel(self._reprobe_watch)
+            self._reprobe_watch = None
         if self._connection_service is not None:
             self._connection_service.shutdown(self.connection_thread)
 
@@ -416,7 +434,11 @@ class AppController:
 
     def connect_profile(self, profile_id: int) -> None:
         """Start the proxy for one profile in the background."""
-        if self.latency_runner is not None and self.latency_runner.is_busy:
+        if self._reprobe_running:
+            # Фоновый перезамер не держит подключение (иначе failover ждал бы его),
+            # а его результаты после смены сеанса не в счёт: сеть менялась на ходу.
+            self._reprobe_discarded = True
+        elif self.latency_runner is not None and self.latency_runner.is_busy:
             self.toast("Дождитесь завершения проверки задержки")
             return
         profile = self.context.profiles.get_profile(profile_id)
@@ -681,6 +703,74 @@ class AppController:
             network_available=self._network_available,
         )
         monitor.set_on_status_changed(self._failover.handle_status)
+        if self._reprobe_watch is None:
+            self._reprobe_watch = self._loop.schedule(AUTO_REPROBE_TICK_MS, self._auto_reprobe_tick)
+
+    # --- фоновый перезамер ---
+
+    def _auto_reprobe_tick(self) -> bool:
+        self.maybe_auto_reprobe()
+        return True
+
+    def maybe_auto_reprobe(self) -> bool:
+        """Перемерить группу активного сервера, если пора; True — замер начат.
+
+        Только обновляет результаты для failover и «Подключить лучший»: рабочий
+        сервер не меняется, переключение рвало бы соединения пользователя.
+        """
+        state = self.context.proxy_state
+        if not self.context.config.monitoring.failover_enabled or not state.is_running:
+            self._reprobe_session = None
+            return False
+        now = self._monotonic()
+        if self._reprobe_session != state.started_profile_id:
+            # Новый сеанс: первый перезамер — через интервал после подключения.
+            self._reprobe_session = state.started_profile_id
+            self._reprobe_last = now
+            return False
+        if now - self._reprobe_last < AUTO_REPROBE_MINUTES * 60:
+            return False
+        if (
+            self.connection_busy()
+            or self._subscription_busy
+            or (self.latency_runner is not None and self.latency_runner.is_busy)
+            or not self._network_available()
+        ):
+            return False
+        active = self.context.profiles.get_profile(state.started_profile_id)
+        if active is None:
+            return False
+        ids = reprobe_targets(
+            self.context.profiles.get_profiles_in_group(active.group_id),
+            active_id=active.id,
+            limit=AUTO_REPROBE_LIMIT,
+            now=time.time(),
+        )
+        runner = self._ensure_latency_runner()
+        self._reprobe_discarded = False
+        if not runner.run(ids, on_result=self._on_reprobe_result, on_done=self._on_reprobe_done):
+            return False
+        self._reprobe_running = True
+        self._reprobe_last = now
+        logger.info("Background re-probe of group %s: %d servers", active.group_id, len(ids))
+        return True
+
+    def _on_reprobe_result(self, profile_id: int, result: ProbeResult | None) -> None:
+        if self._reprobe_discarded or result is None:
+            return
+        profile = self.context.profiles.get_profile(profile_id)
+        if profile is not None:
+            profile.apply_probe(result)
+
+    def _on_reprobe_done(self) -> None:
+        self._reprobe_running = False
+        if self._reprobe_discarded:
+            return
+        try:
+            self.context.save_profiles()
+        except Exception as e:
+            logger.warning("Could not persist background re-probe: %s", e)
+        self._shell.refresh_pages()
 
     # --- подписки ---
 

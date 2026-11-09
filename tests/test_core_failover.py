@@ -237,3 +237,22 @@ def test_stopped_proxy_resets_the_count():
     harness.feed(SILENT, SILENT)
 
     assert harness.switched == []
+
+
+# --- фоновый перезамер ---
+
+
+def test_reprobe_targets_start_with_the_active_one_and_respect_the_limit():
+    from src.core.failover import reprobe_targets
+
+    now = 10_000_000.0
+    profiles = [
+        profile(1, -1),
+        profile(2, 300, checked_at=int(now)),
+        profile(3, 50, checked_at=int(now)),
+        profile(4, 90),
+        profile(5, 80, checked_at=int(now)),
+    ]
+
+    assert reprobe_targets(profiles, active_id=2, limit=3, now=now) == [2, 3, 5]
+    assert reprobe_targets(profiles, active_id=2, limit=10, now=now) == [2, 3, 5, 4, 1]

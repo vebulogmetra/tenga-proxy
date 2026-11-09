@@ -6,6 +6,7 @@ import ipaddress
 import re
 from urllib.parse import urlsplit
 
+from src.core.failover import AUTO_REPROBE_MINUTES
 from src.db.config import TlsFragmentSettings
 from src.sub.url_policy import SubscriptionPolicyError, validate_url
 
@@ -23,6 +24,9 @@ SETTINGS_SECTIONS = (
     ("subscriptions", "Подписки", "subscriptions"),
     ("about", "О программе", "about"),
 )
+
+# Подзаголовок автопереключения: заодно включает фоновый перезамер группы.
+FAILOVER_SUBTITLE = f"Задержка серверов группы перемеряется раз в {AUTO_REPROBE_MINUTES} минут"
 
 # Строка статуса окна настроек.
 SAVE_IDLE = "Изменения сохраняются автоматически"

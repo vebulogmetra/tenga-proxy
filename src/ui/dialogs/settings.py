@@ -32,6 +32,7 @@ from src.ui.logic.routing_form import current_catalog, geo_summary
 from src.ui.logic.settings_form import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_TUN_NAME,
+    FAILOVER_SUBTITLE,
     LOG_LEVELS,
     SAVE_IDLE,
     SAVE_PENDING,
@@ -366,7 +367,9 @@ class SettingsDialog(Adw.Dialog):
         )
         page.add(failover)
 
-        self.failover_row = Adw.SwitchRow(title="Переключаться автоматически")
+        self.failover_row = Adw.SwitchRow(
+            title="Переключаться автоматически", subtitle=FAILOVER_SUBTITLE
+        )
         self.failover_row.connect("notify::active", lambda *_: self._sync_monitoring())
         failover.add(self.failover_row)
 
