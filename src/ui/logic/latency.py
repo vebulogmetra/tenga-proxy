@@ -14,14 +14,17 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from src.core.batch_probe import ProbeRoute
+from src.core.probe_result import ProbeFailure, ProbeResult
 from src.sys import netbind
 from src.sys.resolver import system_dns_servers
 
 logger = logging.getLogger("tenga.ui.latency")
 
-ProbeFn = Callable[[int], int]
-ResultFn = Callable[[int, int], None]
-BatchProbeFn = Callable[[list[int], ResultFn], None]
+# Проба одного профиля — подмена в тестах; может вернуть и число, как раньше.
+ProbeFn = Callable[[int], "ProbeResult | int"]
+# None — замер прервался ошибкой нашего кода: о сервере он ничего не узнал.
+ResultFn = Callable[[int, "ProbeResult | None"], None]
+BatchProbeFn = Callable[[list[int], Callable[[int, "ProbeResult | int"], None]], None]
 DispatchFn = Callable[..., object]
 
 
@@ -36,6 +39,15 @@ def _default_dispatch(fn: Callable[..., object], *args: object) -> None:
 
 
 PROBE_UNAVAILABLE = "Замер при активном TUN недоступен: нет маршрута мимо туннеля"
+
+
+def as_probe_result(value: ProbeResult | int) -> ProbeResult:
+    """Результат пробы; число от подставной пробы: < 0 — отказ, иначе задержка."""
+    if isinstance(value, ProbeResult):
+        return value
+    if int(value) < 0:
+        return ProbeResult.failed(ProbeFailure.UNREACHABLE)
+    return ProbeResult.ok(int(value))
 
 
 class ProbeUnavailable(RuntimeError):
@@ -73,10 +85,10 @@ def make_batch_probe(
 
     Контекст читается в момент замера, а не при создании: список профилей, настройки и
     режим сеанса к этому времени могли измениться. `on_unavailable` получает текст отказа,
-    когда пути мимо туннеля нет; профили при этом получают -1 от `LatencyRunner`.
+    когда пути мимо туннеля нет; результата профили при этом не получают, прежний остаётся.
     """
 
-    def batch_probe(profile_ids: list[int], emit: ResultFn) -> None:
+    def batch_probe(profile_ids: list[int], emit: Callable[[int, ProbeResult], None]) -> None:
         from src.core.batch_probe import probe_profiles
 
         try:
@@ -192,16 +204,16 @@ class LatencyRunner:
             self._busy = True
             self.last_run_complete = True
 
-        def _safe_probe(profile_id: int) -> int:
+        def _safe_probe(profile_id: int) -> ProbeResult | None:
             # BaseException too: anything escaping here would propagate out of
             # pool.map and abort the delivery of every remaining result, leaving
             # those profiles stuck on the "testing" placeholder forever.
             try:
-                return int(self._probe(profile_id))
+                return as_probe_result(self._probe(profile_id))
             except BaseException as e:
                 self.last_run_complete = False
                 logger.exception("Latency probe failed for profile %s: %s", profile_id, e)
-                return -1
+                return None
 
         def _finished() -> None:
             # Released here rather than in the worker: until this runs, on_done
@@ -214,11 +226,11 @@ class LatencyRunner:
         def _run_batch() -> None:
             reported: set[int] = set()
 
-            def emit(profile_id: int, latency_ms: int) -> None:
+            def emit(profile_id: int, result: ProbeResult | int) -> None:
                 if profile_id in reported:
                     return
                 reported.add(profile_id)
-                self._dispatch(on_result, profile_id, int(latency_ms))
+                self._dispatch(on_result, profile_id, as_probe_result(result))
 
             try:
                 self._batch_probe(ids, emit)
@@ -227,16 +239,17 @@ class LatencyRunner:
                 logger.exception("Batch latency probe failed: %s", e)
             finally:
                 # Что бы ни случилось с замером, ни один профиль не должен
-                # остаться с заглушкой «проверяется».
+                # остаться с заглушкой «проверяется». None, а не отказ: сбой
+                # замера не говорит, что сервер не работает.
                 for profile_id in ids:
                     if profile_id not in reported:
-                        self._dispatch(on_result, profile_id, -1)
+                        self._dispatch(on_result, profile_id, None)
 
         def _run_pool() -> None:
             with ThreadPoolExecutor(max_workers=self._max_workers) as pool:
                 probes = pool.map(_safe_probe, ids)
-                for profile_id, latency in zip(ids, probes, strict=True):
-                    self._dispatch(on_result, profile_id, latency)
+                for profile_id, result in zip(ids, probes, strict=True):
+                    self._dispatch(on_result, profile_id, result)
 
         def _worker() -> None:
             try:
@@ -257,12 +270,27 @@ class LatencyRunner:
             self._thread.join(timeout)
 
 
-def failed_profile_ids(profile_ids, results, *, complete, active_id=None):
+def failed_profile_ids(
+    profile_ids: Iterable[int],
+    results: Mapping[int, ProbeResult | None],
+    *,
+    complete: bool,
+    active_id: int | None = None,
+) -> list[int]:
+    """Серверы, отказавшие при полном замере, в котором хоть один ответил.
+
+    Пропуск или None у любого профиля — замер неполный, и удалять нечего.
+    """
     ids = list(profile_ids)
     if (
         not complete
         or set(ids) != set(results)
-        or not any(value >= 0 for value in results.values())
+        or any(result is None for result in results.values())
+        or not any(result.succeeded for result in results.values())
     ):
         return []
-    return [profile_id for profile_id in ids if results[profile_id] < 0 and profile_id != active_id]
+    return [
+        profile_id
+        for profile_id in ids
+        if results[profile_id].failure is not None and profile_id != active_id
+    ]

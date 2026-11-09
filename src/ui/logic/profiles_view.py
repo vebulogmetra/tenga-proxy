@@ -8,15 +8,33 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
+from src.core.probe_result import PROBE_TIMEOUT_SECONDS, ProbeFailure
 from src.ui.logic.country_flags import split_flag_prefix
 
 SUBSCRIPTION_ICON = "network-server-symbolic"
 GROUP_ICON = "folder-symbolic"
 
 UNKNOWN_PING = "—"
+
+# Отказ при проверке: короткая метка справа в строке и первая строка подсказки.
+FAILURE_LABELS = {
+    ProbeFailure.TIMEOUT: "нет ответа",
+    ProbeFailure.UNREACHABLE: "нет связи",
+}
+FAILURE_LABEL = "ошибка"
+FAILURE_REASONS = {
+    ProbeFailure.TIMEOUT: f"Сервер не ответил за {PROBE_TIMEOUT_SECONDS} с",
+    ProbeFailure.UNREACHABLE: "Ядро не смогло соединиться с сервером",
+    ProbeFailure.BAD_RESPONSE: "Неожиданный ответ при проверке",
+    ProbeFailure.INVALID_CONFIG: "Параметры сервера не собираются в конфигурацию",
+    ProbeFailure.REJECTED: "Ядро отвергло параметры сервера",
+    ProbeFailure.CORE_FAILED: "Не удалось запустить ядро для проверки",
+}
+CHECKED_PREFIX = "Проверено: "
 
 EMPTY_TITLE = "Серверов пока нет"
 EMPTY_DESCRIPTION = "Добавьте сервер по ссылке или подключите подписку."
@@ -45,6 +63,9 @@ class ProfileRow:
     address: str
     latency_ms: int
     is_active: bool
+    probe_failure: ProbeFailure | None = None
+    probe_detail: str = ""
+    checked_at: int = 0
 
 
 @dataclass(frozen=True)
@@ -62,16 +83,56 @@ class GroupRow:
         return len(self.children)
 
 
-def ping_text(latency_ms: int) -> str:
-    """Render a latency value, including the "not measured" case."""
-    if latency_ms is None or latency_ms < 0:
+def ping_is_failure(row: ProfileRow) -> bool:
+    """Сервер не прошёл последний замер: метка рисуется цветом ошибки."""
+    return row.probe_failure is not None
+
+
+def ping_text(row: ProfileRow) -> str:
+    """Задержка, метка отказа или «—», если проверки не было."""
+    if row.probe_failure is not None:
+        return FAILURE_LABELS.get(row.probe_failure, FAILURE_LABEL)
+    if row.latency_ms is None or row.latency_ms < 0:
         return UNKNOWN_PING
-    return f"{latency_ms} мс"
+    return f"{row.latency_ms} мс"
+
+
+def checked_text(checked_at: int, now: float) -> str:
+    """Когда был замер: «только что», «5 мин назад», «3 ч назад» или дата."""
+    age = int(now) - int(checked_at)
+    if age < 60:
+        return "только что"
+    if age < 3600:
+        return f"{age // 60} мин назад"
+    if age < 86400:
+        return f"{age // 3600} ч назад"
+    return datetime.fromtimestamp(checked_at).strftime("%d.%m.%Y %H:%M")
+
+
+def ping_tooltip(row: ProfileRow, now: float) -> str:
+    """Подсказка к задержке: причина отказа, время проверки и текст ядра.
+
+    Пустая строка — подсказки нет: сервер не проверялся.
+    """
+    lines: list[str] = []
+    if row.probe_failure is not None:
+        lines.append(FAILURE_REASONS.get(row.probe_failure, ""))
+    elif row.latency_ms is None or row.latency_ms < 0:
+        return ""
+    if row.checked_at > 0:
+        lines.append(CHECKED_PREFIX + checked_text(row.checked_at, now))
+    if row.probe_failure is not None and row.probe_detail:
+        lines.append(row.probe_detail)
+    return "\n".join(line for line in lines if line)
 
 
 def _latency_of(profile: Any) -> int:
     latency = getattr(profile, "latency_ms", -1)
     return -1 if latency is None else int(latency)
+
+
+def _failure_of(profile: Any) -> ProbeFailure | None:
+    return getattr(profile, "probe_failure", None)
 
 
 def _matches(profile: Any, query: str) -> bool:
@@ -93,14 +154,18 @@ def _sorted_profiles(profiles: list[Any], sort_key: SortKey, ascending: bool) ->
         )
 
     if sort_key is SortKey.PING:
-        # Непроверенные профили остаются в конце в обоих направлениях: сортировка
-        # одним ключом с reverse переставила бы прочерки в начало убывающего
+        # Отказавшие и непроверенные остаются в конце в обоих направлениях:
+        # сортировка одним ключом с reverse переставила бы их в начало убывающего
         # порядка, и колонка «Задержка» начиналась бы с пустых значений.
-        measured = [p for p in profiles if _latency_of(p) >= 0]
-        untested = [p for p in profiles if _latency_of(p) < 0]
+        def by_name(p: Any) -> str:
+            return (p.name or "").lower()
+
+        failed = sorted((p for p in profiles if _failure_of(p) is not None), key=by_name)
+        rest = [p for p in profiles if _failure_of(p) is None]
+        measured = [p for p in rest if _latency_of(p) >= 0]
+        untested = sorted((p for p in rest if _latency_of(p) < 0), key=by_name)
         measured.sort(key=_latency_of, reverse=not ascending)
-        untested.sort(key=lambda p: (p.name or "").lower())
-        return measured + untested
+        return measured + failed + untested
 
     return sorted(profiles, key=lambda p: (p.name or "").lower(), reverse=not ascending)
 
@@ -152,6 +217,9 @@ def build_profile_rows(
                 address=getattr(getattr(profile, "bean", None), "display_address", "") or "",
                 latency_ms=_latency_of(profile),
                 is_active=profile.id == active_profile_id,
+                probe_failure=_failure_of(profile),
+                probe_detail=getattr(profile, "probe_detail", "") or "",
+                checked_at=int(getattr(profile, "checked_at", 0) or 0),
             )
             for profile in _sorted_profiles(visible, sort_key, ascending)
         )

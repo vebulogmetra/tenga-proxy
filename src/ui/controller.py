@@ -24,10 +24,11 @@ from src import __app_name__
 from src.core.core_pid import take_block_released
 from src.core.core_update import is_check_due, refresh_known_releases
 from src.core.failover import FailoverController
+from src.core.probe_result import ProbeResult
 from src.diag.assess import recommendations as rec
 from src.sys.app_install import can_self_update, launch_installer
 from src.ui.logic.async_utils import run_in_background
-from src.ui.logic.latency import LatencyRunner, PingProgress, make_batch_probe
+from src.ui.logic.latency import LatencyRunner, PingProgress, ProbeFn, make_batch_probe
 from src.ui.logic.status import BLOCKED_BANNER, ConnectionState, is_traffic_blocked
 from src.ui.logic.subscriptions_view import describe_update_error, describe_url_change
 from src.ui.logic.version import app_version
@@ -190,7 +191,7 @@ class AppController:
 
         # Потоки и раннер публичные: приложение ждёт их в тестовых помощниках.
         self.latency_runner: LatencyRunner | None = None
-        self._latency_probe: Callable[[int], int] | None = None
+        self._latency_probe: ProbeFn | None = None
         self._latency_refresh_handle: object | None = None
         self._ping_progress: PingProgress | None = None
         self._subscription_updater: Callable[[int, str], int] | None = None
@@ -956,7 +957,7 @@ class AppController:
 
     # --- замер задержки ---
 
-    def set_latency_probe(self, probe: Callable[[int], int]) -> None:
+    def set_latency_probe(self, probe: ProbeFn) -> None:
         """Install the function measuring one profile's latency.
 
         Проба передаётся снаружи: она живёт на уровне ядра и требует запуска
@@ -1023,7 +1024,7 @@ class AppController:
             removable = failed_profile_ids(
                 ids, results, complete=True, active_id=self.context.proxy_state.started_profile_id
             )
-            working = sum(value >= 0 for value in results.values())
+            working = sum(r is not None and r.succeeded for r in results.values())
             if not removable:
                 self.toast(f"Рабочих: {working} из {len(ids)}. Серверы не удалены")
                 return
@@ -1127,10 +1128,12 @@ class AppController:
         self._ping_progress = progress
         self._shell.set_ping_progress(progress)
 
-    def _on_latency_result(self, profile_id: int, latency_ms: int) -> None:
+    def _on_latency_result(self, profile_id: int, result: ProbeResult | None) -> None:
+        # None — замер сорвался не по вине сервера: прежний результат остаётся,
+        # а прогресс всё равно учитывается, чтобы заглушка «проверяется» ушла.
         profile = self.context.profiles.get_profile(profile_id)
-        if profile is not None:
-            profile.latency_ms = latency_ms
+        if profile is not None and result is not None:
+            profile.apply_probe(result)
 
         if self._ping_progress is None:
             return
@@ -1138,14 +1141,14 @@ class AppController:
         if group_id is not None:
             self._shell.update_group_progress(group_id)
 
-    def _on_latency_result_live(self, profile_id: int, latency_ms: int) -> None:
+    def _on_latency_result_live(self, profile_id: int, result: ProbeResult | None) -> None:
         """Store one result and schedule a re-sort of the list.
 
         Перерисовка склеивается по таймеру: список должен пересортировываться
         по ходу замера, но на группе в сотни профилей построчный refresh занял
         бы секунды главного цикла и превратил бы обновление в рывки.
         """
-        self._on_latency_result(profile_id, latency_ms)
+        self._on_latency_result(profile_id, result)
         self._schedule_latency_refresh()
 
     def _schedule_latency_refresh(self) -> None:

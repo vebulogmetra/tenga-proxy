@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import re
 import socket
 import subprocess
 import tempfile
@@ -26,9 +27,10 @@ from src.core.http_probe import (
     ProbeCredentials,
     ProbeEndpoint,
     build_probe_inbound,
-    measure_latency,
+    probe_latency,
 )
 from src.core.platform_info import no_window
+from src.core.probe_result import PROBE_TIMEOUT_SECONDS, ProbeFailure, ProbeResult, clip_detail
 from src.core.sockopt import bind_to_interface, is_ip, is_loopback, mark_socket, resolve_in_core
 from src.core.transport_tweaks import apply_transport_tweaks
 
@@ -53,7 +55,9 @@ START_TIMEOUT_SECONDS = 5.0
 DIRECT_TAG = "direct"
 PROBE_DNS_TAG = "probe-dns"
 
-ResultFn = Callable[[int, int], None]
+ResultFn = Callable[[int, ProbeResult], None]
+# Хвост вывода ядра, из которого берётся причина отказа.
+OUTPUT_TAIL_BYTES = 4096
 
 
 @dataclass(frozen=True)
@@ -89,24 +93,32 @@ def _route_past_tunnel(outbound: dict[str, Any], server: str, route: ProbeRoute)
         resolve_in_core(outbound)
 
 
-def build_probe_outbound(profile: ProfileEntry, settings: DataStore) -> dict[str, Any] | None:
+def build_probe_outbound_or_error(
+    profile: ProfileEntry, settings: DataStore
+) -> tuple[dict[str, Any] | None, str]:
     """Outbound профиля с теми же надстройками транспорта, что и в рабочей сессии.
 
-    None — профиль собрать нельзя: в пакет он не попадает и сразу получает -1.
+    Без outbound'а — текст, почему профиль не собрался: в пакет он не попадает
+    и сразу получает `INVALID_CONFIG`.
     """
     try:
         result = profile.bean.build_core_obj_xray()
     except Exception as e:
         logger.warning("Profile %s cannot be built for probing: %s", profile.id, e)
-        return None
+        return None, str(e) or type(e).__name__
 
     if result.get("error") or not result.get("outbound"):
         logger.info("Profile %s skipped by probe: %s", profile.id, result.get("error"))
-        return None
+        return None, str(result.get("error") or "нет outbound")
 
     outbound = result["outbound"]
     apply_transport_tweaks(outbound, settings)
-    return outbound
+    return outbound, ""
+
+
+def build_probe_outbound(profile: ProfileEntry, settings: DataStore) -> dict[str, Any] | None:
+    """Outbound профиля для замера; None — профиль собрать нельзя."""
+    return build_probe_outbound_or_error(profile, settings)[0]
 
 
 def build_batch_probe_config(
@@ -173,8 +185,32 @@ def _write_config(config: dict[str, Any]) -> Path:
         return Path(f.name)
 
 
-def core_accepts(binary_path: str, config: dict[str, Any]) -> bool:
-    """Спросить у ядра, примет ли оно конфиг (`xray -test`). Портов не занимает."""
+# Звенья ошибки ядра, которые говорят о нашем конфиге, а не о сервере.
+_NOISE_SEGMENT = re.compile(
+    r"Failed to start|failed to load config files|with tag " + PROBE_OUTBOUND_PREFIX
+)
+
+
+def core_error_message(output: str | bytes) -> str:
+    """Последняя содержательная строка вывода ядра без пути к конфигу и тега.
+
+    Ядро склеивает причину через « > » от внешнего звена к внутреннему; звенья с
+    временным файлом и тегом `proxy-N` пользователю ничего не говорят.
+    """
+    if isinstance(output, bytes):
+        output = output.decode("utf-8", errors="replace")
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    if not lines:
+        return ""
+    segments = [part for part in lines[-1].split(" > ") if not _NOISE_SEGMENT.search(part)]
+    return clip_detail(" > ".join(segments) or lines[-1])
+
+
+def core_check(binary_path: str, config: dict[str, Any]) -> tuple[bool, str]:
+    """Спросить у ядра, примет ли оно конфиг (`xray -test`), и почему нет.
+
+    Портов не занимает.
+    """
     path = _write_config(config)
     try:
         result = subprocess.run(
@@ -186,11 +222,18 @@ def core_accepts(binary_path: str, config: dict[str, Any]) -> bool:
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         logger.warning("Core could not check the probe config: %s", e)
-        return False
+        return False, clip_detail(str(e))
     finally:
         path.unlink(missing_ok=True)
 
-    return result.returncode == 0
+    if result.returncode == 0:
+        return True, ""
+    return False, core_error_message((result.stdout or b"") + (result.stderr or b""))
+
+
+def core_accepts(binary_path: str, config: dict[str, Any]) -> bool:
+    """Примет ли ядро конфиг (`xray -test`)."""
+    return core_check(binary_path, config)[0]
 
 
 def split_accepted(
@@ -289,6 +332,18 @@ class BatchCore:
             time.sleep(0.05)
         return False
 
+    def output_tail(self) -> str:
+        """Что ядро успело написать: из этого видно, почему оно не запустилось."""
+        if self._output is None:
+            return ""
+        try:
+            self._output.flush()
+            size = self._output.seek(0, 2)
+            self._output.seek(max(0, size - OUTPUT_TAIL_BYTES))
+            return core_error_message(self._output.read())
+        except (OSError, ValueError):
+            return ""
+
     def __exit__(self, *_exc: object) -> None:
         if self._process is not None:
             if self._process.poll() is None:
@@ -315,14 +370,14 @@ def measure_targets(
     url: str,
     on_result: ResultFn,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    timeout: float = 3.0,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
     probes: int = 3,
 ) -> None:
     """Замерить профили параллельно, отдавая каждый результат сразу по готовности."""
 
-    def measure(port: int) -> int:
+    def measure(port: int) -> ProbeResult:
         endpoint = ProbeEndpoint(port, credentials)
-        return measure_latency(endpoint, url, timeout=timeout, probes=probes)
+        return probe_latency(endpoint, url, timeout=timeout, probes=probes)
 
     workers = max(1, min(max_workers, len(targets)))
     with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="tenga-probe") as pool:
@@ -332,11 +387,11 @@ def measure_targets(
         }
         for future in as_completed(futures):
             try:
-                latency = int(future.result())
+                result = future.result()
             except Exception as e:
                 logger.warning("Probe of profile %s failed: %s", futures[future], e)
-                latency = -1
-            on_result(futures[future], latency)
+                result = ProbeResult.failed(ProbeFailure.UNREACHABLE, f"{type(e).__name__}: {e}")
+            on_result(futures[future], result)
 
 
 def _probe_batch(
@@ -351,27 +406,37 @@ def _probe_batch(
     route: ProbeRoute | None,
 ) -> None:
     credentials = ProbeCredentials.generate()
+    # Причина отказа одиночного профиля: после деления пополам она его собственная.
+    reasons: dict[int, str] = {}
 
     def accepts(chunk: Sequence[ProbeTarget]) -> bool:
         # `-test` портов не открывает, поэтому настоящие здесь не нужны.
         ports = range(1024, 1024 + len(chunk))
-        return core_accepts(
+        ok, message = core_check(
             binary_path, build_batch_probe_config(chunk, ports, credentials, route=route)
         )
+        if not ok and len(chunk) == 1:
+            reasons[chunk[0].profile_id] = message
+        return ok
 
     accepted, rejected = split_accepted(targets, accepts)
     for target in rejected:
         logger.info("Profile %s rejected by the core, not probed", target.profile_id)
-        on_result(target.profile_id, -1)
+        on_result(
+            target.profile_id,
+            ProbeResult.failed(ProbeFailure.REJECTED, reasons.get(target.profile_id, "")),
+        )
     if not accepted:
         return
 
+    core_output = ""
     for attempt in range(1, START_ATTEMPTS + 1):
         ports = reserve_ports(len(accepted))
         config = build_batch_probe_config(accepted, ports, credentials, route=route)
         with BatchCore(binary_path, config) as core:
             if not core.wait_ready(ports):
                 logger.warning("Probe core did not start (attempt %d/%d)", attempt, START_ATTEMPTS)
+                core_output = core.output_tail() or core_output
                 continue
             measure_targets(
                 accepted,
@@ -385,8 +450,9 @@ def _probe_batch(
             )
             return
 
+    failure = ProbeResult.failed(ProbeFailure.CORE_FAILED, core_output)
     for target in accepted:
-        on_result(target.profile_id, -1)
+        on_result(target.profile_id, failure)
 
 
 def probe_targets(
@@ -396,7 +462,7 @@ def probe_targets(
     on_result: ResultFn,
     url: str = LATENCY_TEST_URL,
     max_workers: int = DEFAULT_MAX_WORKERS,
-    timeout: float = 3.0,
+    timeout: float = PROBE_TIMEOUT_SECONDS,
     probes: int = 3,
     route: ProbeRoute | None = None,
 ) -> None:
@@ -425,14 +491,14 @@ def probe_profiles(
 ) -> None:
     """Замерить задержку профилей одним процессом ядра.
 
-    `on_result(profile_id, latency_ms)` вызывается по мере готовности, из
-    потока вызывающего; -1 — профиль не собрался, отвергнут ядром или не ответил.
+    `on_result(profile_id, result)` вызывается по мере готовности, из потока
+    вызывающего; у отказа в `ProbeResult` названа причина.
     """
     targets: list[ProbeTarget] = []
     for profile in profiles:
-        outbound = build_probe_outbound(profile, settings)
+        outbound, error = build_probe_outbound_or_error(profile, settings)
         if outbound is None:
-            on_result(profile.id, -1)
+            on_result(profile.id, ProbeResult.failed(ProbeFailure.INVALID_CONFIG, error))
             continue
         targets.append(ProbeTarget(profile.id, outbound, server=profile.bean.server_address))
 

@@ -19,7 +19,10 @@ from src.core.batch_probe import (
     ProbeTarget,
     build_batch_probe_config,
     build_probe_outbound,
+    build_probe_outbound_or_error,
     core_accepts,
+    core_check,
+    core_error_message,
     measure_targets,
     probe_profiles,
     probe_targets,
@@ -27,6 +30,7 @@ from src.core.batch_probe import (
     split_accepted,
 )
 from src.core.http_probe import ProbeCredentials
+from src.core.probe_result import ProbeFailure, ProbeResult
 from src.db.config import TlsFragmentSettings
 from src.db.data_store import DataStore
 from src.db.profiles import ProfileEntry
@@ -95,6 +99,19 @@ def test_probe_outbound_is_none_when_the_bean_raises():
     profile = ProfileEntry(id=1, group_id=0, bean=Broken())  # type: ignore[arg-type]
 
     assert build_probe_outbound(profile, DataStore()) is None
+
+
+def test_probe_outbound_error_names_the_reason():
+    class Broken:
+        def build_core_obj_xray(self):
+            raise RuntimeError("boom")
+
+    profile = ProfileEntry(id=1, group_id=0, bean=Broken())  # type: ignore[arg-type]
+
+    assert build_probe_outbound_or_error(profile, DataStore()) == (None, "boom")
+    outbound, error = build_probe_outbound_or_error(entry(2, VLESS_H2), DataStore())
+    assert outbound is None
+    assert error
 
 
 # --- пакетный конфиг ---
@@ -240,14 +257,14 @@ def test_batch_builds_every_config_with_the_route(monkeypatch):
         return real(targets, ports, credentials, **kwargs)
 
     monkeypatch.setattr(batch_probe, "build_batch_probe_config", building)
-    monkeypatch.setattr(batch_probe, "core_accepts", lambda *_a, **_k: False)
+    monkeypatch.setattr(batch_probe, "core_check", lambda *_a, **_k: (False, "no"))
     results: dict = {}
 
     probe_targets(
         [target(1, VLESS_REMOTE)], binary_path="/x", on_result=results.__setitem__, route=ROUTE
     )
 
-    assert results == {1: -1}
+    assert results[1].failure is ProbeFailure.REJECTED
     assert routes and all(route is ROUTE for route in routes)
 
 
@@ -357,6 +374,51 @@ def test_split_accepted_finds_what_the_real_core_rejects():
     assert [t.profile_id for t in rejected] == [2]
 
 
+@needs_xray
+def test_core_check_explains_the_rejection_without_noise():
+    config = build_batch_probe_config([target(2, VLESS_BAD_REALITY)], [41001], CREDENTIALS)
+
+    ok, message = core_check(str(XRAY), config)
+
+    assert ok is False
+    assert "REALITY" in message
+    assert "tenga-probe-" not in message
+    assert "proxy-1" not in message
+
+
+def test_core_error_message_takes_the_last_meaningful_line():
+    output = (
+        b"Xray 26.9.9\n[Info] Reading config\n"
+        b"Failed to start: main: failed to load config files: [/tmp/tenga-probe-x.json] > "
+        b"infra/conf: failed to build outbound config with tag proxy-3 > "
+        b'infra/conf: invalid "password": abc\n\n'
+    )
+
+    assert core_error_message(output) == 'infra/conf: invalid "password": abc'
+    assert core_error_message(b"") == ""
+    assert core_error_message("plain error") == "plain error"
+
+
+def test_rejected_profile_gets_its_own_reason(monkeypatch):
+    def fake_check(_binary, config):
+        bad = [o for o in config["outbounds"] if o.get("protocol") == "bad"]
+        return (False, "bad outbound") if bad else (True, "")
+
+    monkeypatch.setattr(batch_probe, "core_check", fake_check)
+    monkeypatch.setattr(batch_probe.BatchCore, "wait_ready", lambda *_a, **_k: False)
+    monkeypatch.setattr(batch_probe.BatchCore, "output_tail", lambda _self: "")
+    monkeypatch.setattr(batch_probe, "START_ATTEMPTS", 1)
+    targets = [ProbeTarget(1, {"protocol": "freedom"}), ProbeTarget(2, {"protocol": "bad"})]
+    results: dict = {}
+
+    probe_targets(targets, binary_path="/nonexistent/xray", on_result=results.__setitem__)
+
+    assert results[2] == ProbeResult(
+        failure=ProbeFailure.REJECTED, checked_at=results[2].checked_at, detail="bad outbound"
+    )
+    assert results[1].failure is ProbeFailure.CORE_FAILED
+
+
 # --- запуск ядра и замер ---
 
 FREEDOM = {"protocol": "freedom"}
@@ -413,9 +475,9 @@ def test_measure_targets_reports_results_as_they_arrive(monkeypatch):
 
     def fake_measure(endpoint, url, **_kwargs):
         time.sleep(delays[endpoint.port])
-        return endpoint.port
+        return ProbeResult.ok(endpoint.port)
 
-    monkeypatch.setattr(batch_probe, "measure_latency", fake_measure)
+    monkeypatch.setattr(batch_probe, "probe_latency", fake_measure)
     order: list[int] = []
 
     measure_targets(
@@ -429,12 +491,12 @@ def test_measure_targets_reports_results_as_they_arrive(monkeypatch):
     assert order == [2, 3, 1]
 
 
-def test_measure_targets_turns_an_unexpected_error_into_minus_one(monkeypatch):
+def test_measure_targets_turns_an_unexpected_error_into_unreachable(monkeypatch):
     def broken(endpoint, url, **_kwargs):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(batch_probe, "measure_latency", broken)
-    results: dict[int, int] = {}
+    monkeypatch.setattr(batch_probe, "probe_latency", broken)
+    results: dict = {}
 
     measure_targets(
         numbered_targets(2),
@@ -444,7 +506,11 @@ def test_measure_targets_turns_an_unexpected_error_into_minus_one(monkeypatch):
         on_result=results.__setitem__,
     )
 
-    assert results == {1: -1, 2: -1}
+    assert {pid: r.failure for pid, r in results.items()} == {
+        1: ProbeFailure.UNREACHABLE,
+        2: ProbeFailure.UNREACHABLE,
+    }
+    assert "boom" in results[1].detail
 
 
 @needs_xray
@@ -462,20 +528,18 @@ def test_one_core_process_measures_the_whole_batch(local_site, core_starts):
 
     assert len(core_starts) == 1
     assert sorted(results) == list(range(1, 101))
-    assert all(latency >= 0 for latency in results.values())
+    assert all(result.succeeded for result in results.values())
 
 
 @needs_xray
-def test_dead_and_rejected_profiles_get_minus_one_and_the_rest_are_measured(
-    local_site, core_starts
-):
+def test_dead_and_rejected_profiles_get_reasons_and_the_rest_are_measured(local_site, core_starts):
     targets = [
         ProbeTarget(1, FREEDOM),
         target(2, VLESS_BAD_REALITY),
         ProbeTarget(3, BLACKHOLE),
         ProbeTarget(4, FREEDOM),
     ]
-    results: dict[int, int] = {}
+    results: dict = {}
 
     probe_targets(
         targets,
@@ -485,10 +549,12 @@ def test_dead_and_rejected_profiles_get_minus_one_and_the_rest_are_measured(
         probes=1,
     )
 
-    assert results[2] == -1  # ядро отвергло профиль
-    assert results[3] == -1  # ядро приняло, но сервер не отвечает
-    assert results[1] >= 0
-    assert results[4] >= 0
+    assert results[2].failure is ProbeFailure.REJECTED  # ядро отвергло профиль
+    assert "REALITY" in results[2].detail
+    # Ядро приняло, но сервер не отвечает: blackhole рвёт соединение.
+    assert results[3].failure is not None
+    assert results[1].succeeded
+    assert results[4].succeeded
     assert len(core_starts) == 1
 
 
@@ -531,19 +597,24 @@ def test_batch_core_cleans_up_its_config_file(monkeypatch):
     assert not written[0].exists()
 
 
-def test_every_profile_gets_minus_one_when_the_core_does_not_start(monkeypatch):
-    # Проверку `-test` ядро «прошло», а процесс завершается сразу после запуска.
-    monkeypatch.setattr(batch_probe, "core_accepts", lambda *_: True)
-    results: dict[int, int] = {}
+def test_every_profile_gets_core_failed_when_the_core_does_not_start(monkeypatch, tmp_path):
+    # Проверку `-test` ядро «прошло», а процесс пишет ошибку и сразу завершается.
+    monkeypatch.setattr(batch_probe, "core_check", lambda *_: (True, ""))
+    script = tmp_path / "xray"
+    script.write_text("#!/bin/sh\necho 'Failed to start: listen tcp: address in use'\nexit 1\n")
+    script.chmod(0o755)
+    results: dict = {}
 
     probe_targets(
         numbered_targets(3),
-        binary_path="false",
+        binary_path=str(script),
         on_result=results.__setitem__,
         url="http://example.com/",
     )
 
-    assert results == {1: -1, 2: -1, 3: -1}
+    assert sorted(results) == [1, 2, 3]
+    assert all(r.failure is ProbeFailure.CORE_FAILED for r in results.values())
+    assert "address in use" in results[1].detail
 
 
 def test_large_sets_are_measured_in_several_batches(monkeypatch):
@@ -566,10 +637,10 @@ def test_probe_profiles_reports_unbuildable_profiles_and_measures_the_rest(monke
     def fake_probe_targets(targets, *, on_result, **_kwargs):
         for item in targets:
             measured.append(item.profile_id)
-            on_result(item.profile_id, 42)
+            on_result(item.profile_id, ProbeResult.ok(42))
 
     monkeypatch.setattr(batch_probe, "probe_targets", fake_probe_targets)
-    results: dict[int, int] = {}
+    results: dict = {}
 
     probe_profiles(
         [entry(1, VLESS_WS), entry(2, VLESS_H2), entry(3, TROJAN)],
@@ -579,7 +650,10 @@ def test_probe_profiles_reports_unbuildable_profiles_and_measures_the_rest(monke
     )
 
     assert measured == [1, 3]
-    assert results == {1: 42, 2: -1, 3: 42}
+    assert results[1].latency_ms == 42
+    assert results[3].latency_ms == 42
+    assert results[2].failure is ProbeFailure.INVALID_CONFIG
+    assert results[2].detail
 
 
 def test_core_check_runs_without_console_window(monkeypatch):

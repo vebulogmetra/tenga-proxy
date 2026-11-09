@@ -13,6 +13,7 @@ from src.ui.logic.profiles_view import GroupRow, ProfileRow
 from src.ui.qt.models import (
     GROUP,
     PING_COLUMN,
+    PROBE_FAILED_ROLE,
     PROFILE,
     PROGRESS_ROLE,
     TYPE_COLUMN,
@@ -115,3 +116,33 @@ def test_group_progress_keeps_subscription_details(qapp):
     model.update_group_progress(1, progress)
     assert "1 GB из 2 GB" in model.item(0, 0).text()
     assert "Проверено: 1 / 2" in model.item(0, 0).text()
+
+
+def test_failed_probe_has_a_label_tooltip_and_error_flag(qapp):
+    from src.core.probe_result import ProbeFailure
+    from src.ui.logic.appearance import ERROR_TEXT
+
+    failed = ProfileRow(
+        7,
+        "Мёртвый",
+        "vless",
+        "d.example:443",
+        -1,
+        False,
+        probe_failure=ProbeFailure.TIMEOUT,
+        probe_detail="ReadTimeout",
+    )
+    model = ProfileTreeModel()
+    model.set_rows([GroupRow(1, "Группа", "", False, (failed, *_rows()[0].children))])
+
+    group = model.item(0, 0)
+    ping = group.child(0, PING_COLUMN)
+    assert ping.text() == "нет ответа"
+    assert ping.toolTip() == "Сервер не ответил за 3 с\nReadTimeout"
+    assert ping.data(PROBE_FAILED_ROLE) is True
+    assert ping.foreground().color().name() == ERROR_TEXT
+
+    measured = group.child(1, PING_COLUMN)
+    assert measured.text() == "40 мс"
+    assert measured.toolTip() == ""
+    assert measured.data(PROBE_FAILED_ROLE) is False

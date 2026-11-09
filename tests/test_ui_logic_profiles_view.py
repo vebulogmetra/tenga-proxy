@@ -6,10 +6,14 @@ from dataclasses import dataclass
 
 import pytest
 
+from src.core.probe_result import ProbeFailure
 from src.ui.logic.profiles_view import (
+    ProfileRow,
     SortKey,
     build_profile_rows,
+    ping_is_failure,
     ping_text,
+    ping_tooltip,
 )
 
 
@@ -32,10 +36,27 @@ class FakeProfile:
     proxy_type: str
     bean: FakeBean
     latency_ms: int = -1
+    probe_failure: ProbeFailure | None = None
+    probe_detail: str = ""
+    checked_at: int = 0
 
 
-def profile(pid: int, name: str, ptype: str = "vless", addr: str = "a.example:443", ping: int = -1):
-    return FakeProfile(id=pid, name=name, proxy_type=ptype, bean=FakeBean(addr), latency_ms=ping)
+def profile(
+    pid: int,
+    name: str,
+    ptype: str = "vless",
+    addr: str = "a.example:443",
+    ping: int = -1,
+    failure: ProbeFailure | None = None,
+):
+    return FakeProfile(
+        id=pid,
+        name=name,
+        proxy_type=ptype,
+        bean=FakeBean(addr),
+        latency_ms=ping,
+        probe_failure=failure,
+    )
 
 
 @pytest.fixture
@@ -155,9 +176,121 @@ def test_group_title_carries_visible_count(sample):
     assert rows[0].count == 1
 
 
+def row(latency_ms=-1, failure=None, checked_at=0, detail=""):
+    return ProfileRow(
+        profile_id=1,
+        title="A",
+        proxy_type="vless",
+        address="a:443",
+        latency_ms=latency_ms,
+        is_active=False,
+        probe_failure=failure,
+        probe_detail=detail,
+        checked_at=checked_at,
+    )
+
+
 def test_ping_text():
-    assert ping_text(-1) == "—"
-    assert ping_text(42) == "42 мс"
+    assert ping_text(row()) == "—"
+    assert ping_text(row(42)) == "42 мс"
+    assert ping_text(row(failure=ProbeFailure.TIMEOUT)) == "нет ответа"
+    assert ping_text(row(failure=ProbeFailure.UNREACHABLE)) == "нет связи"
+    for failure in (
+        ProbeFailure.BAD_RESPONSE,
+        ProbeFailure.INVALID_CONFIG,
+        ProbeFailure.REJECTED,
+        ProbeFailure.CORE_FAILED,
+    ):
+        assert ping_text(row(failure=failure)) == "ошибка"
+
+
+def test_ping_is_failure_only_for_a_failed_probe():
+    assert ping_is_failure(row(failure=ProbeFailure.REJECTED))
+    assert not ping_is_failure(row())
+    assert not ping_is_failure(row(42))
+
+
+NOW = 1_800_000_000
+
+
+def test_ping_tooltip_explains_the_failure_with_time_and_detail():
+    text = ping_tooltip(
+        row(failure=ProbeFailure.REJECTED, checked_at=NOW - 5 * 60, detail="invalid password"),
+        NOW,
+    )
+
+    assert text == "Ядро отвергло параметры сервера\nПроверено: 5 мин назад\ninvalid password"
+
+
+def test_ping_tooltip_names_the_timeout():
+    text = ping_tooltip(row(failure=ProbeFailure.TIMEOUT, checked_at=NOW), NOW)
+
+    assert text == "Сервер не ответил за 3 с\nПроверено: только что"
+
+
+@pytest.mark.parametrize(
+    ("age", "expected"),
+    [
+        (30, "только что"),
+        (-10, "только что"),
+        (59 * 60, "59 мин назад"),
+        (3 * 3600, "3 ч назад"),
+    ],
+)
+def test_ping_tooltip_relative_time(age, expected):
+    assert ping_tooltip(row(42, checked_at=NOW - age), NOW) == f"Проверено: {expected}"
+
+
+def test_ping_tooltip_shows_a_date_for_old_checks():
+    from datetime import datetime
+
+    old = NOW - 3 * 86400
+    expected = datetime.fromtimestamp(old).strftime("%d.%m.%Y %H:%M")
+
+    assert ping_tooltip(row(42, checked_at=old), NOW) == f"Проверено: {expected}"
+
+
+def test_ping_tooltip_is_empty_without_a_check():
+    assert ping_tooltip(row(), NOW) == ""
+    assert ping_tooltip(row(42), NOW) == ""  # старый файл: время неизвестно
+    assert ping_tooltip(row(failure=ProbeFailure.UNREACHABLE), NOW) == (
+        "Ядро не смогло соединиться с сервером"
+    )
+
+
+def test_rows_carry_the_probe_failure(sample):
+    groups, profiles = sample
+    profiles[1][1].probe_failure = ProbeFailure.TIMEOUT
+    profiles[1][1].probe_detail = "ReadTimeout"
+    profiles[1][1].checked_at = 1700
+
+    rows = build_profile_rows(groups, profiles, query="бета")
+    child = rows[0].children[0]
+
+    assert (child.probe_failure, child.probe_detail, child.checked_at) == (
+        ProbeFailure.TIMEOUT,
+        "ReadTimeout",
+        1700,
+    )
+
+
+@pytest.mark.parametrize("ascending", [True, False])
+def test_sort_by_ping_puts_failed_between_measured_and_untested(sample, ascending):
+    groups, profiles = sample
+    profiles[1] = [
+        profile(10, "Я-непроверен"),
+        profile(11, "Б-отказ", failure=ProbeFailure.TIMEOUT),
+        profile(12, "А-отказ", failure=ProbeFailure.REJECTED),
+        profile(13, "В-медленный", ping=300),
+        profile(14, "Г-быстрый", ping=50),
+        profile(15, "А-непроверен"),
+    ]
+
+    rows = build_profile_rows(
+        groups, profiles, query="работа", sort_key=SortKey.PING, ascending=ascending
+    )
+    measured = [14, 13] if ascending else [13, 14]
+    assert [c.profile_id for c in rows[0].children] == [*measured, 12, 11, 15, 10]
 
 
 def test_empty_group_is_hidden_without_a_query():

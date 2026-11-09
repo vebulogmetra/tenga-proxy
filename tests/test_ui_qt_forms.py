@@ -80,7 +80,9 @@ def test_paste_takes_the_clipboard(qapp):
 
 
 def _profile():
-    return SimpleNamespace(id=1, bean=parse_link(LINK))
+    from src.db.profiles import ProfileEntry
+
+    return ProfileEntry(id=1, group_id=0, bean=parse_link(LINK))
 
 
 def test_edit_profile_is_prefilled(qapp):
@@ -104,6 +106,23 @@ def test_applied_link_waits_for_save(qapp):
     dialog.confirm_button.click()
     assert profile.bean.server_address == "new.example"
     assert profile.bean.server_port == 8443
+
+
+def test_editing_the_server_forgets_its_probe_result(qapp):
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    profile = _profile()
+    profile.apply_probe(ProbeResult.failed(ProbeFailure.TIMEOUT))
+    dialog = EditProfileDialog(profile)
+    dialog.name_edit.setText("Только имя")
+    dialog.confirm_button.click()
+    assert profile.probe_failure is ProbeFailure.TIMEOUT
+
+    dialog = EditProfileDialog(profile)
+    dialog.port_spin.setValue(8443)
+    dialog.confirm_button.click()
+    assert profile.probe_failure is None
+    assert profile.checked_at == 0
 
 
 def test_broken_link_changes_nothing(qapp):

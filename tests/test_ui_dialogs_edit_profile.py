@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 
 pytestmark = pytest.mark.gtk
@@ -13,9 +11,10 @@ OTHER = "vless://22222222-2222-2222-2222-222222222222@new.example:8443?type=tcp#
 
 
 def make_profile():
+    from src.db.profiles import ProfileEntry
     from src.fmt import parse_link
 
-    return SimpleNamespace(id=1, bean=parse_link(LINK))
+    return ProfileEntry(id=1, group_id=0, bean=parse_link(LINK))
 
 
 def make_dialog(profile):
@@ -113,3 +112,21 @@ def test_applying_a_link_twice_keeps_the_last_one(gtk_ready):
     dialog.apply_link()
     dialog.apply_changes()
     assert profile.bean.server_address == "host.example"
+
+
+def test_editing_the_server_forgets_its_probe_result(gtk_ready):
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    profile = make_profile()
+    profile.apply_probe(ProbeResult.failed(ProbeFailure.TIMEOUT))
+
+    dialog = make_dialog(profile)
+    dialog.name_row.set_text("Только имя")
+    dialog.apply_changes()
+    assert profile.probe_failure is ProbeFailure.TIMEOUT
+
+    dialog = make_dialog(profile)
+    dialog.port_row.set_value(9443)
+    dialog.apply_changes()
+    assert profile.probe_failure is None
+    assert profile.checked_at == 0

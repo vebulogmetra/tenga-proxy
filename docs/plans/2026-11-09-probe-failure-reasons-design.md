@@ -53,8 +53,9 @@ class ProbeResult:
 
 `ResultFn` становится `Callable[[int, ProbeResult | None], None]`.
 
-`http_probe.measure_latency` возвращает `ProbeResult`. URL замера — обычный
-HTTP, поэтому ответы inbound видны:
+`http_probe.probe_latency` возвращает `ProbeResult`; прежний `measure_latency`
+остался обёрткой с `int` для проверки рабочей сессии (`monitor.py`). URL замера —
+обычный HTTP, поэтому ответы inbound видны:
 
 - хотя бы один успешный запрос — успех, медиана, как сейчас;
 - `requests.Timeout` — `TIMEOUT`: сервер не ответил за время ожидания клиента;
@@ -65,10 +66,12 @@ HTTP, поэтому ответы inbound видны:
 
 `batch_probe`:
 
-- `build_probe_outbound` отдаёт и текст исключения — `INVALID_CONFIG` с `detail`;
-- `core_accepts` возвращает `(ok, message)`, `message` — последняя содержательная
-  строка вывода `xray -test`. После деления пополам у одиночного отвергнутого
-  профиля это его собственная причина — `REJECTED` с `detail`;
+- `build_probe_outbound_or_error` отдаёт и текст исключения — `INVALID_CONFIG` с
+  `detail`;
+- `core_check` возвращает `(ok, message)`, `message` — последняя содержательная
+  строка вывода `xray -test` без звеньев с путём к конфигу и тегом `proxy-N`
+  (`core_accepts` остался обёрткой с `bool`). После деления пополам у одиночного
+  отвергнутого профиля это его собственная причина — `REJECTED` с `detail`;
 - ядро не стартовало после всех попыток — `CORE_FAILED`, в `detail` хвост его вывода;
 - неожиданное исключение в `measure_targets` — `UNREACHABLE` с текстом исключения.
 
@@ -103,8 +106,9 @@ HTTP, поэтому ответы inbound видны:
 подсказки нет.
 
 Цвет метки отказа — `ERROR_TEXT` из `src/ui/logic/appearance.py`. GTK
-(`src/ui/widgets/profile_row.py`): подсказка и CSS-класс `error` у метки
-задержки. Qt: `Qt.ToolTipRole` в `src/ui/qt/models.py`, цвет в
+(`src/ui/widgets/profile_row.py`): подсказка и CSS-класс `probe-failed` у метки
+задержки (цвет Adwaita `.error` отличается от общего). Qt: `Qt.ToolTipRole` и
+`PROBE_FAILED_ROLE` в `src/ui/qt/models.py`, цвет и подсказка над плашкой в
 `src/ui/qt/widgets/profile_delegate.py`.
 
 Сортировка «По задержке»: успешные по задержке в выбранном направлении, затем
@@ -123,8 +127,8 @@ HTTP, поэтому ответы inbound видны:
 
 Обычный pytest, без публичной сети и дисплея:
 
-- `test_core_http_probe.py` — loopback-сервер: 204, 503, 407, молчание до
-  тайм-аута, обрыв; класс отказа и `checked_at`;
+- `test_core_http_probe.py` — подставная сессия для кодов ответа и исключений,
+  loopback для молчания до тайм-аута и закрытого порта; класс отказа и `checked_at`;
 - `test_core_batch_probe.py` — `INVALID_CONFIG` с текстом, `REJECTED` с
   сообщением у нужного профиля после деления, `CORE_FAILED`;
 - `test_ui_logic_latency.py` — прерванный замер даёт `None`, прошлый результат

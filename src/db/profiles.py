@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit, urlunsplit
 
+from src.core.probe_result import ProbeFailure, ProbeResult
 from src.db.config import ConfigBase, RoutingSettings, VpnSettings
 
 if TYPE_CHECKING:
@@ -116,6 +117,10 @@ class ProfileEntry:
     last_used: int = 0  # timestamp
     vpn_settings: VpnSettings | None = None
     routing_settings: RoutingSettings | None = None
+    # Итог последнего замера: причина отказа, текст ядра и время проверки.
+    probe_failure: ProbeFailure | None = None
+    probe_detail: str = ""
+    checked_at: int = 0
 
     @property
     def name(self) -> str:
@@ -124,6 +129,27 @@ class ProfileEntry:
     @property
     def proxy_type(self) -> str:
         return self.bean.proxy_type
+
+    def apply_probe(self, result: ProbeResult) -> None:
+        """Запомнить итог замера целиком: прошлая причина не переживает новый успех."""
+        self.latency_ms = result.latency_ms if result.failure is None else -1
+        self.probe_failure = result.failure
+        self.probe_detail = result.detail
+        self.checked_at = result.checked_at
+
+    def forget_probe(self) -> None:
+        self.apply_probe(ProbeResult())
+
+    def probe_key(self) -> str:
+        """Параметры сервера, от которых зависит замер; имя к ним не относится."""
+        data = dict(self.bean.to_dict())
+        data.pop("name", None)
+        return json.dumps(data, sort_keys=True, default=str)
+
+    def forget_probe_if_changed(self, key_before: str) -> None:
+        """После редактирования сервера прежний замер относится к другим параметрам."""
+        if self.probe_key() != key_before:
+            self.forget_probe()
 
     def to_dict(self) -> dict[str, Any]:
         """Serialization."""
@@ -139,6 +165,13 @@ class ProfileEntry:
             result["vpn_settings"] = self.vpn_settings.to_dict()
         if self.routing_settings is not None:
             result["routing_settings"] = self.routing_settings.to_dict()
+        # Только непустые: старая версия читает профиль как раньше.
+        if self.probe_failure is not None:
+            result["probe_failure"] = self.probe_failure.value
+        if self.probe_detail:
+            result["probe_detail"] = self.probe_detail
+        if self.checked_at:
+            result["checked_at"] = self.checked_at
         return result
 
     @classmethod
@@ -169,6 +202,9 @@ class ProfileEntry:
                 last_used=data.get("last_used", 0),
                 vpn_settings=vpn_settings,
                 routing_settings=routing_settings,
+                probe_failure=ProbeFailure.parse(data.get("probe_failure")),
+                probe_detail=str(data.get("probe_detail", "") or ""),
+                checked_at=int(data.get("checked_at", 0) or 0),
             )
         except Exception as e:
             print(f"Error deserializing profile: {e}")

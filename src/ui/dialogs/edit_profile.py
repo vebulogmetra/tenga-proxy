@@ -115,6 +115,7 @@ class EditProfileDialog(FormDialog):
 
     def apply_changes(self) -> None:
         """Write the form back into the profile."""
+        probe_key = self._profile.probe_key()
         if self._pending_bean is not None:
             self._profile.bean = self._pending_bean
             self._pending_bean = None
@@ -129,6 +130,7 @@ class EditProfileDialog(FormDialog):
             bean.server_address = address
 
         bean.server_port = int(self.port_row.get_value())
+        self._profile.forget_probe_if_changed(probe_key)
 
     def _on_confirm(self, _button: Gtk.Button) -> None:
         self.apply_changes()

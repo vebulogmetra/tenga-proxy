@@ -21,16 +21,18 @@ RECENT_FAILURE_TTL_SECONDS = 15 * 60
 def pick_candidate(profiles: Sequence[Any], *, excluded: Collection[int]) -> Any | None:
     """Профиль, на который переключаться: сначала с известной задержкой, по возрастанию.
 
-    Профили без замера идут после измеренных, в порядке списка: про них ничего
-    не известно, а измеренный хотя бы отвечал.
+    Затем непроверенные, в порядке списка: про них ничего не известно, а
+    измеренный хотя бы отвечал. Отказавшие при замере — в последнюю очередь.
     """
     candidates = [profile for profile in profiles if profile.id not in excluded]
+    failed = [p for p in candidates if getattr(p, "probe_failure", None) is not None]
+    rest = [p for p in candidates if getattr(p, "probe_failure", None) is None]
     measured = sorted(
-        (profile for profile in candidates if profile.latency_ms > 0),
+        (profile for profile in rest if profile.latency_ms > 0),
         key=lambda profile: profile.latency_ms,
     )
-    unmeasured = [profile for profile in candidates if profile.latency_ms <= 0]
-    ordered = measured + unmeasured
+    unmeasured = [profile for profile in rest if profile.latency_ms <= 0]
+    ordered = measured + unmeasured + failed
     return ordered[0] if ordered else None
 
 

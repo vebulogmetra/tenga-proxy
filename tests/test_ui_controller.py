@@ -974,9 +974,10 @@ def _no_route(_context):
     raise ProbeUnavailable("нет маршрута")
 
 
-def test_probe_under_tun_without_a_route_toasts_and_marks_everything_dead(made, monkeypatch):
+def test_probe_under_tun_without_a_route_toasts_and_keeps_the_old_result(made, monkeypatch):
     controller, shell, _ = made
     entry = add_profile(controller)
+    entry.latency_ms = 77
     controller.context.proxy_state.set_running(entry.id, mode="tun")
     monkeypatch.setattr("src.ui.logic.latency.probe_route", _no_route)
 
@@ -984,8 +985,31 @@ def test_probe_under_tun_without_a_route_toasts_and_marks_everything_dead(made, 
     controller.latency_runner.wait(5)
 
     assert ("нет маршрута", None, None) in shell.toasts
-    assert controller.context.profiles.get_profile(entry.id).latency_ms == -1
+    # Замер не состоялся: о сервере ничего не известно, прежний результат цел.
+    profile = controller.context.profiles.get_profile(entry.id)
+    assert profile.latency_ms == 77
+    assert profile.probe_failure is None
     assert controller.latency_runner.last_run_complete is False
+
+
+def test_latency_failure_is_stored_with_its_reason(made):
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    controller, _shell, _ = made
+    entry = add_profile(controller)
+    entry.latency_ms = 40
+    controller.set_latency_probe(
+        lambda _pid: ProbeResult.failed(ProbeFailure.REJECTED, "invalid password")
+    )
+
+    controller.test_latency_for(entry.id)
+    _wait_latency(controller)
+
+    profile = controller.context.profiles.get_profile(entry.id)
+    assert profile.latency_ms == -1
+    assert profile.probe_failure is ProbeFailure.REJECTED
+    assert profile.probe_detail == "invalid password"
+    assert profile.checked_at > 0
 
 
 def test_probe_under_tun_with_a_route_measures(made, monkeypatch):

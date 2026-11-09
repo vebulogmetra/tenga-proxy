@@ -7,12 +7,18 @@ from types import SimpleNamespace
 import pytest
 
 from src.core.batch_probe import ProbeRoute
+from src.core.probe_result import ProbeFailure, ProbeResult
 from src.ui.logic.latency import LatencyRunner, ProbeUnavailable, make_batch_probe, probe_route
 
 
+def _latency(result):
+    """Задержка для сравнения: None — результата нет, -1 — отказ."""
+    return None if result is None else result.latency_ms
+
+
 def _collect(results: dict, done: list):
-    def on_result(profile_id: int, latency_ms: int) -> None:
-        results[profile_id] = latency_ms
+    def on_result(profile_id: int, result) -> None:
+        results[profile_id] = _latency(result)
 
     def on_done() -> None:
         done.append(True)
@@ -52,7 +58,7 @@ def test_runner_limits_concurrency_and_reports_every_profile():
     assert runner.is_busy is False
 
 
-def test_runner_reports_minus_one_when_probe_raises():
+def test_runner_reports_no_result_when_probe_raises():
     def probe(profile_id: int) -> int:
         raise RuntimeError("boom")
 
@@ -67,8 +73,10 @@ def test_runner_reports_minus_one_when_probe_raises():
     for fn, args in delivered:
         fn(*args)
 
-    assert results == {7: -1}
+    # Сбой пробы — не отказ сервера: прежний результат профиля не трогается.
+    assert results == {7: None}
     assert done == [True]
+    assert runner.last_run_complete is False
 
 
 def test_runner_rejects_second_run_while_busy():
@@ -137,8 +145,24 @@ def test_runner_delivers_every_result_when_probe_raises_base_exception():
     for fn, args in delivered:
         fn(*args)
 
-    assert results == {1: 10, 2: -1, 3: 30, 4: 40, 5: 50}
+    assert results == {1: 10, 2: None, 3: 30, 4: 40, 5: 50}
     assert done == [True]
+
+
+def test_runner_passes_probe_results_through():
+    failure = ProbeResult.failed(ProbeFailure.REJECTED, "bad key")
+    delivered: list = []
+    runner = LatencyRunner(
+        lambda _pid: failure, max_workers=1, dispatch=lambda fn, *a: delivered.append((fn, a))
+    )
+    results: dict = {}
+
+    runner.run([1], on_result=results.__setitem__, on_done=lambda: None)
+    runner.wait(timeout=5)
+    for fn, args in delivered:
+        fn(*args)
+
+    assert results == {1: failure}
 
 
 # --- пакетный режим: один вызов на весь набор ---
@@ -160,11 +184,11 @@ def test_batch_runner_hands_every_id_to_one_probe_call_and_streams_results():
 
     assert calls == [[1, 2, 3]]
     # Результаты уходят в том порядке, в каком их отдал замер; последним — on_done.
-    assert delivered[:3] == [(3, 30), (2, 20), (1, 10)]
+    assert [(pid, _latency(r)) for pid, r in delivered[:3]] == [(3, 30), (2, 20), (1, 10)]
     assert len(delivered) == 4
 
 
-def test_batch_runner_reports_minus_one_for_everything_the_probe_left_out():
+def test_batch_runner_reports_no_result_for_everything_the_probe_left_out():
     def batch_probe(profile_ids, emit) -> None:
         emit(1, 10)
         raise RuntimeError("ядро не запустилось")
@@ -182,9 +206,10 @@ def test_batch_runner_reports_minus_one_for_everything_the_probe_left_out():
     for fn, args in delivered:
         fn(*args)
 
-    assert results == {1: 10, 2: -1, 3: -1}
+    assert results == {1: 10, 2: None, 3: None}
     assert done == [True]
     assert runner.is_busy is False
+    assert runner.last_run_complete is False
 
 
 def test_batch_runner_ignores_a_second_result_for_the_same_profile():
@@ -198,7 +223,7 @@ def test_batch_runner_ignores_a_second_result_for_the_same_profile():
     runner.run([1], on_result=lambda *_: None, on_done=lambda: None)
     runner.wait(timeout=5)
 
-    assert delivered[0] == (1, 10)
+    assert (delivered[0][0], _latency(delivered[0][1])) == (1, 10)
     assert len(delivered) == 2
 
 
@@ -229,7 +254,7 @@ def test_make_batch_probe_measures_known_profiles_with_the_app_settings(monkeypa
 
     make_batch_probe(context)([1, 2, 3], results.__setitem__)
 
-    # Профиля 2 уже нет: в замер он не идёт, а -1 ему допишет сам runner.
+    # Профиля 2 уже нет: в замер он не идёт, а пустой результат ему допишет runner.
     assert seen == {"ids": [1, 3], "settings": "настройки", "binary": "/opt/xray", "route": None}
     assert results == {1: 42, 3: 42}
 
@@ -278,11 +303,16 @@ def test_ping_progress_skips_empty_groups():
 def test_filter_preserves_group_on_incomplete_or_empty_success():
     from src.ui.logic.latency import failed_profile_ids
 
-    assert failed_profile_ids([1, 2], {1: -1, 2: -1}, complete=True) == []
-    assert failed_profile_ids([1, 2], {1: 10}, complete=True) == []
-    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=False) == []
-    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True, active_id=2) == []
-    assert failed_profile_ids([1, 2], {1: 10, 2: -1}, complete=True) == [2]
+    ok = ProbeResult.ok(10)
+    bad = ProbeResult.failed(ProbeFailure.TIMEOUT)
+
+    assert failed_profile_ids([1, 2], {1: bad, 2: bad}, complete=True) == []
+    assert failed_profile_ids([1, 2], {1: ok}, complete=True) == []
+    assert failed_profile_ids([1, 2], {1: ok, 2: bad}, complete=False) == []
+    assert failed_profile_ids([1, 2], {1: ok, 2: bad}, complete=True, active_id=2) == []
+    assert failed_profile_ids([1, 2], {1: ok, 2: bad}, complete=True) == [2]
+    # Сбой замера одного профиля делает весь замер неполным.
+    assert failed_profile_ids([1, 2, 3], {1: ok, 2: bad, 3: None}, complete=True) == []
 
 
 # --- путь замера мимо туннеля ---

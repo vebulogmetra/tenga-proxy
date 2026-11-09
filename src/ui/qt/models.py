@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 
 from PySide6.QtCore import QModelIndex, Qt
 from PySide6.QtGui import QBrush, QColor, QFont, QStandardItem, QStandardItemModel
 
+from src.ui.logic.appearance import ERROR_TEXT
 from src.ui.logic.latency import PingProgress
 from src.ui.logic.profiles_view import (
     GroupRow,
@@ -19,7 +21,9 @@ from src.ui.logic.profiles_view import (
     SortKey,
     group_count_text,
     group_summary,
+    ping_is_failure,
     ping_text,
+    ping_tooltip,
 )
 from src.ui.qt.icons import flagged
 
@@ -34,10 +38,11 @@ ID_ROLE = Qt.ItemDataRole.UserRole + 2
 DETAILS_ROLE = Qt.ItemDataRole.UserRole + 3
 PROGRESS_ROLE = Qt.ItemDataRole.UserRole + 4
 ACTIVE_ROLE = Qt.ItemDataRole.UserRole + 5
+PROBE_FAILED_ROLE = Qt.ItemDataRole.UserRole + 6
 GROUP, PROFILE = "group", "profile"
 
 # Истёкшая подписка: тот же красный, что у ошибок в карточке.
-EXPIRED_COLOR = QColor("#d13438")
+EXPIRED_COLOR = QColor(ERROR_TEXT)
 
 
 def _cell(text: str) -> QStandardItem:
@@ -98,9 +103,14 @@ class ProfileTreeModel(QStandardItemModel):
             name,
             _cell(row.proxy_type.upper()),
             _cell(row.address),
-            _cell(ping_text(row.latency_ms)),
+            _cell(ping_text(row)),
         ]
         cells[ADDRESS_COLUMN].setToolTip(row.address)
+        ping = cells[PING_COLUMN]
+        ping.setToolTip(ping_tooltip(row, time.time()))
+        ping.setData(ping_is_failure(row), PROBE_FAILED_ROLE)
+        if ping_is_failure(row):
+            ping.setForeground(QBrush(QColor(ERROR_TEXT)))
         cells[PING_COLUMN].setTextAlignment(
             Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
         )

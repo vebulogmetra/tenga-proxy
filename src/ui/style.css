@@ -117,6 +117,10 @@
   font-feature-settings: "tnum";
 }
 
+.profile-row .latency.probe-failed {
+  color: #d13438;
+}
+
 .group-row {
   padding: 10px 4px;
 }

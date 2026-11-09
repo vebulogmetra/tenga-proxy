@@ -467,6 +467,37 @@ def test_profile_row_shows_type_address_latency_and_badge(page, data):
     _close(window)
 
 
+def test_profile_row_marks_a_failed_probe_and_explains_it(gtk_ready):
+    from src.core.probe_result import ProbeFailure
+    from src.ui.logic.profiles_view import ProfileRow
+    from src.ui.widgets.profile_row import ProfileRowWidget
+
+    widget = ProfileRowWidget()
+    failed = ProfileRow(
+        profile_id=1,
+        title="Альфа",
+        proxy_type="vless",
+        address="a:443",
+        latency_ms=-1,
+        is_active=False,
+        probe_failure=ProbeFailure.REJECTED,
+        probe_detail="invalid password",
+    )
+    widget.bind(failed)
+
+    assert widget.get_latency() == "ошибка"
+    assert widget.latency_failed()
+    assert widget.get_latency_tooltip() == "Ядро отвергло параметры сервера\ninvalid password"
+
+    # Та же строка после успешного замера: без цвета ошибки, без подсказки.
+    from dataclasses import replace
+
+    widget.bind(replace(failed, latency_ms=40, probe_failure=None, probe_detail=""))
+    assert widget.get_latency() == "40 мс"
+    assert not widget.latency_failed()
+    assert widget.get_latency_tooltip() == ""
+
+
 def test_ping_button_tests_only_its_server(page, data):
     page.set_data(*data)
     page.expand_all()

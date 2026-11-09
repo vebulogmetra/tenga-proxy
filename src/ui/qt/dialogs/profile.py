@@ -120,6 +120,7 @@ class EditProfileDialog(FormDialog):
         return True
 
     def apply_changes(self) -> None:
+        probe_key = self._profile.probe_key()
         if self._pending_bean is not None:
             self._profile.bean = self._pending_bean
             self._pending_bean = None
@@ -130,6 +131,7 @@ class EditProfileDialog(FormDialog):
             # Пустой адрес молча сломал бы профиль — тогда остаётся прежний.
             bean.server_address = address
         bean.server_port = self.port_spin.value()
+        self._profile.forget_probe_if_changed(probe_key)
 
     def _on_confirm(self) -> None:
         self.apply_changes()

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.ui.logic.appearance import ACCENT, STATE_COLORS
+from src.ui.logic.appearance import ACCENT, ERROR_TEXT, STATE_COLORS
 
 
 def test_qss_uses_the_shared_state_colors():
@@ -32,3 +32,9 @@ def test_gtk_css_uses_the_shared_state_colors():
     assert ACCENT in css
     for css_class in ("status-connecting", "status-error", "status-disconnected"):
         assert STATE_COLORS[css_class] in css
+
+
+def test_failed_probe_label_uses_the_shared_error_color():
+    css = Path("src/ui/style.css").read_text(encoding="utf-8")
+    rule = css.split(".profile-row .latency.probe-failed", 1)[1].split("}", 1)[0]
+    assert ERROR_TEXT in rule

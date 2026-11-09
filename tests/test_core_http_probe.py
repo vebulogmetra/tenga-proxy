@@ -11,7 +11,9 @@ from src.core.http_probe import (
     ProbeEndpoint,
     build_probe_inbound,
     measure_latency,
+    probe_latency,
 )
+from src.core.probe_result import ProbeFailure, ProbeResult
 
 ENDPOINT = ProbeEndpoint(port=41001, credentials=ProbeCredentials("user", "p@ss/word"))
 
@@ -138,3 +140,108 @@ def test_measure_latency_keeps_earlier_samples_when_a_later_probe_fails(session)
 
     assert measure_latency(ENDPOINT, "http://example.com/", probes=3) >= 0
     assert len(fake.calls) == 3
+
+
+def test_probe_latency_reports_success_with_the_check_time(session, monkeypatch):
+    session([204])
+    monkeypatch.setattr("src.core.probe_result.time.time", lambda: 1_700_000_000)
+
+    result = probe_latency(ENDPOINT, "http://example.com/", probes=1)
+
+    assert result.succeeded
+    assert result.latency_ms >= 1
+    assert result.failure is None
+    assert result.checked_at == 1_700_000_000
+
+
+@pytest.mark.parametrize(
+    ("step", "failure"),
+    [
+        (requests.exceptions.ConnectTimeout("connect"), ProbeFailure.TIMEOUT),
+        (requests.exceptions.ReadTimeout("read"), ProbeFailure.TIMEOUT),
+        (requests.exceptions.ConnectionError("reset by peer"), ProbeFailure.UNREACHABLE),
+        (502, ProbeFailure.UNREACHABLE),
+        (503, ProbeFailure.UNREACHABLE),
+        (407, ProbeFailure.BAD_RESPONSE),
+        (101, ProbeFailure.BAD_RESPONSE),
+    ],
+)
+def test_probe_latency_names_the_failure(session, step, failure):
+    session([step])
+
+    result = probe_latency(ENDPOINT, "http://example.com/", probes=1)
+
+    assert result.failure is failure
+    assert result.latency_ms == -1
+    assert result.checked_at > 0
+
+
+def test_probe_latency_puts_the_status_code_into_the_detail(session):
+    session([407])
+
+    assert "407" in probe_latency(ENDPOINT, "http://example.com/", probes=1).detail
+
+
+def test_probe_latency_keeps_the_exception_text(session):
+    session([requests.exceptions.ConnectionError("Connection reset by peer")])
+
+    assert "reset by peer" in probe_latency(ENDPOINT, "http://example.com/", probes=1).detail
+
+
+def test_measure_latency_is_the_latency_of_the_probe_result(session):
+    session([503])
+
+    assert measure_latency(ENDPOINT, "http://example.com/", probes=1) == -1
+
+
+def test_probe_result_clips_a_long_detail():
+    result = ProbeResult.failed(ProbeFailure.REJECTED, "x" * 1000 + "\n tail")
+
+    assert len(result.detail) == 300
+    assert result.detail.endswith("…")
+
+
+def test_probe_failure_parse_ignores_unknown_values():
+    assert ProbeFailure.parse("timeout") is ProbeFailure.TIMEOUT
+    assert ProbeFailure.parse("dns_failed") is None
+    assert ProbeFailure.parse(None) is None
+
+
+class _SilentServer:
+    """Принимает соединение и молчит: клиент ждёт до своего тайм-аута."""
+
+    def __init__(self):
+        import socket
+
+        self.sock = socket.socket()
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.listen(4)
+        self.port = self.sock.getsockname()[1]
+
+    def close(self):
+        self.sock.close()
+
+
+def test_probe_latency_times_out_on_a_silent_loopback_inbound():
+    server = _SilentServer()
+    try:
+        endpoint = ProbeEndpoint(port=server.port, credentials=ProbeCredentials("u", "p"))
+        result = probe_latency(endpoint, "http://example.com/", timeout=0.3, probes=1)
+    finally:
+        server.close()
+
+    assert result.failure is ProbeFailure.TIMEOUT
+
+
+def test_probe_latency_is_unreachable_when_the_inbound_drops_the_connection():
+    import socket
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()  # порт закрыт: соединение отвергается сразу
+
+    endpoint = ProbeEndpoint(port=port, credentials=ProbeCredentials("u", "p"))
+    result = probe_latency(endpoint, "http://example.com/", timeout=1.0, probes=1)
+
+    assert result.failure is ProbeFailure.UNREACHABLE

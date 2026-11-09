@@ -11,9 +11,13 @@ SILENT = ConnectionStatus(proxy_ok=False, proxy_error="Сервер не отв�
 ALIVE = ConnectionStatus(proxy_ok=True, server_probed=True)
 
 
-def profile(profile_id: int, latency_ms: int = -1, group_id: int = 1):
+def profile(profile_id: int, latency_ms: int = -1, group_id: int = 1, failure=None):
     return SimpleNamespace(
-        id=profile_id, group_id=group_id, latency_ms=latency_ms, name=f"P{profile_id}"
+        id=profile_id,
+        group_id=group_id,
+        latency_ms=latency_ms,
+        name=f"P{profile_id}",
+        probe_failure=failure,
     )
 
 
@@ -31,6 +35,20 @@ def test_unmeasured_profiles_come_after_measured_ones_in_list_order():
 
     assert pick_candidate(profiles, excluded={1}).id == 4
     assert pick_candidate(profiles, excluded={1, 4}).id == 2
+
+
+def test_failed_profiles_come_after_untested_ones():
+    from src.core.probe_result import ProbeFailure
+
+    profiles = [
+        profile(1, 50),
+        profile(2, failure=ProbeFailure.TIMEOUT),
+        profile(3, -1),
+        profile(4, failure=ProbeFailure.REJECTED),
+    ]
+
+    assert pick_candidate(profiles, excluded={1}).id == 3
+    assert pick_candidate(profiles, excluded={1, 3}).id == 2
 
 
 def test_no_candidate_when_everything_is_excluded():

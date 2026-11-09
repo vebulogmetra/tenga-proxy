@@ -292,3 +292,75 @@ def test_profile_group_keeps_handled_subscription_routing():
     restored = ProfileGroup.from_dict(group.to_dict())
     assert restored.sub_routing_handled == "abc"
     assert ProfileGroup().sub_routing_handled == ""
+
+
+# --- результат замера в профиле ---
+
+
+def _trojan_entry() -> ProfileEntry:
+    from src.fmt import parse_link
+
+    bean = parse_link("trojan://pass123@127.0.0.1:443?type=tcp&sni=a.example.com#TR")
+    return ProfileEntry(id=5, group_id=1, bean=bean)
+
+
+def test_probe_failure_survives_a_round_trip():
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    entry = _trojan_entry()
+    entry.apply_probe(ProbeResult(failure=ProbeFailure.REJECTED, checked_at=1700, detail="bad"))
+
+    restored = ProfileEntry.from_dict(entry.to_dict())
+
+    assert restored.latency_ms == -1
+    assert restored.probe_failure is ProbeFailure.REJECTED
+    assert restored.probe_detail == "bad"
+    assert restored.checked_at == 1700
+
+
+def test_success_clears_the_previous_failure():
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    entry = _trojan_entry()
+    entry.apply_probe(ProbeResult.failed(ProbeFailure.TIMEOUT, "slow"))
+    entry.apply_probe(ProbeResult(latency_ms=80, checked_at=1800))
+
+    assert (entry.latency_ms, entry.probe_failure, entry.probe_detail) == (80, None, "")
+    assert entry.checked_at == 1800
+
+
+def test_new_keys_are_written_only_when_set():
+    data = _trojan_entry().to_dict()
+
+    assert "probe_failure" not in data
+    assert "probe_detail" not in data
+    assert "checked_at" not in data
+
+
+def test_old_file_and_unknown_failure_read_as_untested():
+    data = _trojan_entry().to_dict()
+    old = ProfileEntry.from_dict(data)
+    assert old.probe_failure is None and old.checked_at == 0
+
+    data.update(probe_failure="dns_failed", probe_detail="x", checked_at=10)
+    newer = ProfileEntry.from_dict(data)
+    assert newer.probe_failure is None
+    assert newer.checked_at == 10
+
+
+def test_editing_the_server_forgets_the_probe_result():
+    from src.core.probe_result import ProbeFailure, ProbeResult
+
+    entry = _trojan_entry()
+    entry.apply_probe(ProbeResult.failed(ProbeFailure.TIMEOUT))
+    before = entry.probe_key()
+
+    entry.bean.name = "Новое имя"
+    entry.forget_probe_if_changed(before)
+    assert entry.probe_failure is ProbeFailure.TIMEOUT  # имя на замер не влияет
+
+    entry.bean.server_port = 8443
+    entry.forget_probe_if_changed(before)
+    assert entry.probe_failure is None
+    assert entry.latency_ms == -1
+    assert entry.checked_at == 0

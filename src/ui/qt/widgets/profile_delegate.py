@@ -14,13 +14,14 @@ from PySide6.QtWidgets import (
 )
 
 from src.core.config import get_asset_path
-from src.ui.logic.appearance import ACCENT
+from src.ui.logic.appearance import ACCENT, ERROR_TEXT
 from src.ui.qt.models import (
     ACTIVE_ROLE,
     ADDRESS_COLUMN,
     GROUP,
     KIND_ROLE,
     PING_COLUMN,
+    PROBE_FAILED_ROLE,
     PROFILE,
     PROGRESS_ROLE,
     TYPE_COLUMN,
@@ -38,12 +39,30 @@ class ProfileDelegate(QStyledItemDelegate):
     def ping_button_rect(rect: QRect) -> QRect:
         return QRect(rect.right() - 64, rect.bottom() - 29, 32, 24)
 
+    @classmethod
+    def latency_rect(cls, rect: QRect, metrics: QFontMetrics, text: str) -> QRect:
+        """Плашка задержки над кнопкой пинга, по ширине текста."""
+        button_rect = cls.ping_button_rect(rect)
+        width = max(button_rect.width(), metrics.horizontalAdvance(text) + 16)
+        return QRect(button_rect.right() - width + 1, rect.top() + 5, width, 24)
+
     def helpEvent(self, event, view, option, index) -> bool:
         if index.data(KIND_ROLE) == PROFILE and self.ping_button_rect(option.rect).contains(
             event.pos()
         ):
             QToolTip.showText(event.globalPos(), "Проверить задержку", view)
             return True
+        if index.data(KIND_ROLE) == PROFILE:
+            ping = index.siblingAtColumn(PING_COLUMN)
+            text = str(ping.data() or "")
+            tooltip = str(ping.data(Qt.ItemDataRole.ToolTipRole) or "")
+            if (
+                text
+                and tooltip
+                and self.latency_rect(option.rect, option.fontMetrics, text).contains(event.pos())
+            ):
+                QToolTip.showText(event.globalPos(), tooltip, view)
+                return True
         return super().helpEvent(event, view, option, index)
 
     def editorEvent(self, event, model, option, index) -> bool:
@@ -155,13 +174,16 @@ class ProfileDelegate(QStyledItemDelegate):
                 painter.drawRoundedRect(chip_rect.adjusted(0, 0, -1, -1), 5, 5)
                 centered_text(chip_rect, text)
 
-            latency = str(index.siblingAtColumn(PING_COLUMN).data() or "")
+            ping = index.siblingAtColumn(PING_COLUMN)
+            latency = str(ping.data() or "")
             if latency:
-                width = max(button_rect.width(), metrics.horizontalAdvance(latency) + 16)
-                latency_rect = QRect(
-                    button_rect.right() - width + 1, option.rect.top() + 5, width, 24
+                # Отказ — цветом ошибки, обычная задержка приглушена.
+                color = (
+                    QColor(ERROR_TEXT)
+                    if ping.data(PROBE_FAILED_ROLE)
+                    else option.palette.placeholderText().color()
                 )
-                chip(latency_rect, latency, option.palette.placeholderText().color())
+                chip(self.latency_rect(option.rect, metrics, latency), latency, color)
             if active:
                 width = metrics.horizontalAdvance("Подключён") + 16
                 badge_rect = QRect(

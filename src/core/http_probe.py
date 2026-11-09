@@ -17,6 +17,8 @@ from urllib.parse import quote
 
 import requests
 
+from src.core.probe_result import ProbeFailure, ProbeResult
+
 logger = logging.getLogger("tenga.core.http_probe")
 
 LOOPBACK = "127.0.0.1"
@@ -74,14 +76,28 @@ def _is_success(status_code: int) -> bool:
     return 200 <= status_code < 500 and status_code != PROXY_AUTH_REQUIRED
 
 
-def measure_latency(
+def _failure_of_status(status_code: int) -> ProbeResult:
+    if status_code >= 500:
+        # Ядро отвечает 5xx, когда не смогло соединиться с сервером профиля.
+        return ProbeResult.failed(ProbeFailure.UNREACHABLE, f"HTTP {status_code}")
+    return ProbeResult.failed(ProbeFailure.BAD_RESPONSE, f"HTTP {status_code}")
+
+
+def _failure_of_exception(error: requests.exceptions.RequestException) -> ProbeResult:
+    detail = f"{type(error).__name__}: {error}"
+    if isinstance(error, requests.exceptions.Timeout):
+        return ProbeResult.failed(ProbeFailure.TIMEOUT, detail)
+    return ProbeResult.failed(ProbeFailure.UNREACHABLE, detail)
+
+
+def probe_latency(
     endpoint: ProbeEndpoint,
     url: str,
     *,
     timeout: float = 3.0,
     probes: int = 3,
-) -> int:
-    """Медиана задержки HEAD-запросов через inbound в миллисекундах, -1 при отказе.
+) -> ProbeResult:
+    """Медиана задержки HEAD-запросов через inbound или причина отказа.
 
     Первый же неудачный запрос без единого успешного прекращает замер: мёртвый
     сервер иначе съедал бы таймаут `probes` раз.
@@ -108,7 +124,7 @@ def measure_latency(
             except requests.exceptions.RequestException as e:
                 logger.debug("Probe via port %s failed: %s", endpoint.port, type(e).__name__)
                 if not samples:
-                    return -1
+                    return _failure_of_exception(e)
                 continue
 
             elapsed_ms = (time.perf_counter_ns() - started_ns) // 1_000_000
@@ -116,6 +132,17 @@ def measure_latency(
                 samples.append(int(elapsed_ms))
             elif not samples:
                 logger.debug("Probe via port %s got status %s", endpoint.port, response.status_code)
-                return -1
+                return _failure_of_status(response.status_code)
 
-    return int(median(samples)) if samples else -1
+    return ProbeResult.ok(int(median(samples)))
+
+
+def measure_latency(
+    endpoint: ProbeEndpoint,
+    url: str,
+    *,
+    timeout: float = 3.0,
+    probes: int = 3,
+) -> int:
+    """Задержка в миллисекундах, -1 при отказе: проверке рабочей сессии причина не нужна."""
+    return probe_latency(endpoint, url, timeout=timeout, probes=probes).latency_ms
