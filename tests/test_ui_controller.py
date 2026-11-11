@@ -1269,9 +1269,12 @@ def test_daily_check_offers_the_update_button(tmp_path, monkeypatch):
     assert shell.toasts[-1] == ("Доступна версия v0.19.0", "Обновить", "app.install-app-update")
 
 
-def test_app_update_is_notified_once(tmp_path):
+def test_app_update_is_notified_once(tmp_path, monkeypatch):
+    from src.core import platform_info
     from tests.test_core_app_update import RELEASE
 
+    # RELEASE лежит в репозитории Linux-версии.
+    monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     context = AppContext(config_dir=tmp_path)
     shell = FakeShell()
     controller = AppController(context, shell, ImmediateLoop(), app_version=lambda: "0.16.2")
