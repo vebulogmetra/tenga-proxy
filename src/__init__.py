@@ -1,10 +1,10 @@
-__version__ = "0.30.2"
+__version__ = "0.30.3"
 __app_name__ = "Veblock"
 __app_description__ = (
     "Клиент прокси с бекэндом <a href='https://github.com/XTLS/Xray-core'>xray-core</a>"
 )
 __app_author__ = "Artem G."
-__app_website__ = "https://github.com/vebulogmetra/tenga-proxy"
+__app_website__ = "https://github.com/vebulogmetra/veblock"
 
 from src.core import AppContext, get_context, init_context
 

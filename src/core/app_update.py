@@ -13,29 +13,29 @@ from urllib.parse import urlsplit
 
 from src.core import platform_info
 
-# С 0.30.2 версии для Linux и Windows выходят в своих репозиториях.
-LINUX_REPO = "vebulogmetra/veblock-linux"
-WINDOWS_REPO = "vebulogmetra/veblock-windows"
+# С 0.30.3 релизы обеих платформ выходят в одном публичном репозитории, код —
+# в закрытых. Тег начинается с платформы: linux-v0.31.0, windows-v0.31.0.
+RELEASES_REPO = "vebulogmetra/veblock"
+RELEASES_URL = f"https://api.github.com/repos/{RELEASES_REPO}/releases?per_page=30"
+RELEASE_PREFIX = f"/{RELEASES_REPO}/releases/tag/"
+ASSET_PREFIX = f"/{RELEASES_REPO}/releases/download/"
 _ASSET_NAME = re.compile(r"[A-Za-z0-9._-]+")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 CHECK_INTERVAL_SECONDS = 86400
 _lock = threading.Lock()
 
 
-def release_repo() -> str:
-    return WINDOWS_REPO if platform_info.IS_WINDOWS else LINUX_REPO
+def tag_prefix() -> str:
+    return "windows-" if platform_info.IS_WINDOWS else "linux-"
 
 
-def releases_url() -> str:
-    return f"https://api.github.com/repos/{release_repo()}/releases?per_page=30"
-
-
-def _release_prefix() -> str:
-    return f"/{release_repo()}/releases/tag/"
-
-
-def _asset_prefix() -> str:
-    return f"/{release_repo()}/releases/download/"
+def _tag_version(tag: str) -> str | None:
+    """Версия из тега этой платформы («linux-v0.31.0» → «v0.31.0»), иначе None."""
+    prefix = tag_prefix()
+    if not tag.startswith(prefix):
+        return None
+    version = tag[len(prefix) :]
+    return version if _version(version) is not None else None
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,6 @@ class AppRelease:
 
 
 def safe_release_url(url: str) -> bool:
-    prefix = _release_prefix()
     try:
         parts = urlsplit(url)
         return (
@@ -62,9 +61,8 @@ def safe_release_url(url: str) -> bool:
             and parts.netloc == "github.com"
             and not parts.query
             and not parts.fragment
-            and parts.path.startswith(prefix)
-            and len(parts.path) > len(prefix)
-            and _version(parts.path[len(prefix) :]) is not None
+            and parts.path.startswith(RELEASE_PREFIX)
+            and _tag_version(parts.path[len(RELEASE_PREFIX) :]) is not None
         )
     except ValueError:
         return False
@@ -72,7 +70,7 @@ def safe_release_url(url: str) -> bool:
 
 def safe_asset_url(url: str, tag: str, name: str) -> bool:
     """Файл релиза: только с github.com, только этого тега и этого имени."""
-    if not _ASSET_NAME.fullmatch(name) or _version(tag) is None:
+    if not _ASSET_NAME.fullmatch(name) or _tag_version(tag) is None:
         return False
     try:
         parts = urlsplit(url)
@@ -83,7 +81,7 @@ def safe_asset_url(url: str, tag: str, name: str) -> bool:
         and parts.netloc == "github.com"
         and not parts.query
         and not parts.fragment
-        and parts.path == f"{_asset_prefix()}{tag}/{name}"
+        and parts.path == f"{ASSET_PREFIX}{tag}/{name}"
     )
 
 
@@ -153,8 +151,9 @@ def select_release(payload, current, *, include_prerelease=False, architecture=N
             or (release.get("prerelease") and not include_prerelease)
         ):
             continue
-        version = str(release.get("tag_name", ""))
-        parsed = _version(version)
+        tag = str(release.get("tag_name", ""))
+        version = _tag_version(tag)
+        parsed = _version(version) if version else None
         url = str(release.get("html_url", ""))
         if parsed is None or parsed <= installed or not safe_release_url(url):
             continue
@@ -170,7 +169,7 @@ def select_release(payload, current, *, include_prerelease=False, architecture=N
             None,
         )
         candidates.append(
-            (parsed, AppRelease(version, url, asset is not None, **_asset_fields(version, asset)))
+            (parsed, AppRelease(version, url, asset is not None, **_asset_fields(tag, asset)))
         )
     return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
@@ -179,7 +178,7 @@ def fetch_app_releases(proxy_url=None):
     from src.sub.updater import SubscriptionUpdater
 
     # No device headers, even if enabled for subscriptions in the main config.
-    return json.loads(SubscriptionUpdater(proxy_url=proxy_url).fetch(releases_url()))
+    return json.loads(SubscriptionUpdater(proxy_url=proxy_url).fetch(RELEASES_URL))
 
 
 def check_app_update(config, current, *, fetch=fetch_app_releases, now=None, force=False):

@@ -4,8 +4,8 @@ from src.core.app_update import check_app_update, safe_release_url, select_relea
 from src.db.data_store import DataStore
 
 RELEASE = {
-    "tag_name": "v0.17.0",
-    "html_url": "https://github.com/vebulogmetra/veblock-linux/releases/tag/v0.17.0",
+    "tag_name": "linux-v0.17.0",
+    "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/linux-v0.17.0",
     "assets": [{"name": "tenga-proxy_0.17.0_amd64.deb"}],
 }
 
@@ -50,21 +50,27 @@ def test_untrusted_release_link_is_rejected(url):
 
 
 @pytest.mark.parametrize(
-    ("windows", "repo", "other"),
-    [(False, "veblock-linux", "veblock-windows"), (True, "veblock-windows", "veblock-linux")],
+    ("windows", "own", "other"), [(False, "linux", "windows"), (True, "windows", "linux")]
 )
-def test_releases_come_from_the_platform_repo(monkeypatch, windows, repo, other):
-    from src.core import app_update, platform_info
+def test_only_this_platform_tags_count(monkeypatch, windows, own, other):
+    from src.core import platform_info
 
     monkeypatch.setattr(platform_info, "IS_WINDOWS", windows)
-    tag = "https://github.com/vebulogmetra/{}/releases/tag/v0.31.0"
+    page = "https://github.com/vebulogmetra/veblock/releases/tag/{}"
+    releases = [
+        {"tag_name": f"{other}-v0.40.0", "html_url": page.format(f"{other}-v0.40.0")},
+        {"tag_name": f"{own}-v0.31.0", "html_url": page.format(f"{own}-v0.31.0")},
+    ]
 
-    assert app_update.releases_url().startswith(
-        f"https://api.github.com/repos/vebulogmetra/{repo}/"
+    assert safe_release_url(page.format(f"{own}-v0.31.0"))
+    assert not safe_release_url(page.format(f"{other}-v0.31.0"))
+    assert not safe_release_url(page.format("v0.31.0"))
+    assert not safe_release_url(
+        f"https://github.com/vebulogmetra/tenga-proxy/releases/tag/{own}-v0.31.0"
     )
-    assert safe_release_url(tag.format(repo))
-    assert not safe_release_url(tag.format(other))
-    assert not safe_release_url(tag.format("tenga-proxy"))
+    release = select_release(releases, "0.30.3")
+    assert release.version == "v0.31.0"
+    assert release.url == page.format(f"{own}-v0.31.0")
 
 
 def test_windows_release_needs_setup_exe(monkeypatch):
@@ -73,8 +79,8 @@ def test_windows_release_needs_setup_exe(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
     payload = [
         {
-            "tag_name": "v0.18.0",
-            "html_url": "https://github.com/vebulogmetra/veblock-windows/releases/tag/v0.18.0",
+            "tag_name": "windows-v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/windows-v0.18.0",
             "assets": [{"name": "tenga-proxy-0.18.0-windows-x64-setup.exe"}],
         }
     ]
@@ -90,8 +96,8 @@ def test_windows_release_finds_the_renamed_setup_exe(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
     payload = [
         {
-            "tag_name": "v0.19.0",
-            "html_url": "https://github.com/vebulogmetra/veblock-windows/releases/tag/v0.19.0",
+            "tag_name": "windows-v0.19.0",
+            "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/windows-v0.19.0",
             "assets": [{"name": "veblock-0.19.0-windows-x64-setup.exe"}],
         }
     ]
@@ -107,8 +113,8 @@ def test_windows_ignores_deb(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", True)
     payload = [
         {
-            "tag_name": "v0.18.0",
-            "html_url": "https://github.com/vebulogmetra/veblock-windows/releases/tag/v0.18.0",
+            "tag_name": "windows-v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/windows-v0.18.0",
             "assets": [{"name": "tenga-proxy_0.18.0_amd64.deb"}],
         }
     ]
@@ -123,8 +129,8 @@ def test_linux_ignores_appimage(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     payload = [
         {
-            "tag_name": "v0.18.0",
-            "html_url": "https://github.com/vebulogmetra/veblock-linux/releases/tag/v0.18.0",
+            "tag_name": "linux-v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/linux-v0.18.0",
             "assets": [{"name": "tenga-proxy-0.18.0-x86_64.AppImage"}],
         }
     ]
@@ -138,8 +144,8 @@ def test_linux_deb_matches_arm64(monkeypatch):
     monkeypatch.setattr(platform_info, "IS_WINDOWS", False)
     payload = [
         {
-            "tag_name": "v0.18.0",
-            "html_url": "https://github.com/vebulogmetra/veblock-linux/releases/tag/v0.18.0",
+            "tag_name": "linux-v0.18.0",
+            "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/linux-v0.18.0",
             "assets": [{"name": "tenga-proxy_0.18.0_arm64.deb"}],
         }
     ]
@@ -150,15 +156,15 @@ def test_linux_deb_matches_arm64(monkeypatch):
 WINDOWS_ASSET = {
     "name": "veblock-0.19.0-windows-x64-setup.exe",
     "browser_download_url": (
-        "https://github.com/vebulogmetra/veblock-windows/releases/download/v0.19.0/"
+        "https://github.com/vebulogmetra/veblock/releases/download/windows-v0.19.0/"
         "veblock-0.19.0-windows-x64-setup.exe"
     ),
     "size": 70_000_000,
     "digest": "sha256:" + "ab" * 32,
 }
 WINDOWS_RELEASE = {
-    "tag_name": "v0.19.0",
-    "html_url": "https://github.com/vebulogmetra/veblock-windows/releases/tag/v0.19.0",
+    "tag_name": "windows-v0.19.0",
+    "html_url": "https://github.com/vebulogmetra/veblock/releases/tag/windows-v0.19.0",
     "assets": [WINDOWS_ASSET],
 }
 
@@ -181,12 +187,12 @@ def test_windows_release_carries_the_installer_asset(monkeypatch):
     [
         {"browser_download_url": "https://evil.example/veblock-0.19.0-windows-x64-setup.exe"},
         {
-            "browser_download_url": "https://github.com/vebulogmetra/veblock-windows/releases/"
-            "download/v0.18.0/veblock-0.19.0-windows-x64-setup.exe"
+            "browser_download_url": "https://github.com/vebulogmetra/veblock/releases/"
+            "download/windows-v0.18.0/veblock-0.19.0-windows-x64-setup.exe"
         },
         {
-            "browser_download_url": "https://github.com/vebulogmetra/veblock-windows/releases/"
-            "download/v0.19.0/other.exe"
+            "browser_download_url": "https://github.com/vebulogmetra/veblock/releases/"
+            "download/windows-v0.19.0/other.exe"
         },
         {"browser_download_url": WINDOWS_ASSET["browser_download_url"] + "?token=1"},
         {"digest": ""},

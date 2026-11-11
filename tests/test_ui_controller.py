@@ -1094,7 +1094,7 @@ def _installable(config):
     config.app_update_target = "v0.19.0"
     config.app_update_has_asset = True
     config.app_update_asset_url = (
-        "https://github.com/vebulogmetra/veblock-windows/releases/download/v0.19.0/"
+        "https://github.com/vebulogmetra/veblock/releases/download/windows-v0.19.0/"
         "veblock-0.19.0-windows-x64-setup.exe"
     )
     config.app_update_asset_size = len(EXE)

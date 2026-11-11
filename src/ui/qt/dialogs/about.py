@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 from src.ui.qt.dialogs.base import copy_text
 from src.ui.qt.widgets.status_card import logo_pixmap
 
-WEBSITE = "https://github.com/vebulogmetra/veblock-windows"
+WEBSITE = "https://github.com/vebulogmetra/veblock"
 DEVELOPER = "Artem G."
 LOGO_SIZE = 96
 
