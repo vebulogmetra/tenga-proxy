@@ -385,7 +385,7 @@ def test_app_update_check_without_releases(app):
     assert about.app_update_label.text() == "Новых версий нет"
 
 
-RELEASE_PAGE = "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v0.19.0"
+RELEASE_PAGE = "https://github.com/vebulogmetra/veblock-windows/releases/tag/v0.19.0"
 UNAVAILABLE = "Доступна версия v0.19.0. Установщик недоступен, обновите вручную со страницы проекта"
 
 
@@ -394,7 +394,7 @@ def _installable(config):
     config.app_update_url = RELEASE_PAGE
     config.app_update_has_asset = True
     config.app_update_asset_url = (
-        "https://github.com/vebulogmetra/tenga-proxy/releases/download/v0.19.0/"
+        "https://github.com/vebulogmetra/veblock-windows/releases/download/v0.19.0/"
         "veblock-0.19.0-windows-x64-setup.exe"
     )
     config.app_update_asset_size = 3
@@ -458,7 +458,7 @@ def test_manual_check_reports_a_release_without_installer(app, monkeypatch):
     about.fetch_app_releases = lambda: [
         {
             "tag_name": "v99.0.0",
-            "html_url": "https://github.com/vebulogmetra/tenga-proxy/releases/tag/v99.0.0",
+            "html_url": "https://github.com/vebulogmetra/veblock-windows/releases/tag/v99.0.0",
             "assets": [dict(WINDOWS_ASSET, digest="")],
         }
     ]

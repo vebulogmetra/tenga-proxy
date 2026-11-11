@@ -11,7 +11,7 @@ AppId={{23089B2F-C5D8-45CE-A943-89C573F63388}
 AppName=Veblock
 AppVersion={#AppVersion}
 AppPublisher=Artem G.
-AppPublisherURL=https://github.com/vebulogmetra/tenga-proxy
+AppPublisherURL=https://github.com/vebulogmetra/veblock-windows
 ; Обновление поверх прежней версии оставляет её каталог (UsePreviousAppDir),
 ; новая установка идёт в «Veblock».
 DefaultDirName={autopf}\Veblock

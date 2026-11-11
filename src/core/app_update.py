@@ -13,13 +13,29 @@ from urllib.parse import urlsplit
 
 from src.core import platform_info
 
-RELEASES_URL = "https://api.github.com/repos/vebulogmetra/tenga-proxy/releases?per_page=30"
-RELEASE_PREFIX = "/vebulogmetra/tenga-proxy/releases/tag/"
-ASSET_PREFIX = "/vebulogmetra/tenga-proxy/releases/download/"
+# С 0.30.2 версии для Linux и Windows выходят в своих репозиториях.
+LINUX_REPO = "vebulogmetra/veblock-linux"
+WINDOWS_REPO = "vebulogmetra/veblock-windows"
 _ASSET_NAME = re.compile(r"[A-Za-z0-9._-]+")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 CHECK_INTERVAL_SECONDS = 86400
 _lock = threading.Lock()
+
+
+def release_repo() -> str:
+    return WINDOWS_REPO if platform_info.IS_WINDOWS else LINUX_REPO
+
+
+def releases_url() -> str:
+    return f"https://api.github.com/repos/{release_repo()}/releases?per_page=30"
+
+
+def _release_prefix() -> str:
+    return f"/{release_repo()}/releases/tag/"
+
+
+def _asset_prefix() -> str:
+    return f"/{release_repo()}/releases/download/"
 
 
 @dataclass(frozen=True)
@@ -38,6 +54,7 @@ class AppRelease:
 
 
 def safe_release_url(url: str) -> bool:
+    prefix = _release_prefix()
     try:
         parts = urlsplit(url)
         return (
@@ -45,9 +62,9 @@ def safe_release_url(url: str) -> bool:
             and parts.netloc == "github.com"
             and not parts.query
             and not parts.fragment
-            and parts.path.startswith(RELEASE_PREFIX)
-            and len(parts.path) > len(RELEASE_PREFIX)
-            and _version(parts.path[len(RELEASE_PREFIX) :]) is not None
+            and parts.path.startswith(prefix)
+            and len(parts.path) > len(prefix)
+            and _version(parts.path[len(prefix) :]) is not None
         )
     except ValueError:
         return False
@@ -66,7 +83,7 @@ def safe_asset_url(url: str, tag: str, name: str) -> bool:
         and parts.netloc == "github.com"
         and not parts.query
         and not parts.fragment
-        and parts.path == f"{ASSET_PREFIX}{tag}/{name}"
+        and parts.path == f"{_asset_prefix()}{tag}/{name}"
     )
 
 
@@ -162,7 +179,7 @@ def fetch_app_releases(proxy_url=None):
     from src.sub.updater import SubscriptionUpdater
 
     # No device headers, even if enabled for subscriptions in the main config.
-    return json.loads(SubscriptionUpdater(proxy_url=proxy_url).fetch(RELEASES_URL))
+    return json.loads(SubscriptionUpdater(proxy_url=proxy_url).fetch(releases_url()))
 
 
 def check_app_update(config, current, *, fetch=fetch_app_releases, now=None, force=False):

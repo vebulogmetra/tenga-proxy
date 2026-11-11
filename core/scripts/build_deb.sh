@@ -127,7 +127,7 @@ Installed-Size: $size
 Depends: python3 (>= 3.11), python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1 (>= 1.5), python3-requests, libcap2-bin, iproute2, sudo, nftables
 Recommends: systemd-resolved
 Maintainer: Artem G. <vebulogmetra@yandex.ru>
-Homepage: https://github.com/vebulogmetra/tenga-proxy
+Homepage: https://github.com/vebulogmetra/veblock-linux
 Description: Veblock - proxy client with xray-core backend
  Veblock connects through VLESS, Trojan, VMess, Shadowsocks, SOCKS
  and HTTP servers in system proxy or TUN mode. GTK 4 and libadwaita

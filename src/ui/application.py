@@ -584,7 +584,7 @@ class TengaApplication(Adw.Application):
             developer_name="Artem G.",
             version=app_version(),
             comments=f"Клиент прокси для Linux на базе xray-core {core}",
-            website="https://github.com/vebulogmetra/tenga-proxy",
+            website="https://github.com/vebulogmetra/veblock-linux",
             license_type=Gtk.License.MIT_X11,
         )
         # Строку целиком копируют в отчёт об ошибке, поэтому обе версии рядом.

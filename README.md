@@ -7,10 +7,16 @@
 Veblock — прокси-клиент для Linux и Windows
 на базе [xray-core](https://github.com/XTLS/Xray-core).
 
-[Скачать](https://github.com/vebulogmetra/tenga-proxy/releases) ·
-[Установка](docs/ru/installation.md) · [Документация](docs/ru/overview.md)
+[Linux](https://github.com/vebulogmetra/veblock-linux) ·
+[Windows](https://github.com/vebulogmetra/veblock-windows)
 
 </div>
+
+> [!IMPORTANT]
+> Репозиторий в архиве. С версии 0.30.2 Veblock развивается в отдельных
+> репозиториях: [veblock-linux](https://github.com/vebulogmetra/veblock-linux)
+> и [veblock-windows](https://github.com/vebulogmetra/veblock-windows).
+> Установленные версии 0.30.2 и новее ищут обновления там.
 
 ![Главное окно](assets/screen-profiles.png)
 
@@ -47,7 +53,7 @@ Veblock — прокси-клиент для Linux и Windows
 ### Linux
 
 Скачайте `tenga-proxy_<версия>_amd64.deb` со страницы
-[Releases](https://github.com/vebulogmetra/tenga-proxy/releases) и установите:
+[Releases](https://github.com/vebulogmetra/veblock-linux/releases) и установите:
 
 ```bash
 sudo apt install ./tenga-proxy_<версия>_amd64.deb
@@ -56,7 +62,7 @@ sudo apt install ./tenga-proxy_<версия>_amd64.deb
 ### Windows
 
 Скачайте `veblock-<версия>-windows-x64-setup.exe` со страницы
-[Releases](https://github.com/vebulogmetra/tenga-proxy/releases) и запустите.
+[Releases](https://github.com/vebulogmetra/veblock-windows/releases) и запустите.
 Нужны Windows 10 или 11 (x64) и права администратора на время установки.
 Qt, xray-core и драйвер wintun входят в установщик.
 
